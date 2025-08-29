@@ -1,0 +1,112 @@
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: advanced-mcp
+  namespace: default
+  labels:
+    environment: "test"
+    team: "platform"
+spec:
+  # Container image - using nginx which works better with non-root
+  image: "nginx:1.21"  
+  
+  # Scaling configuration
+  replicas: 2
+  
+  # Horizontal Pod Autoscaler configuration
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+    scaleUpBehavior:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+    scaleDownBehavior:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+  
+  # MCP capabilities
+  capabilities: 
+    - "database"
+    - "analytics"
+    - "reporting"
+  
+  # Resource requirements
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+  
+  # Security configuration - removing runAsUser to avoid nginx permission issues
+  security:
+    allowedUsers: 
+      - "admin"
+      - "developer"
+    allowedGroups:
+      - "mcp-users"
+    readOnlyRootFilesystem: false
+  
+  # Service configuration
+  service:
+    type: "ClusterIP"
+    port: 8080
+    targetPort: 80
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+  
+  # Health check configuration
+  healthCheck:
+    enabled: true
+    path: "/"
+    port: 80  # nginx default port
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+  
+  # Environment variables
+  environment:
+    - name: "SERVER_NAME"
+      value: "advanced-mcp-server"
+    - name: "LOG_LEVEL"
+      value: "debug"
+    - name: "MAX_CONNECTIONS"
+      value: "100"
+  
+  # Pod template customization
+  podTemplate:
+    labels:
+      app.version: "1.0.0"
+      monitoring: "enabled"
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "8080"
+    nodeSelector:
+      kubernetes.io/os: linux
+    tolerations:
+      - key: "node-role.kubernetes.io/master"
+        operator: "Exists"
+        effect: "NoSchedule"
+  
+  # MCP-specific configuration
+  configuration:
+    maxConnections: 50
+    connectionTimeout: "30s"
+    logLevel: "info"
+    metricsEnabled: true
+    metricsPath: "/metrics"
+    customConfig:
+      cache_size: "100MB"
+      worker_processes: "2"
