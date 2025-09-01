@@ -46,45 +46,6 @@ spec:
                   type: string
                 minItems: 1
                 type: array
-              configuration:
-                description: Configuration defines MCP-specific configuration
-                properties:
-                  connectionTimeout:
-                    description: ConnectionTimeout specifies the connection timeout
-                      duration
-                    pattern: ^\d+[smh]$
-                    type: string
-                  customConfig:
-                    additionalProperties:
-                      type: string
-                    description: CustomConfig allows for additional custom configuration
-                      as key-value pairs
-                    type: object
-                  logLevel:
-                    default: info
-                    description: LogLevel specifies the logging level
-                    enum:
-                    - debug
-                    - info
-                    - warn
-                    - error
-                    type: string
-                  maxConnections:
-                    description: MaxConnections specifies the maximum number of concurrent
-                      connections
-                    format: int32
-                    minimum: 1
-                    type: integer
-                  metricsEnabled:
-                    default: true
-                    description: MetricsEnabled indicates if metrics collection should
-                      be enabled
-                    type: boolean
-                  metricsPath:
-                    default: /metrics
-                    description: MetricsPath specifies the HTTP path for metrics endpoint
-                    type: string
-                type: object
               environment:
                 description: Environment defines environment variables for the MCP
                   server
@@ -3336,26 +3297,6 @@ spec:
                       process
                     format: int64
                     type: integer
-                  tls:
-                    description: TLS defines TLS configuration for secure communication
-                    properties:
-                      certFile:
-                        description: CertFile specifies the path to the certificate
-                          file within the container
-                        type: string
-                      enabled:
-                        default: false
-                        description: Enabled indicates if TLS should be enabled
-                        type: boolean
-                      keyFile:
-                        description: KeyFile specifies the path to the private key
-                          file within the container
-                        type: string
-                      secretName:
-                        description: SecretName refers to a Secret containing TLS
-                          certificates
-                        type: string
-                    type: object
                 type: object
               service:
                 description: Service defines the service configuration for the MCP
@@ -3453,47 +3394,6 @@ spec:
                 description: Message provides additional information about the current
                   phase
                 type: string
-              metrics:
-                description: Metrics contains current metrics about the MCP server
-                properties:
-                  averageResponseTime:
-                    description: AverageResponseTime represents the average response
-                      time in milliseconds
-                    format: int64
-                    type: integer
-                  currentConnections:
-                    description: CurrentConnections represents the current number
-                      of active connections
-                    format: int32
-                    type: integer
-                  errorRate:
-                    description: ErrorRate represents the current error rate as a
-                      percentage string (e.g., "2.5%")
-                    type: string
-                  resourceUsage:
-                    description: ResourceUsage contains current resource usage information
-                    properties:
-                      cpu:
-                        anyOf:
-                        - type: integer
-                        - type: string
-                        description: CPU represents current CPU usage
-                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                        x-kubernetes-int-or-string: true
-                      memory:
-                        anyOf:
-                        - type: integer
-                        - type: string
-                        description: Memory represents current memory usage
-                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                        x-kubernetes-int-or-string: true
-                    type: object
-                  totalRequests:
-                    description: TotalRequests represents the total number of requests
-                      processed
-                    format: int64
-                    type: integer
-                type: object
               observedGeneration:
                 description: ObservedGeneration represents the most recent generation
                   observed by the controller

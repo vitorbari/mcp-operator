@@ -99,14 +99,3 @@ spec:
       - key: "node-role.kubernetes.io/master"
         operator: "Exists"
         effect: "NoSchedule"
-  
-  # MCP-specific configuration
-  configuration:
-    maxConnections: 50
-    connectionTimeout: "30s"
-    logLevel: "info"
-    metricsEnabled: true
-    metricsPath: "/metrics"
-    customConfig:
-      cache_size: "100MB"
-      worker_processes: "2"

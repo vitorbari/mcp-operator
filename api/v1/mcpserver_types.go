@@ -18,7 +18,6 @@ package v1
 
 import (
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
@@ -65,10 +64,6 @@ type MCPServerSpec struct {
 	// +optional
 	PodTemplate *MCPServerPodTemplate `json:"podTemplate,omitempty"`
 
-	// Configuration defines MCP-specific configuration
-	// +optional
-	Configuration *MCPServerConfiguration `json:"configuration,omitempty"`
-
 	// HPA defines Horizontal Pod Autoscaler configuration
 	// +optional
 	HPA *MCPServerHPA `json:"hpa,omitempty"`
@@ -84,10 +79,6 @@ type MCPServerSecurity struct {
 	// +optional
 	AllowedGroups []string `json:"allowedGroups,omitempty"`
 
-	// TLS defines TLS configuration for secure communication
-	// +optional
-	TLS *MCPServerTLS `json:"tls,omitempty"`
-
 	// RunAsUser specifies the user ID to run the MCP server process
 	// +optional
 	RunAsUser *int64 `json:"runAsUser,omitempty"`
@@ -99,26 +90,6 @@ type MCPServerSecurity struct {
 	// ReadOnlyRootFilesystem specifies if the container should have a read-only root filesystem
 	// +optional
 	ReadOnlyRootFilesystem *bool `json:"readOnlyRootFilesystem,omitempty"`
-}
-
-// MCPServerTLS defines TLS configuration
-type MCPServerTLS struct {
-	// Enabled indicates if TLS should be enabled
-	// +kubebuilder:default=false
-	// +optional
-	Enabled *bool `json:"enabled,omitempty"`
-
-	// SecretName refers to a Secret containing TLS certificates
-	// +optional
-	SecretName string `json:"secretName,omitempty"`
-
-	// CertFile specifies the path to the certificate file within the container
-	// +optional
-	CertFile string `json:"certFile,omitempty"`
-
-	// KeyFile specifies the path to the private key file within the container
-	// +optional
-	KeyFile string `json:"keyFile,omitempty"`
 }
 
 // MCPServerService defines service configuration
@@ -237,39 +208,6 @@ type MCPServerPodTemplate struct {
 	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
 }
 
-// MCPServerConfiguration defines MCP-specific configuration
-type MCPServerConfiguration struct {
-	// MaxConnections specifies the maximum number of concurrent connections
-	// +kubebuilder:validation:Minimum=1
-	// +optional
-	MaxConnections *int32 `json:"maxConnections,omitempty"`
-
-	// ConnectionTimeout specifies the connection timeout duration
-	// +kubebuilder:validation:Pattern=`^\d+[smh]$`
-	// +optional
-	ConnectionTimeout string `json:"connectionTimeout,omitempty"`
-
-	// LogLevel specifies the logging level
-	// +kubebuilder:validation:Enum=debug;info;warn;error
-	// +kubebuilder:default=info
-	// +optional
-	LogLevel string `json:"logLevel,omitempty"`
-
-	// MetricsEnabled indicates if metrics collection should be enabled
-	// +kubebuilder:default=true
-	// +optional
-	MetricsEnabled *bool `json:"metricsEnabled,omitempty"`
-
-	// MetricsPath specifies the HTTP path for metrics endpoint
-	// +kubebuilder:default="/metrics"
-	// +optional
-	MetricsPath string `json:"metricsPath,omitempty"`
-
-	// CustomConfig allows for additional custom configuration as key-value pairs
-	// +optional
-	CustomConfig map[string]string `json:"customConfig,omitempty"`
-}
-
 // MCPServerStatus defines the observed state of MCPServer
 type MCPServerStatus struct {
 	// Phase represents the current phase of the MCP server deployment
@@ -307,10 +245,6 @@ type MCPServerStatus struct {
 	// ObservedGeneration represents the most recent generation observed by the controller
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-
-	// Metrics contains current metrics about the MCP server
-	// +optional
-	Metrics *MCPServerMetrics `json:"metrics,omitempty"`
 }
 
 // MCPServerPhase represents the current phase of an MCP server deployment
@@ -371,40 +305,6 @@ const (
 	// MCPServerConditionReconciled indicates the MCP server has been successfully reconciled
 	MCPServerConditionReconciled MCPServerConditionType = "Reconciled"
 )
-
-// MCPServerMetrics contains runtime metrics for the MCP server
-type MCPServerMetrics struct {
-	// CurrentConnections represents the current number of active connections
-	// +optional
-	CurrentConnections *int32 `json:"currentConnections,omitempty"`
-
-	// TotalRequests represents the total number of requests processed
-	// +optional
-	TotalRequests *int64 `json:"totalRequests,omitempty"`
-
-	// ErrorRate represents the current error rate as a percentage string (e.g., "2.5%")
-	// +optional
-	ErrorRate *string `json:"errorRate,omitempty"`
-
-	// AverageResponseTime represents the average response time in milliseconds
-	// +optional
-	AverageResponseTime *int64 `json:"averageResponseTime,omitempty"`
-
-	// ResourceUsage contains current resource usage information
-	// +optional
-	ResourceUsage *MCPServerResourceUsage `json:"resourceUsage,omitempty"`
-}
-
-// MCPServerResourceUsage contains resource usage information
-type MCPServerResourceUsage struct {
-	// CPU represents current CPU usage
-	// +optional
-	CPU *resource.Quantity `json:"cpu,omitempty"`
-
-	// Memory represents current memory usage
-	// +optional
-	Memory *resource.Quantity `json:"memory,omitempty"`
-}
 
 // MCPServerHPA defines Horizontal Pod Autoscaler configuration
 type MCPServerHPA struct {
