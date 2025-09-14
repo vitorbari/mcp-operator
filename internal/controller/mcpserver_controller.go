@@ -822,6 +822,11 @@ func (r *MCPServerReconciler) updateStatusWithError(ctx context.Context, mcpServ
 
 // updateMCPServerStatus updates the MCPServer status based on deployment status
 func (r *MCPServerReconciler) updateMCPServerStatus(ctx context.Context, mcpServer *mcpv1.MCPServer) error {
+	// Re-fetch the MCPServer to get the latest resourceVersion and avoid conflicts
+	if err := r.Get(ctx, types.NamespacedName{Name: mcpServer.Name, Namespace: mcpServer.Namespace}, mcpServer); err != nil {
+		return err
+	}
+
 	// Get deployment status
 	deployment := &appsv1.Deployment{}
 	err := r.Get(ctx, types.NamespacedName{Name: mcpServer.Name, Namespace: mcpServer.Namespace}, deployment)
