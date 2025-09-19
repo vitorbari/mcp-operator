@@ -1,0 +1,270 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-operator-dashboard
+  namespace: mcp-operator-system
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/name: mcp-operator
+    app.kubernetes.io/component: observability
+data:
+  mcp-operator.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "MCP Operator Overview",
+        "description": "Monitor MCP Operator and MCPServer resources",
+        "tags": ["mcp", "operator", "kubernetes"],
+        "timezone": "browser",
+        "schemaVersion": 27,
+        "version": 1,
+        "panels": [
+          {
+            "id": 1,
+            "title": "MCPServer Status",
+            "type": "stat",
+            "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
+            "targets": [
+              {
+                "expr": "sum(mcpserver_ready_total)",
+                "legendFormat": "Ready Servers",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "palette-classic"},
+                "unit": "short",
+                "mappings": [],
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": 0},
+                    {"color": "green", "value": 1}
+                  ]
+                }
+              }
+            },
+            "options": {
+              "reduceOptions": {
+                "values": false,
+                "calcs": ["lastNotNull"],
+                "fields": ""
+              },
+              "orientation": "auto",
+              "textMode": "auto",
+              "colorMode": "value",
+              "graphMode": "area",
+              "justifyMode": "auto"
+            }
+          },
+          {
+            "id": 2,
+            "title": "Transport Type Distribution",
+            "type": "piechart",
+            "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0},
+            "targets": [
+              {
+                "expr": "sum by (type) (mcpserver_transport_type_total)",
+                "legendFormat": "{{type}}",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "palette-classic"},
+                "mappings": []
+              }
+            },
+            "options": {
+              "reduceOptions": {
+                "values": false,
+                "calcs": ["lastNotNull"],
+                "fields": ""
+              },
+              "pieType": "pie",
+              "tooltip": {"mode": "single"},
+              "legend": {
+                "displayMode": "visible",
+                "placement": "bottom"
+              }
+            }
+          },
+          {
+            "id": 3,
+            "title": "MCPServer Replicas",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+            "targets": [
+              {
+                "expr": "mcpserver_replicas",
+                "legendFormat": "{{namespace}}/{{name}} ({{transport_type}})",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "palette-classic"},
+                "unit": "short",
+                "min": 0
+              }
+            },
+            "options": {
+              "tooltip": {"mode": "multi"},
+              "legend": {
+                "displayMode": "visible",
+                "placement": "bottom"
+              }
+            }
+          },
+          {
+            "id": 4,
+            "title": "Controller Reconciliation Rate",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+            "targets": [
+              {
+                "expr": "rate(mcpserver_reconcile_total{controller=\"mcpserver\"}[5m])",
+                "legendFormat": "{{result}}",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "palette-classic"},
+                "unit": "reqps",
+                "min": 0
+              }
+            },
+            "options": {
+              "tooltip": {"mode": "multi"},
+              "legend": {
+                "displayMode": "visible",
+                "placement": "bottom"
+              }
+            }
+          },
+          {
+            "id": 5,
+            "title": "Controller Reconciliation Duration",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.95, rate(mcpserver_reconcile_duration_seconds_bucket{controller=\"mcpserver\"}[5m]))",
+                "legendFormat": "95th percentile",
+                "refId": "A"
+              },
+              {
+                "expr": "histogram_quantile(0.50, rate(mcpserver_reconcile_duration_seconds_bucket{controller=\"mcpserver\"}[5m]))",
+                "legendFormat": "50th percentile",
+                "refId": "B"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "palette-classic"},
+                "unit": "s",
+                "min": 0
+              }
+            },
+            "options": {
+              "tooltip": {"mode": "multi"},
+              "legend": {
+                "displayMode": "visible",
+                "placement": "bottom"
+              }
+            }
+          },
+          {
+            "id": 6,
+            "title": "MCPServer Phase Distribution",
+            "type": "stat",
+            "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+            "targets": [
+              {
+                "expr": "sum by (phase) (mcpserver_phase)",
+                "legendFormat": "{{phase}}",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "palette-classic"},
+                "unit": "short",
+                "mappings": []
+              }
+            },
+            "options": {
+              "reduceOptions": {
+                "values": false,
+                "calcs": ["lastNotNull"],
+                "fields": ""
+              },
+              "orientation": "auto",
+              "textMode": "auto",
+              "colorMode": "value"
+            }
+          },
+          {
+            "id": 7,
+            "title": "Resource Requests (CPU)",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+            "targets": [
+              {
+                "expr": "mcpserver_resource_requests{resource=\"cpu\"}",
+                "legendFormat": "{{namespace}}/{{name}} CPU (milliCores)",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "palette-classic"},
+                "unit": "short",
+                "min": 0
+              }
+            },
+            "options": {
+              "tooltip": {"mode": "multi"},
+              "legend": {
+                "displayMode": "visible",
+                "placement": "bottom"
+              }
+            }
+          },
+          {
+            "id": 8,
+            "title": "Resource Requests (Memory)",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+            "targets": [
+              {
+                "expr": "mcpserver_resource_requests{resource=\"memory\"}",
+                "legendFormat": "{{namespace}}/{{name}} Memory (bytes)",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "palette-classic"},
+                "unit": "bytes",
+                "min": 0
+              }
+            },
+            "options": {
+              "tooltip": {"mode": "multi"},
+              "legend": {
+                "displayMode": "visible",
+                "placement": "bottom"
+              }
+            }
+          }
+        ],
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "timepicker": {},
+        "refresh": "30s"
+      }
+    }

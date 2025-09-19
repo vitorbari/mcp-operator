@@ -561,9 +561,29 @@ func (r *MCPServerReconciler) buildIngress(mcpServer *mcpv1.MCPServer) *networki
 		"nginx.ingress.kubernetes.io/enable-metrics": "true",
 		"nginx.org/prometheus-metrics":               "true",
 		"nginx.org/prometheus-port":                  "9113",
-		// Add structured logging for metrics collection
-		"nginx.ingress.kubernetes.io/server-snippet": fmt.Sprintf("access_log /var/log/nginx/%s-access.log json;", mcpServer.Name),
 	}
+
+	// Get transport type for headers and logging
+	transportType := r.getMCPTransportType(mcpServer)
+
+	// Add advanced server snippet with MCP transport headers and analytics
+	serverSnippet := fmt.Sprintf(`
+		# Advanced logging for MCP analytics
+		access_log /var/log/nginx/%s-access.log json_combined;
+
+		# Add MCP transport type header for all requests
+		more_set_headers "X-MCP-Transport: %s";
+		more_set_headers "X-MCP-Server: %s";
+
+		# Location-specific configurations
+		location /mcp {
+			proxy_set_header X-MCP-Protocol-Version $http_mcp_protocol_version;
+			proxy_set_header X-MCP-Session-ID $http_mcp_session_id;
+			proxy_pass $target;
+		}
+	`, mcpServer.Name, transportType, mcpServer.Name)
+
+	annotations["nginx.ingress.kubernetes.io/server-snippet"] = serverSnippet
 
 	// Add transport-specific annotations
 	if mcpServer.Spec.Transport != nil {
@@ -577,6 +597,22 @@ func (r *MCPServerReconciler) buildIngress(mcpServer *mcpv1.MCPServer) *networki
 				annotations["nginx.ingress.kubernetes.io/affinity"] = "cookie"
 				annotations["nginx.ingress.kubernetes.io/session-cookie-name"] = "mcp-session"
 				annotations["nginx.ingress.kubernetes.io/session-cookie-expires"] = "86400"
+				// Use session ID for consistent routing
+				annotations["nginx.ingress.kubernetes.io/upstream-hash-by"] = "$http_mcp_session_id"
+			}
+		case mcpv1.MCPTransportCustom:
+			// Add custom transport annotations
+			if mcpServer.Spec.Transport.Config != nil && mcpServer.Spec.Transport.Config.Custom != nil {
+				config := mcpServer.Spec.Transport.Config.Custom
+				if config.Protocol != "" {
+					switch config.Protocol {
+					case "tcp":
+						annotations["nginx.ingress.kubernetes.io/backend-protocol"] = "HTTP"
+						annotations["nginx.ingress.kubernetes.io/tcp-services-configmap"] = fmt.Sprintf("%s/%s-tcp", mcpServer.Namespace, mcpServer.Name)
+					case "udp":
+						annotations["nginx.ingress.kubernetes.io/udp-services-configmap"] = fmt.Sprintf("%s/%s-udp", mcpServer.Namespace, mcpServer.Name)
+					}
+				}
 			}
 		}
 	}
@@ -852,6 +888,14 @@ func (r *MCPServerReconciler) setCondition(mcpServer *mcpv1.MCPServer, newCondit
 		}
 	}
 	mcpServer.Status.Conditions = append(mcpServer.Status.Conditions, newCondition)
+}
+
+// getMCPTransportType returns the transport type string for headers and logging
+func (r *MCPServerReconciler) getMCPTransportType(mcpServer *mcpv1.MCPServer) string {
+	if mcpServer.Spec.Transport != nil {
+		return string(mcpServer.Spec.Transport.Type)
+	}
+	return "http" // default transport type
 }
 
 // SetupWithManager sets up the controller with the Manager.
