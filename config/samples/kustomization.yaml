@@ -1,4 +1,7 @@
 ## Append samples of your project ##
 resources:
+- custom-http-ingress.yaml
+- http-mcp-server-ingress.yaml
+- monitoring-metrics-example.yaml
 - wikipedia-http.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

@@ -18,6 +18,7 @@ package v1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
@@ -79,6 +80,10 @@ type MCPServerSpec struct {
 	// Transport defines the MCP transport configuration
 	// +optional
 	Transport *MCPServerTransport `json:"transport,omitempty"`
+
+	// Ingress defines the ingress configuration for external access
+	// +optional
+	Ingress *MCPServerIngress `json:"ingress,omitempty"`
 }
 
 // MCPServerSecurity defines security settings for the MCP server
@@ -496,6 +501,41 @@ type MCPCustomTransportConfig struct {
 	// Config contains custom transport-specific configuration
 	// +optional
 	Config map[string]string `json:"config,omitempty"`
+}
+
+// MCPServerIngress defines ingress configuration for external access
+type MCPServerIngress struct {
+	// Enabled specifies whether to create an Ingress resource
+	// +kubebuilder:default=false
+	// +optional
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// ClassName specifies the ingress class name to use
+	// +optional
+	ClassName *string `json:"className,omitempty"`
+
+	// Host specifies the hostname for the ingress
+	// +optional
+	Host string `json:"host,omitempty"`
+
+	// Path specifies the path for the ingress rule
+	// +kubebuilder:default="/"
+	// +optional
+	Path string `json:"path,omitempty"`
+
+	// PathType specifies the path type for the ingress rule
+	// +kubebuilder:validation:Enum=Exact;Prefix;ImplementationSpecific
+	// +kubebuilder:default="Prefix"
+	// +optional
+	PathType *networkingv1.PathType `json:"pathType,omitempty"`
+
+	// TLS configuration for the ingress
+	// +optional
+	TLS []networkingv1.IngressTLS `json:"tls,omitempty"`
+
+	// Annotations specifies custom annotations for the ingress
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // +kubebuilder:object:root=true

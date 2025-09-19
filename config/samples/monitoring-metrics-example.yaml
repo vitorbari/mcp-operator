@@ -1,0 +1,176 @@
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: monitoring-metrics-example
+  namespace: default
+  labels:
+    app.kubernetes.io/name: mcp-operator
+    app.kubernetes.io/managed-by: kustomize
+    mcp.example: monitoring-metrics
+spec:
+  image: "my-mcp-server:latest"
+  replicas: 2
+
+  # HTTP transport for comprehensive monitoring
+  transport:
+    type: "http"
+    config:
+      http:
+        port: 8080
+        path: "/mcp"
+        sessionManagement: true
+
+  # Service configuration with monitoring annotations
+  service:
+    type: ClusterIP
+    port: 8080
+    annotations:
+      # Prometheus service discovery
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "8080"
+      prometheus.io/path: "/metrics"
+      # Service mesh annotations (if using Istio)
+      sidecar.istio.io/inject: "true"
+
+  # Comprehensive ingress with full metrics and monitoring setup
+  ingress:
+    enabled: true
+    className: "nginx"
+    host: "metrics-mcp.example.com"
+    path: "/mcp"
+    pathType: "Prefix"
+    annotations:
+      # Core streaming optimizations
+      nginx.ingress.kubernetes.io/proxy-buffering: "off"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+      nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+
+      # Comprehensive metrics and monitoring
+      nginx.ingress.kubernetes.io/enable-metrics: "true"
+      nginx.org/prometheus-metrics: "true"
+      nginx.org/prometheus-port: "9113"
+
+      # Detailed access logging for analytics
+      nginx.ingress.kubernetes.io/server-snippet: |
+        access_log /var/log/nginx/mcp-metrics-access.log json;
+        error_log /var/log/nginx/mcp-metrics-error.log warn;
+
+        # Custom metrics headers
+        more_set_headers "X-Request-ID: $request_id";
+        more_set_headers "X-Response-Time: $request_time";
+
+        # Add request tracking
+        set $custom_log_format '{"time": "$time_iso8601", '
+                              '"remote_addr": "$remote_addr", '
+                              '"request_method": "$request_method", '
+                              '"request_uri": "$request_uri", '
+                              '"status": "$status", '
+                              '"request_time": "$request_time", '
+                              '"upstream_response_time": "$upstream_response_time", '
+                              '"bytes_sent": "$bytes_sent", '
+                              '"user_agent": "$http_user_agent", '
+                              '"transport": "mcp-http", '
+                              '"server_name": "metrics-mcp.example.com"}';
+
+      # Configuration snippet for advanced monitoring
+      nginx.ingress.kubernetes.io/configuration-snippet: |
+        # Add custom headers for monitoring
+        more_set_headers "X-MCP-Server: monitoring-metrics-example";
+        more_set_headers "X-MCP-Transport: http";
+        more_set_headers "X-Ingress-Controller: nginx";
+
+        # Request rate limiting with metrics
+        limit_req_zone $binary_remote_addr zone=mcp_rate_limit:10m rate=100r/m;
+        limit_req zone=mcp_rate_limit burst=20 nodelay;
+
+        # Connection limiting
+        limit_conn_zone $binary_remote_addr zone=mcp_conn_limit:10m;
+        limit_conn mcp_conn_limit 10;
+
+      # Rate limiting with metrics collection
+      nginx.ingress.kubernetes.io/rate-limit: "100"
+      nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+      nginx.ingress.kubernetes.io/rate-limit-rps: "5"
+
+      # Additional monitoring annotations for observability tools
+      # Jaeger tracing
+      nginx.ingress.kubernetes.io/enable-opentracing: "true"
+      nginx.ingress.kubernetes.io/opentracing-trust-incoming-span: "true"
+
+      # Datadog APM (if using Datadog)
+      ad.datadoghq.com/nginx.check_names: '["nginx"]'
+      ad.datadoghq.com/nginx.init_configs: '[{}]'
+      ad.datadoghq.com/nginx.instances: '[{"nginx_status_url":"http://%%host%%:8080/nginx_status"}]'
+
+  # Health checks optimized for monitoring
+  healthCheck:
+    enabled: true
+    path: "/health"
+    port: 8080
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+
+  # Resource requirements with monitoring overhead
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+
+  # Environment variables for enhanced metrics
+  environment:
+    - name: LOG_LEVEL
+      value: "info"
+    - name: METRICS_ENABLED
+      value: "true"
+    - name: METRICS_PORT
+      value: "8080"
+    - name: METRICS_PATH
+      value: "/metrics"
+    - name: ENABLE_TRACING
+      value: "true"
+    - name: JAEGER_ENDPOINT
+      value: "http://jaeger-collector:14268/api/traces"
+    - name: PROMETHEUS_MULTIPROC_DIR
+      value: "/tmp/prometheus_metrics"
+
+  # Security configuration
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    readOnlyRootFilesystem: true
+
+  # Comprehensive pod template for monitoring
+  podTemplate:
+    labels:
+      mcp.transport: http
+      mcp.monitoring: enabled
+      app.monitoring/scrape: "true"
+    annotations:
+      # Prometheus scraping configuration
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "8080"
+      prometheus.io/path: "/metrics"
+      prometheus.io/interval: "30s"
+
+      # Additional monitoring annotations
+      # Grafana dashboard
+      grafana.com/dashboard: "mcp-server-dashboard"
+
+      # Alert manager
+      alertmanager.io/scrape: "true"
+
+      # Custom metrics collection
+      metrics.alpha.kubernetes.io/custom-endpoints: '[{"port":"8080","path":"/metrics"}]'
+
+  # Capabilities
+  capabilities:
+    - "tools"
+    - "resources"
+    - "monitoring"

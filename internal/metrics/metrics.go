@@ -1,0 +1,228 @@
+/*
+Copyright 2025 Vitor Bari.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package metrics
+
+import (
+	"github.com/prometheus/client_golang/prometheus"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
+
+	mcpv1 "github.com/vitorbari/mcp-operator/api/v1"
+)
+
+var (
+	// MCPServer readiness metric
+	mcpServerReady = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mcpserver_ready_total",
+			Help: "Number of ready MCP servers",
+		},
+		[]string{"namespace", "name"},
+	)
+
+	// MCPServer replica count metric
+	mcpServerReplicas = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mcpserver_replicas",
+			Help: "Current replica count per MCP server",
+		},
+		[]string{"namespace", "name", "transport_type"},
+	)
+
+	// MCPServer available replica count metric
+	mcpServerAvailableReplicas = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mcpserver_available_replicas",
+			Help: "Current available replica count per MCP server",
+		},
+		[]string{"namespace", "name", "transport_type"},
+	)
+
+	// Transport type distribution counter
+	transportTypeDistribution = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mcpserver_transport_type_total",
+			Help: "Total count of transport types used",
+		},
+		[]string{"type"},
+	)
+
+	// Ingress enablement tracker
+	mcpServerIngressEnabled = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mcpserver_ingress_enabled",
+			Help: "Whether ingress is enabled for MCP server (1=enabled, 0=disabled)",
+		},
+		[]string{"namespace", "name"},
+	)
+
+	// HPA enablement tracker
+	mcpServerHPAEnabled = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mcpserver_hpa_enabled",
+			Help: "Whether HPA is enabled for MCP server (1=enabled, 0=disabled)",
+		},
+		[]string{"namespace", "name"},
+	)
+
+	// Resource requests tracking
+	mcpServerResourceRequests = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mcpserver_resource_requests",
+			Help: "Resource requests per MCP server",
+		},
+		[]string{"namespace", "name", "resource"},
+	)
+
+	// Reconciliation duration histogram
+	reconcileDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mcpserver_reconcile_duration_seconds",
+			Help:    "Time spent reconciling MCPServer resources",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"controller"},
+	)
+
+	// Reconciliation counter
+	reconcileTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mcpserver_reconcile_total",
+			Help: "Total number of reconciliations",
+		},
+		[]string{"controller", "result"},
+	)
+
+	// MCPServer phase tracking
+	mcpServerPhase = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mcpserver_phase",
+			Help: "Current phase of MCPServer (1=current phase, 0=not current phase)",
+		},
+		[]string{"namespace", "name", "phase"},
+	)
+)
+
+func init() {
+	// Register custom metrics with the global prometheus registry
+	metrics.Registry.MustRegister(
+		mcpServerReady,
+		mcpServerReplicas,
+		mcpServerAvailableReplicas,
+		transportTypeDistribution,
+		mcpServerIngressEnabled,
+		mcpServerHPAEnabled,
+		mcpServerResourceRequests,
+		reconcileDuration,
+		reconcileTotal,
+		mcpServerPhase,
+	)
+}
+
+// UpdateMCPServerMetrics updates all MCPServer-related metrics
+func UpdateMCPServerMetrics(mcpServer *mcpv1.MCPServer) {
+	labels := []string{mcpServer.Namespace, mcpServer.Name}
+
+	// Track ready status
+	if mcpServer.Status.ReadyReplicas > 0 {
+		mcpServerReady.WithLabelValues(labels...).Set(1)
+	} else {
+		mcpServerReady.WithLabelValues(labels...).Set(0)
+	}
+
+	// Determine transport type
+	transportType := "http" // default
+	if mcpServer.Spec.Transport != nil {
+		transportType = string(mcpServer.Spec.Transport.Type)
+	}
+
+	// Track replica counts with transport type
+	replicaLabels := []string{mcpServer.Namespace, mcpServer.Name, transportType}
+	mcpServerReplicas.WithLabelValues(replicaLabels...).Set(float64(mcpServer.Status.Replicas))
+	mcpServerAvailableReplicas.WithLabelValues(replicaLabels...).Set(float64(mcpServer.Status.AvailableReplicas))
+
+	// Count transport type usage
+	transportTypeDistribution.WithLabelValues(transportType).Inc()
+
+	// Track ingress enablement
+	ingressEnabled := 0.0
+	if mcpServer.Spec.Ingress != nil && mcpServer.Spec.Ingress.Enabled != nil && *mcpServer.Spec.Ingress.Enabled {
+		ingressEnabled = 1.0
+	}
+	mcpServerIngressEnabled.WithLabelValues(labels...).Set(ingressEnabled)
+
+	// Track HPA enablement
+	hpaEnabled := 0.0
+	if mcpServer.Spec.HPA != nil && mcpServer.Spec.HPA.Enabled != nil && *mcpServer.Spec.HPA.Enabled {
+		hpaEnabled = 1.0
+	}
+	mcpServerHPAEnabled.WithLabelValues(labels...).Set(hpaEnabled)
+
+	// Track resource requests
+	if mcpServer.Spec.Resources != nil && mcpServer.Spec.Resources.Requests != nil {
+		if cpu := mcpServer.Spec.Resources.Requests.Cpu(); cpu != nil {
+			mcpServerResourceRequests.WithLabelValues(mcpServer.Namespace, mcpServer.Name, "cpu").Set(float64(cpu.MilliValue()))
+		}
+		if memory := mcpServer.Spec.Resources.Requests.Memory(); memory != nil {
+			mcpServerResourceRequests.WithLabelValues(mcpServer.Namespace, mcpServer.Name, "memory").Set(float64(memory.Value()))
+		}
+	}
+
+	// Track MCPServer phase
+	phases := []string{"Creating", "Running", "Updating", "Scaling", "Failed", "Terminating"}
+	for _, phase := range phases {
+		value := 0.0
+		if string(mcpServer.Status.Phase) == phase {
+			value = 1.0
+		}
+		mcpServerPhase.WithLabelValues(mcpServer.Namespace, mcpServer.Name, phase).Set(value)
+	}
+}
+
+// RecordReconcileMetrics records reconciliation timing and results
+func RecordReconcileMetrics(controller string, duration float64, result string) {
+	reconcileDuration.WithLabelValues(controller).Observe(duration)
+	reconcileTotal.WithLabelValues(controller, result).Inc()
+}
+
+// DeleteMCPServerMetrics removes metrics for a deleted MCPServer
+func DeleteMCPServerMetrics(mcpServer *mcpv1.MCPServer) {
+	labels := []string{mcpServer.Namespace, mcpServer.Name}
+
+	// Remove basic metrics
+	mcpServerReady.DeleteLabelValues(labels...)
+	mcpServerIngressEnabled.DeleteLabelValues(labels...)
+	mcpServerHPAEnabled.DeleteLabelValues(labels...)
+
+	// Remove resource metrics
+	mcpServerResourceRequests.DeleteLabelValues(mcpServer.Namespace, mcpServer.Name, "cpu")
+	mcpServerResourceRequests.DeleteLabelValues(mcpServer.Namespace, mcpServer.Name, "memory")
+
+	// Remove replica metrics (need transport type)
+	transportType := "http"
+	if mcpServer.Spec.Transport != nil {
+		transportType = string(mcpServer.Spec.Transport.Type)
+	}
+	replicaLabels := []string{mcpServer.Namespace, mcpServer.Name, transportType}
+	mcpServerReplicas.DeleteLabelValues(replicaLabels...)
+	mcpServerAvailableReplicas.DeleteLabelValues(replicaLabels...)
+
+	// Remove phase metrics
+	phases := []string{"Creating", "Running", "Updating", "Scaling", "Failed", "Terminating"}
+	for _, phase := range phases {
+		mcpServerPhase.DeleteLabelValues(mcpServer.Namespace, mcpServer.Name, phase)
+	}
+}

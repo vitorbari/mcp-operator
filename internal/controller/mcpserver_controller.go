@@ -25,17 +25,20 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	mcpv1 "github.com/vitorbari/mcp-operator/api/v1"
+	"github.com/vitorbari/mcp-operator/internal/metrics"
 	"github.com/vitorbari/mcp-operator/pkg/transport"
 )
 
@@ -44,6 +47,7 @@ type MCPServerReconciler struct {
 	client.Client
 	Scheme           *runtime.Scheme
 	TransportFactory *transport.ManagerFactory
+	Recorder         record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=mcp.mcp-operator.io,resources=mcpservers,verbs=get;list;watch;create;update;patch;delete
@@ -55,6 +59,7 @@ type MCPServerReconciler struct {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 
@@ -66,6 +71,7 @@ const (
 // move the current state of the cluster closer to the desired state.
 func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx).WithValues("mcpserver", req.NamespacedName)
+	startTime := time.Now()
 
 	// Fetch the MCPServer instance
 	mcpServer := &mcpv1.MCPServer{}
@@ -75,6 +81,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ctrl.Result{}, nil
 		}
 		log.Error(err, "Failed to get MCPServer")
+		metrics.RecordReconcileMetrics("mcpserver", time.Since(startTime).Seconds(), "error")
 		return ctrl.Result{}, err
 	}
 
@@ -88,6 +95,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		controllerutil.AddFinalizer(mcpServer, mcpServerFinalizer)
 		if err := r.Update(ctx, mcpServer); err != nil {
 			log.Error(err, "Failed to add finalizer")
+			metrics.RecordReconcileMetrics("mcpserver", time.Since(startTime).Seconds(), "error")
 			return ctrl.Result{}, err
 		}
 	}
@@ -96,7 +104,9 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if mcpServer.Status.Phase == "" {
 		mcpServer.Status.Phase = mcpv1.MCPServerPhaseCreating
 		mcpServer.Status.Message = "Starting MCPServer deployment"
+		r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "Creating", "Starting MCPServer deployment")
 		if err := r.updateStatus(ctx, mcpServer); err != nil {
+			metrics.RecordReconcileMetrics("mcpserver", time.Since(startTime).Seconds(), "error")
 			return ctrl.Result{}, err
 		}
 	}
@@ -104,6 +114,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Reconcile ServiceAccount
 	if err := r.reconcileServiceAccount(ctx, mcpServer); err != nil {
 		log.Error(err, "Failed to reconcile ServiceAccount")
+		r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "ServiceAccountFailed", fmt.Sprintf("Failed to reconcile ServiceAccount: %v", err))
 		return r.updateStatusWithError(ctx, mcpServer, err)
 	}
 
@@ -111,6 +122,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if mcpServer.Spec.Security != nil {
 		if err := r.reconcileRBAC(ctx, mcpServer); err != nil {
 			log.Error(err, "Failed to reconcile RBAC")
+			r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "RBACFailed", fmt.Sprintf("Failed to reconcile RBAC: %v", err))
 			return r.updateStatusWithError(ctx, mcpServer, err)
 		}
 	}
@@ -118,22 +130,36 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Reconcile transport-specific resources
 	if err := r.reconcileTransportResources(ctx, mcpServer); err != nil {
 		log.Error(err, "Failed to reconcile transport resources")
+		r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "TransportResourcesFailed", fmt.Sprintf("Failed to reconcile transport resources: %v", err))
 		return r.updateStatusWithError(ctx, mcpServer, err)
 	}
 
 	// Reconcile HPA if enabled
 	if err := r.reconcileHPA(ctx, mcpServer); err != nil {
 		log.Error(err, "Failed to reconcile HPA")
+		r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "HPAFailed", fmt.Sprintf("Failed to reconcile HPA: %v", err))
+		return r.updateStatusWithError(ctx, mcpServer, err)
+	}
+
+	// Reconcile Ingress if enabled
+	if err := r.reconcileIngress(ctx, mcpServer); err != nil {
+		log.Error(err, "Failed to reconcile Ingress")
+		r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "IngressFailed", fmt.Sprintf("Failed to reconcile Ingress: %v", err))
 		return r.updateStatusWithError(ctx, mcpServer, err)
 	}
 
 	// Update status based on deployment status
 	if err := r.updateMCPServerStatus(ctx, mcpServer); err != nil {
 		log.Error(err, "Failed to update MCPServer status")
+		metrics.RecordReconcileMetrics("mcpserver", time.Since(startTime).Seconds(), "error")
 		return ctrl.Result{}, err
 	}
 
+	// Record reconciliation metrics
+	metrics.RecordReconcileMetrics("mcpserver", time.Since(startTime).Seconds(), "success")
+
 	log.Info("Successfully reconciled MCPServer")
+	r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "Reconciled", "Successfully reconciled MCPServer")
 	return ctrl.Result{RequeueAfter: time.Minute * 5}, nil
 }
 
@@ -141,9 +167,13 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 func (r *MCPServerReconciler) handleDeletion(ctx context.Context, mcpServer *mcpv1.MCPServer) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
+	// Delete MCPServer metrics
+	metrics.DeleteMCPServerMetrics(mcpServer)
+
 	// Update status to Terminating
 	mcpServer.Status.Phase = mcpv1.MCPServerPhaseTerminating
 	mcpServer.Status.Message = "Terminating MCPServer resources"
+	r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "Terminating", "Terminating MCPServer resources")
 	if err := r.updateStatus(ctx, mcpServer); err != nil {
 		log.Error(err, "Failed to update status during deletion")
 	}
@@ -362,11 +392,11 @@ func (r *MCPServerReconciler) buildHPA(mcpServer *mcpv1.MCPServer) *autoscalingv
 	}
 
 	// Build metrics
-	var metrics []autoscalingv2.MetricSpec
+	var metricSpecs []autoscalingv2.MetricSpec
 
 	// CPU metric
 	if mcpServer.Spec.HPA.TargetCPUUtilizationPercentage != nil {
-		metrics = append(metrics, autoscalingv2.MetricSpec{
+		metricSpecs = append(metricSpecs, autoscalingv2.MetricSpec{
 			Type: autoscalingv2.ResourceMetricSourceType,
 			Resource: &autoscalingv2.ResourceMetricSource{
 				Name: corev1.ResourceCPU,
@@ -380,7 +410,7 @@ func (r *MCPServerReconciler) buildHPA(mcpServer *mcpv1.MCPServer) *autoscalingv
 
 	// Memory metric
 	if mcpServer.Spec.HPA.TargetMemoryUtilizationPercentage != nil {
-		metrics = append(metrics, autoscalingv2.MetricSpec{
+		metricSpecs = append(metricSpecs, autoscalingv2.MetricSpec{
 			Type: autoscalingv2.ResourceMetricSourceType,
 			Resource: &autoscalingv2.ResourceMetricSource{
 				Name: corev1.ResourceMemory,
@@ -400,7 +430,7 @@ func (r *MCPServerReconciler) buildHPA(mcpServer *mcpv1.MCPServer) *autoscalingv
 		},
 		MinReplicas: &minReplicas,
 		MaxReplicas: maxReplicas,
-		Metrics:     metrics,
+		Metrics:     metricSpecs,
 	}
 
 	// Add scaling behavior if specified
@@ -453,6 +483,176 @@ func (r *MCPServerReconciler) buildHPAScalingRules(behavior *mcpv1.MCPServerHPAB
 	return rules
 }
 
+// reconcileIngress ensures the Ingress exists if enabled
+func (r *MCPServerReconciler) reconcileIngress(ctx context.Context, mcpServer *mcpv1.MCPServer) error {
+	// Check if ingress is enabled and transport supports it
+	if mcpServer.Spec.Ingress == nil || mcpServer.Spec.Ingress.Enabled == nil || !*mcpServer.Spec.Ingress.Enabled {
+		// If Ingress is not enabled, delete any existing Ingress
+		existingIngress := &networkingv1.Ingress{}
+		err := r.Get(ctx, types.NamespacedName{Name: mcpServer.Name, Namespace: mcpServer.Namespace}, existingIngress)
+		if err == nil {
+			// Ingress exists, delete it
+			if err := r.Delete(ctx, existingIngress); err != nil {
+				return err
+			}
+		} else if !errors.IsNotFound(err) {
+			return err
+		}
+		return nil
+	}
+
+	// Check if transport supports ingress
+	if mcpServer.Spec.Transport != nil {
+		manager, err := r.TransportFactory.GetManagerForMCPServer(mcpServer)
+		if err != nil {
+			return err
+		}
+		if !manager.RequiresIngress() {
+			// Transport doesn't support ingress, skip creation
+			return nil
+		}
+	}
+
+	ingress := r.buildIngress(mcpServer)
+
+	if err := controllerutil.SetControllerReference(mcpServer, ingress, r.Scheme); err != nil {
+		return err
+	}
+
+	found := &networkingv1.Ingress{}
+	err := r.Get(ctx, types.NamespacedName{Name: ingress.Name, Namespace: ingress.Namespace}, found)
+	if err != nil && errors.IsNotFound(err) {
+		if err := r.Create(ctx, ingress); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	} else {
+		// Update ingress if necessary
+		if !reflect.DeepEqual(found.Spec, ingress.Spec) {
+			found.Spec = ingress.Spec
+			found.Annotations = ingress.Annotations
+			if err := r.Update(ctx, found); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// buildIngress creates an Ingress object for the MCPServer
+func (r *MCPServerReconciler) buildIngress(mcpServer *mcpv1.MCPServer) *networkingv1.Ingress {
+	labels := map[string]string{
+		"app":                          mcpServer.Name,
+		"app.kubernetes.io/name":       "mcpserver",
+		"app.kubernetes.io/instance":   mcpServer.Name,
+		"app.kubernetes.io/component":  "mcp-server",
+		"app.kubernetes.io/managed-by": "mcp-operator",
+	}
+
+	// Start with base annotations for streaming and metrics
+	annotations := map[string]string{
+		"nginx.ingress.kubernetes.io/proxy-read-timeout":    "3600",
+		"nginx.ingress.kubernetes.io/proxy-send-timeout":    "3600",
+		"nginx.ingress.kubernetes.io/proxy-connect-timeout": "60",
+		"nginx.ingress.kubernetes.io/proxy-buffering":       "off",
+		// Enable metrics collection by default
+		"nginx.ingress.kubernetes.io/enable-metrics": "true",
+		"nginx.org/prometheus-metrics":               "true",
+		"nginx.org/prometheus-port":                  "9113",
+		// Add structured logging for metrics collection
+		"nginx.ingress.kubernetes.io/server-snippet": fmt.Sprintf("access_log /var/log/nginx/%s-access.log json;", mcpServer.Name),
+	}
+
+	// Add transport-specific annotations
+	if mcpServer.Spec.Transport != nil {
+		switch mcpServer.Spec.Transport.Type {
+		case mcpv1.MCPTransportHTTP:
+			// Add session affinity for HTTP transport if session management is enabled
+			if mcpServer.Spec.Transport.Config != nil &&
+				mcpServer.Spec.Transport.Config.HTTP != nil &&
+				mcpServer.Spec.Transport.Config.HTTP.SessionManagement != nil &&
+				*mcpServer.Spec.Transport.Config.HTTP.SessionManagement {
+				annotations["nginx.ingress.kubernetes.io/affinity"] = "cookie"
+				annotations["nginx.ingress.kubernetes.io/session-cookie-name"] = "mcp-session"
+				annotations["nginx.ingress.kubernetes.io/session-cookie-expires"] = "86400"
+			}
+		}
+	}
+
+	// Merge custom annotations
+	if mcpServer.Spec.Ingress.Annotations != nil {
+		for k, v := range mcpServer.Spec.Ingress.Annotations {
+			annotations[k] = v
+		}
+	}
+
+	// Default values
+	path := "/"
+	if mcpServer.Spec.Ingress.Path != "" {
+		path = mcpServer.Spec.Ingress.Path
+	}
+
+	pathType := networkingv1.PathTypePrefix
+	if mcpServer.Spec.Ingress.PathType != nil {
+		pathType = *mcpServer.Spec.Ingress.PathType
+	}
+
+	// Get service port
+	servicePort := int32(8080)
+	if mcpServer.Spec.Service != nil && mcpServer.Spec.Service.Port != 0 {
+		servicePort = mcpServer.Spec.Service.Port
+	}
+
+	// Build ingress spec
+	ingressSpec := networkingv1.IngressSpec{
+		Rules: []networkingv1.IngressRule{
+			{
+				Host: mcpServer.Spec.Ingress.Host,
+				IngressRuleValue: networkingv1.IngressRuleValue{
+					HTTP: &networkingv1.HTTPIngressRuleValue{
+						Paths: []networkingv1.HTTPIngressPath{
+							{
+								Path:     path,
+								PathType: &pathType,
+								Backend: networkingv1.IngressBackend{
+									Service: &networkingv1.IngressServiceBackend{
+										Name: mcpServer.Name,
+										Port: networkingv1.ServiceBackendPort{
+											Number: servicePort,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Add TLS if specified
+	if len(mcpServer.Spec.Ingress.TLS) > 0 {
+		ingressSpec.TLS = mcpServer.Spec.Ingress.TLS
+	}
+
+	// Add ingress class if specified
+	if mcpServer.Spec.Ingress.ClassName != nil {
+		ingressSpec.IngressClassName = mcpServer.Spec.Ingress.ClassName
+	}
+
+	return &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        mcpServer.Name,
+			Namespace:   mcpServer.Namespace,
+			Labels:      labels,
+			Annotations: annotations,
+		},
+		Spec: ingressSpec,
+	}
+}
+
 // updateStatus updates the MCPServer status
 func (r *MCPServerReconciler) updateStatus(ctx context.Context, mcpServer *mcpv1.MCPServer) error {
 	mcpServer.Status.LastReconcileTime = &metav1.Time{Time: time.Now()}
@@ -474,6 +674,9 @@ func (r *MCPServerReconciler) updateStatusWithError(ctx context.Context, mcpServ
 		Message:            err.Error(),
 	}
 	r.setCondition(mcpServer, condition)
+
+	// Update metrics with current MCPServer state
+	metrics.UpdateMCPServerMetrics(mcpServer)
 
 	if updateErr := r.updateStatus(ctx, mcpServer); updateErr != nil {
 		return ctrl.Result{}, updateErr
@@ -508,6 +711,7 @@ func (r *MCPServerReconciler) updateMCPServerStatus(ctx context.Context, mcpServ
 	mcpServer.Status.TransportType = transportType
 
 	// Determine phase based on deployment status
+	previousPhase := mcpServer.Status.Phase
 	if deployment.Status.Replicas == 0 {
 		mcpServer.Status.Phase = mcpv1.MCPServerPhaseCreating
 		mcpServer.Status.Message = "Creating deployment"
@@ -525,6 +729,22 @@ func (r *MCPServerReconciler) updateMCPServerStatus(ctx context.Context, mcpServ
 	} else {
 		mcpServer.Status.Phase = mcpv1.MCPServerPhaseRunning
 		mcpServer.Status.Message = "MCPServer is running"
+	}
+
+	// Emit events for phase transitions
+	if previousPhase != mcpServer.Status.Phase {
+		switch mcpServer.Status.Phase {
+		case mcpv1.MCPServerPhaseRunning:
+			r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "Ready", "MCPServer is ready and running")
+		case mcpv1.MCPServerPhaseScaling:
+			r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "Scaling", "MCPServer is scaling")
+		case mcpv1.MCPServerPhaseUpdating:
+			r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "Updating", "MCPServer is rolling out update")
+		case mcpv1.MCPServerPhaseCreating:
+			if previousPhase == mcpv1.MCPServerPhaseRunning {
+				r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "NotReady", "MCPServer is no longer ready")
+			}
+		}
 	}
 
 	// Set service endpoint
@@ -545,6 +765,9 @@ func (r *MCPServerReconciler) updateMCPServerStatus(ctx context.Context, mcpServ
 
 	// Update conditions
 	r.updateConditions(mcpServer, deployment)
+
+	// Update metrics
+	metrics.UpdateMCPServerMetrics(mcpServer)
 
 	// Update status
 	return r.updateStatus(ctx, mcpServer)
@@ -641,6 +864,7 @@ func (r *MCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&rbacv1.Role{}).
 		Owns(&rbacv1.RoleBinding{}).
 		Owns(&autoscalingv2.HorizontalPodAutoscaler{}).
+		Owns(&networkingv1.Ingress{}).
 		Named("mcpserver").
 		Complete(r)
 }

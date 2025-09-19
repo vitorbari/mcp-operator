@@ -2,7 +2,7 @@ apiVersion: mcp.mcp-operator.io/v1
 kind: MCPServer
 metadata:
   name: wikipedia-http
-  namespace: default
+  namespace: mcp-tests
   labels:
     app.kubernetes.io/name: mcp-operator
     app.kubernetes.io/managed-by: kustomize
@@ -35,6 +35,28 @@ spec:
   # Health checks - disabled for SSE transport as it doesn't provide /health endpoint
   healthCheck:
     enabled: false
+
+  # Ingress configuration for external access
+  ingress:
+    enabled: true
+    className: "nginx"
+    host: "wikipedia-mcp.example.com"
+    path: "/sse"
+    pathType: "Prefix"
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: "/sse"
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      # Metrics and monitoring
+      nginx.ingress.kubernetes.io/enable-metrics: "true"
+      nginx.ingress.kubernetes.io/server-snippet: |
+        access_log /var/log/nginx/wikipedia-mcp-access.log json;
+      # Additional monitoring annotations
+      nginx.org/prometheus-metrics: "true"
+      nginx.org/prometheus-port: "9113"
+    tls:
+      - secretName: wikipedia-mcp-tls
+        hosts:
+          - wikipedia-mcp.example.com
 
   # Resource requirements
   resources:

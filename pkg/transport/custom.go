@@ -302,6 +302,23 @@ func (c *CustomResourceManager) buildService(mcpServer *mcpv1.MCPServer) *corev1
 		annotations[fmt.Sprintf("mcp.transport.config.%s", key)] = value
 	}
 
+	// Add protocol-specific annotations for load balancers
+	switch protocol {
+	case "tcp":
+		annotations["service.beta.kubernetes.io/aws-load-balancer-backend-protocol"] = "tcp"
+		annotations["service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout"] = "3600"
+	case "udp":
+		annotations["service.beta.kubernetes.io/aws-load-balancer-backend-protocol"] = "udp"
+	case "http", "https":
+		// HTTP-like custom protocols
+		annotations["service.beta.kubernetes.io/aws-load-balancer-backend-protocol"] = "http"
+		annotations["service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout"] = "3600"
+		// Add streaming annotations for HTTP-like protocols
+		annotations["nginx.ingress.kubernetes.io/proxy-buffering"] = "off"
+		annotations["nginx.ingress.kubernetes.io/proxy-read-timeout"] = "3600"
+		annotations["nginx.ingress.kubernetes.io/proxy-send-timeout"] = "3600"
+	}
+
 	// Determine service protocol
 	serviceProtocol := corev1.ProtocolTCP
 	switch protocol {

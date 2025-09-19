@@ -314,6 +314,10 @@ func (h *HTTPResourceManager) buildService(mcpServer *mcpv1.MCPServer) *corev1.S
 	annotations["nginx.ingress.kubernetes.io/proxy-read-timeout"] = "86400"
 	annotations["nginx.ingress.kubernetes.io/proxy-send-timeout"] = "86400"
 
+	// Add AWS Load Balancer annotations for HTTP transport
+	annotations["service.beta.kubernetes.io/aws-load-balancer-backend-protocol"] = "http"
+	annotations["service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout"] = "3600"
+
 	service := utils.BuildService(mcpServer, port, corev1.ProtocolTCP, annotations)
 
 	// Set session affinity if session management is enabled

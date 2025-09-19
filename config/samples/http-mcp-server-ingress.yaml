@@ -1,0 +1,134 @@
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: http-mcp-server-ingress
+  namespace: default
+  labels:
+    app.kubernetes.io/name: mcp-operator
+    app.kubernetes.io/managed-by: kustomize
+    mcp.example: ingress-demo
+spec:
+  image: "my-mcp-server:latest"
+  replicas: 3
+
+  # Streamable HTTP transport configuration (MCP official transport)
+  transport:
+    type: "http"
+    config:
+      http:
+        port: 8080
+        path: "/mcp"
+        sessionManagement: true
+        security:
+          validateOrigin: true
+          allowedOrigins:
+            - "https://myapp.example.com"
+            - "https://dashboard.example.com"
+          bindLocalhost: false
+          authentication:
+            type: "bearer"
+            secretRef:
+              name: "mcp-auth-secret"
+              namespace: "default"
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8080
+
+  # Ingress configuration for external access with TLS
+  ingress:
+    enabled: true
+    className: "nginx"
+    host: "mcp-server.example.com"
+    path: "/mcp"
+    pathType: "Prefix"
+    annotations:
+      # Streaming optimizations
+      nginx.ingress.kubernetes.io/proxy-buffering: "off"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+      nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+      # Session management
+      nginx.ingress.kubernetes.io/affinity: "cookie"
+      nginx.ingress.kubernetes.io/session-cookie-name: "mcp-session"
+      # SSL
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+      # Certificate management
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      # Rate limiting
+      nginx.ingress.kubernetes.io/rate-limit: "100"
+      nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+      # Metrics and monitoring
+      nginx.ingress.kubernetes.io/enable-metrics: "true"
+      nginx.ingress.kubernetes.io/server-snippet: |
+        access_log /var/log/nginx/mcp-access.log json;
+      # Additional monitoring annotations
+      nginx.org/prometheus-metrics: "true"
+      nginx.org/prometheus-port: "9113"
+    tls:
+      - secretName: mcp-server-tls
+        hosts:
+          - mcp-server.example.com
+
+  # Health checks for HTTP endpoint
+  healthCheck:
+    enabled: true
+    path: "/health"
+    port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+  # Resource requirements
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+
+  # HPA for handling variable loads
+  hpa:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  # Environment variables
+  environment:
+    - name: LOG_LEVEL
+      value: "info"
+    - name: METRICS_ENABLED
+      value: "true"
+
+  # Security configuration
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    readOnlyRootFilesystem: true
+
+  # Pod template customization
+  podTemplate:
+    labels:
+      mcp.transport: http
+      mcp.ingress: enabled
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "8080"
+      prometheus.io/path: "/metrics"
+    nodeSelector:
+      kubernetes.io/os: linux
+    tolerations:
+      - key: "high-load"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+
+  # Capabilities this MCP server provides
+  capabilities:
+    - "tools"
+    - "resources"
+    - "prompts"
