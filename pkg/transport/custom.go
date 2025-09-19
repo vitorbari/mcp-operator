@@ -33,6 +33,14 @@ import (
 	"github.com/vitorbari/mcp-operator/pkg/utils"
 )
 
+const (
+	protocolTCP   = "tcp"
+	protocolUDP   = "udp"
+	protocolSCTP  = "sctp"
+	protocolHTTP  = "http"
+	protocolHTTPS = "https"
+)
+
 // CustomResourceManager manages resources for custom transport
 type CustomResourceManager struct {
 	client client.Client
@@ -40,9 +48,9 @@ type CustomResourceManager struct {
 }
 
 // NewCustomResourceManager creates a new CustomResourceManager
-func NewCustomResourceManager(client client.Client, scheme *runtime.Scheme) *CustomResourceManager {
+func NewCustomResourceManager(k8sClient client.Client, scheme *runtime.Scheme) *CustomResourceManager {
 	return &CustomResourceManager{
-		client: client,
+		client: k8sClient,
 		scheme: scheme,
 	}
 }
@@ -123,7 +131,7 @@ func (c *CustomResourceManager) getCustomProtocol(mcpServer *mcpv1.MCPServer) st
 		mcpServer.Spec.Transport.Config.Custom.Protocol != "" {
 		return mcpServer.Spec.Transport.Config.Custom.Protocol
 	}
-	return "tcp" // default
+	return protocolTCP // default
 }
 
 // getCustomConfig returns the custom configuration map
@@ -191,13 +199,13 @@ func (c *CustomResourceManager) buildDeployment(mcpServer *mcpv1.MCPServer) *app
 	// Adjust port name based on protocol
 	if len(container.Ports) > 0 {
 		switch protocol {
-		case "tcp":
-			container.Ports[0].Name = "tcp"
-		case "udp":
-			container.Ports[0].Name = "udp"
+		case protocolTCP:
+			container.Ports[0].Name = protocolTCP
+		case protocolUDP:
+			container.Ports[0].Name = protocolUDP
 			container.Ports[0].Protocol = corev1.ProtocolUDP
-		case "sctp":
-			container.Ports[0].Name = "sctp"
+		case protocolSCTP:
+			container.Ports[0].Name = protocolSCTP
 			container.Ports[0].Protocol = corev1.ProtocolSCTP
 		default:
 			container.Ports[0].Name = "custom"
@@ -229,7 +237,7 @@ func (c *CustomResourceManager) buildDeployment(mcpServer *mcpv1.MCPServer) *app
 	}
 
 	// For HTTP-like protocols, add health probes
-	if protocol == "http" || protocol == "https" {
+	if protocol == protocolHTTP || protocol == protocolHTTPS {
 		utils.AddHealthProbes(&container, mcpServer, port)
 	}
 
@@ -261,28 +269,7 @@ func (c *CustomResourceManager) createService(ctx context.Context, mcpServer *mc
 // updateService updates the custom service
 func (c *CustomResourceManager) updateService(ctx context.Context, mcpServer *mcpv1.MCPServer) error {
 	service := c.buildService(mcpServer)
-
-	if err := controllerutil.SetControllerReference(mcpServer, service, c.scheme); err != nil {
-		return err
-	}
-
-	found := &corev1.Service{}
-	err := c.client.Get(ctx, types.NamespacedName{Name: service.Name, Namespace: service.Namespace}, found)
-	if err != nil {
-		return err
-	}
-
-	// Update service if necessary
-	if found.Spec.Type != service.Spec.Type ||
-		!reflect.DeepEqual(found.Spec.Ports, service.Spec.Ports) ||
-		!reflect.DeepEqual(found.Spec.Selector, service.Spec.Selector) {
-		found.Spec.Type = service.Spec.Type
-		found.Spec.Ports = service.Spec.Ports
-		found.Spec.Selector = service.Spec.Selector
-		return c.client.Update(ctx, found)
-	}
-
-	return nil
+	return utils.UpdateService(ctx, c.client, c.scheme, mcpServer, service)
 }
 
 // buildService builds a service for custom transport
@@ -304,14 +291,14 @@ func (c *CustomResourceManager) buildService(mcpServer *mcpv1.MCPServer) *corev1
 
 	// Add protocol-specific annotations for load balancers
 	switch protocol {
-	case "tcp":
-		annotations["service.beta.kubernetes.io/aws-load-balancer-backend-protocol"] = "tcp"
+	case protocolTCP:
+		annotations["service.beta.kubernetes.io/aws-load-balancer-backend-protocol"] = protocolTCP
 		annotations["service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout"] = "3600"
-	case "udp":
-		annotations["service.beta.kubernetes.io/aws-load-balancer-backend-protocol"] = "udp"
-	case "http", "https":
+	case protocolUDP:
+		annotations["service.beta.kubernetes.io/aws-load-balancer-backend-protocol"] = protocolUDP
+	case protocolHTTP, protocolHTTPS:
 		// HTTP-like custom protocols
-		annotations["service.beta.kubernetes.io/aws-load-balancer-backend-protocol"] = "http"
+		annotations["service.beta.kubernetes.io/aws-load-balancer-backend-protocol"] = protocolHTTP
 		annotations["service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout"] = "3600"
 		// Add streaming annotations for HTTP-like protocols
 		annotations["nginx.ingress.kubernetes.io/proxy-buffering"] = "off"
@@ -322,9 +309,9 @@ func (c *CustomResourceManager) buildService(mcpServer *mcpv1.MCPServer) *corev1
 	// Determine service protocol
 	serviceProtocol := corev1.ProtocolTCP
 	switch protocol {
-	case "udp":
+	case protocolUDP:
 		serviceProtocol = corev1.ProtocolUDP
-	case "sctp":
+	case protocolSCTP:
 		serviceProtocol = corev1.ProtocolSCTP
 	}
 
@@ -336,7 +323,7 @@ func (c *CustomResourceManager) buildService(mcpServer *mcpv1.MCPServer) *corev1
 	}
 
 	// For non-HTTP protocols, consider using LoadBalancer for external access
-	if protocol != "http" && protocol != "https" {
+	if protocol != protocolHTTP && protocol != protocolHTTPS {
 		if mcpServer.Spec.Service == nil || mcpServer.Spec.Service.Type == "" {
 			service.Spec.Type = corev1.ServiceTypeLoadBalancer
 		}

@@ -17,12 +17,18 @@ limitations under the License.
 package utils
 
 import (
+	"context"
 	"fmt"
+	"reflect"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	mcpv1 "github.com/vitorbari/mcp-operator/api/v1"
 )
@@ -228,7 +234,12 @@ func applyPodTemplateSpec(podSpec *corev1.PodSpec, template *mcpv1.MCPServerPodT
 }
 
 // BuildService creates a Service object for network transports
-func BuildService(mcpServer *mcpv1.MCPServer, port int32, protocol corev1.Protocol, annotations map[string]string) *corev1.Service {
+func BuildService(
+	mcpServer *mcpv1.MCPServer,
+	port int32,
+	protocol corev1.Protocol,
+	annotations map[string]string,
+) *corev1.Service {
 	labels := BuildStandardLabels(mcpServer)
 
 	serviceType := corev1.ServiceTypeClusterIP
@@ -306,4 +317,35 @@ func BuildDeployment(mcpServer *mcpv1.MCPServer, podSpec corev1.PodSpec) *appsv1
 			},
 		},
 	}
+}
+
+// UpdateService updates a service with the given spec, avoiding duplication
+func UpdateService(
+	ctx context.Context,
+	k8sClient client.Client,
+	scheme *runtime.Scheme,
+	mcpServer *mcpv1.MCPServer,
+	service *corev1.Service,
+) error {
+	if err := controllerutil.SetControllerReference(mcpServer, service, scheme); err != nil {
+		return err
+	}
+
+	found := &corev1.Service{}
+	err := k8sClient.Get(ctx, types.NamespacedName{Name: service.Name, Namespace: service.Namespace}, found)
+	if err != nil {
+		return err
+	}
+
+	// Update service if necessary
+	if found.Spec.Type != service.Spec.Type ||
+		!reflect.DeepEqual(found.Spec.Ports, service.Spec.Ports) ||
+		!reflect.DeepEqual(found.Spec.Selector, service.Spec.Selector) {
+		found.Spec.Type = service.Spec.Type
+		found.Spec.Ports = service.Spec.Ports
+		found.Spec.Selector = service.Spec.Selector
+		return k8sClient.Update(ctx, found)
+	}
+
+	return nil
 }

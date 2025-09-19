@@ -39,9 +39,9 @@ type HTTPResourceManager struct {
 }
 
 // NewHTTPResourceManager creates a new HTTPResourceManager
-func NewHTTPResourceManager(client client.Client, scheme *runtime.Scheme) *HTTPResourceManager {
+func NewHTTPResourceManager(k8sClient client.Client, scheme *runtime.Scheme) *HTTPResourceManager {
 	return &HTTPResourceManager{
-		client: client,
+		client: k8sClient,
 		scheme: scheme,
 	}
 }
@@ -269,28 +269,7 @@ func (h *HTTPResourceManager) createService(ctx context.Context, mcpServer *mcpv
 // updateService updates the HTTP service
 func (h *HTTPResourceManager) updateService(ctx context.Context, mcpServer *mcpv1.MCPServer) error {
 	service := h.buildService(mcpServer)
-
-	if err := controllerutil.SetControllerReference(mcpServer, service, h.scheme); err != nil {
-		return err
-	}
-
-	found := &corev1.Service{}
-	err := h.client.Get(ctx, types.NamespacedName{Name: service.Name, Namespace: service.Namespace}, found)
-	if err != nil {
-		return err
-	}
-
-	// Update service if necessary
-	if found.Spec.Type != service.Spec.Type ||
-		!reflect.DeepEqual(found.Spec.Ports, service.Spec.Ports) ||
-		!reflect.DeepEqual(found.Spec.Selector, service.Spec.Selector) {
-		found.Spec.Type = service.Spec.Type
-		found.Spec.Ports = service.Spec.Ports
-		found.Spec.Selector = service.Spec.Selector
-		return h.client.Update(ctx, found)
-	}
-
-	return nil
+	return utils.UpdateService(ctx, h.client, h.scheme, mcpServer, service)
 }
 
 // buildService builds a service for HTTP transport

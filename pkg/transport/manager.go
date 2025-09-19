@@ -32,9 +32,9 @@ type ManagerFactory struct {
 }
 
 // NewManagerFactory creates a new ManagerFactory
-func NewManagerFactory(client client.Client, scheme *runtime.Scheme) *ManagerFactory {
+func NewManagerFactory(k8sClient client.Client, scheme *runtime.Scheme) *ManagerFactory {
 	return &ManagerFactory{
-		client: client,
+		client: k8sClient,
 		scheme: scheme,
 	}
 }
