@@ -29,6 +29,14 @@ type MCPServerSpec struct {
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[a-zA-Z0-9][a-zA-Z0-9._-]*)?$`
 	Image string `json:"image"`
 
+	// Command specifies the container command to override the default entrypoint
+	// +optional
+	Command []string `json:"command,omitempty"`
+
+	// Args specifies the container arguments to override or append to the default command
+	// +optional
+	Args []string `json:"args,omitempty"`
+
 	// Replicas specifies the number of MCP server instances to run
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:default=1
@@ -67,6 +75,10 @@ type MCPServerSpec struct {
 	// HPA defines Horizontal Pod Autoscaler configuration
 	// +optional
 	HPA *MCPServerHPA `json:"hpa,omitempty"`
+
+	// Transport defines the MCP transport configuration
+	// +optional
+	Transport *MCPServerTransport `json:"transport,omitempty"`
 }
 
 // MCPServerSecurity defines security settings for the MCP server
@@ -238,6 +250,10 @@ type MCPServerStatus struct {
 	// +optional
 	ServiceEndpoint string `json:"serviceEndpoint,omitempty"`
 
+	// TransportType represents the active transport type
+	// +optional
+	TransportType MCPTransportType `json:"transportType,omitempty"`
+
 	// LastReconcileTime represents the last time the MCP server was reconciled
 	// +optional
 	LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
@@ -373,6 +389,113 @@ type MCPServerHPAPolicy struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=1800
 	PeriodSeconds int32 `json:"periodSeconds"`
+}
+
+// MCPServerTransport defines transport configuration for the MCP server
+type MCPServerTransport struct {
+	// Type specifies the transport type
+	// +kubebuilder:validation:Enum=http;custom
+	// +kubebuilder:default=http
+	// +optional
+	Type MCPTransportType `json:"type,omitempty"`
+
+	// Config contains transport-specific configuration
+	// +optional
+	Config *MCPTransportConfigDetails `json:"config,omitempty"`
+}
+
+// MCPTransportType represents the type of transport
+// +kubebuilder:validation:Enum=http;custom
+type MCPTransportType string
+
+const (
+	// MCPTransportHTTP indicates HTTP transport (MCP streamable HTTP)
+	MCPTransportHTTP MCPTransportType = "http"
+	// MCPTransportCustom indicates custom transport
+	MCPTransportCustom MCPTransportType = "custom"
+)
+
+// MCPTransportConfigDetails contains transport-specific configuration options
+type MCPTransportConfigDetails struct {
+	// HTTP configuration for streamable HTTP transport
+	// +optional
+	HTTP *MCPHTTPTransportConfig `json:"http,omitempty"`
+
+	// Custom configuration for custom transport
+	// +optional
+	Custom *MCPCustomTransportConfig `json:"custom,omitempty"`
+}
+
+// MCPHTTPTransportConfig defines configuration for HTTP transport
+type MCPHTTPTransportConfig struct {
+	// Port specifies the port for HTTP connections
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +kubebuilder:default=8080
+	// +optional
+	Port int32 `json:"port,omitempty"`
+
+	// Path specifies the HTTP endpoint path
+	// +kubebuilder:default="/mcp"
+	// +optional
+	Path string `json:"path,omitempty"`
+
+	// SessionManagement enables session management for the HTTP transport
+	// +optional
+	SessionManagement *bool `json:"sessionManagement,omitempty"`
+
+	// Security defines HTTP-specific security configuration
+	// +optional
+	Security *MCPHTTPSecurityConfig `json:"security,omitempty"`
+}
+
+// MCPHTTPSecurityConfig defines security settings for HTTP transport
+type MCPHTTPSecurityConfig struct {
+	// ValidateOrigin enables origin validation for HTTP requests
+	// +optional
+	ValidateOrigin *bool `json:"validateOrigin,omitempty"`
+
+	// AllowedOrigins specifies allowed origins for CORS
+	// +optional
+	AllowedOrigins []string `json:"allowedOrigins,omitempty"`
+
+	// BindLocalhost restricts binding to localhost only
+	// +optional
+	BindLocalhost *bool `json:"bindLocalhost,omitempty"`
+
+	// Authentication defines authentication configuration
+	// +optional
+	Authentication *MCPAuthenticationConfig `json:"authentication,omitempty"`
+}
+
+// MCPAuthenticationConfig defines authentication settings
+type MCPAuthenticationConfig struct {
+	// Type specifies the authentication type
+	// +kubebuilder:validation:Enum=none;bearer;basic
+	// +kubebuilder:default=none
+	// +optional
+	Type string `json:"type,omitempty"`
+
+	// SecretRef references a secret containing authentication credentials
+	// +optional
+	SecretRef *corev1.SecretReference `json:"secretRef,omitempty"`
+}
+
+// MCPCustomTransportConfig defines configuration for custom transport
+type MCPCustomTransportConfig struct {
+	// Port specifies the port for custom transport connections
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +optional
+	Port int32 `json:"port,omitempty"`
+
+	// Protocol specifies the protocol for custom transport
+	// +optional
+	Protocol string `json:"protocol,omitempty"`
+
+	// Config contains custom transport-specific configuration
+	// +optional
+	Config map[string]string `json:"config,omitempty"`
 }
 
 // +kubebuilder:object:root=true

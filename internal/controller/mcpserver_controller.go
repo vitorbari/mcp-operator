@@ -30,19 +30,20 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	mcpv1 "github.com/vitorbari/mcp-operator/api/v1"
+	"github.com/vitorbari/mcp-operator/pkg/transport"
 )
 
 // MCPServerReconciler reconciles a MCPServer object
 type MCPServerReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme           *runtime.Scheme
+	TransportFactory *transport.ManagerFactory
 }
 
 // +kubebuilder:rbac:groups=mcp.mcp-operator.io,resources=mcpservers,verbs=get;list;watch;create;update;patch;delete
@@ -59,9 +60,6 @@ type MCPServerReconciler struct {
 
 const (
 	mcpServerFinalizer = "mcp.mcp-operator.io/finalizer"
-	defaultPort        = 8080
-	defaultHealthPath  = "/health"
-	defaultMetricsPath = "/metrics"
 )
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -117,15 +115,9 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
-	// Reconcile Deployment
-	if err := r.reconcileDeployment(ctx, mcpServer); err != nil {
-		log.Error(err, "Failed to reconcile Deployment")
-		return r.updateStatusWithError(ctx, mcpServer, err)
-	}
-
-	// Reconcile Service
-	if err := r.reconcileService(ctx, mcpServer); err != nil {
-		log.Error(err, "Failed to reconcile Service")
+	// Reconcile transport-specific resources
+	if err := r.reconcileTransportResources(ctx, mcpServer); err != nil {
+		log.Error(err, "Failed to reconcile transport resources")
 		return r.updateStatusWithError(ctx, mcpServer, err)
 	}
 
@@ -283,355 +275,24 @@ func (r *MCPServerReconciler) reconcileRBAC(ctx context.Context, mcpServer *mcpv
 	return nil
 }
 
-// reconcileDeployment ensures the Deployment exists and matches the spec
-func (r *MCPServerReconciler) reconcileDeployment(ctx context.Context, mcpServer *mcpv1.MCPServer) error {
-	deployment := r.buildDeployment(mcpServer)
-
-	if err := controllerutil.SetControllerReference(mcpServer, deployment, r.Scheme); err != nil {
+// reconcileTransportResources handles transport-specific resource reconciliation
+func (r *MCPServerReconciler) reconcileTransportResources(ctx context.Context, mcpServer *mcpv1.MCPServer) error {
+	// Get the appropriate transport manager
+	manager, err := r.TransportFactory.GetManagerForMCPServer(mcpServer)
+	if err != nil {
 		return err
 	}
 
-	found := &appsv1.Deployment{}
-	err := r.Get(ctx, types.NamespacedName{Name: deployment.Name, Namespace: deployment.Namespace}, found)
-	if err != nil && errors.IsNotFound(err) {
-		if err := r.Create(ctx, deployment); err != nil {
-			return err
-		}
-	} else if err != nil {
+	// Create or update transport resources
+	if err := manager.CreateResources(ctx, mcpServer); err != nil {
 		return err
-	} else {
-		// Update deployment if necessary
-		if !reflect.DeepEqual(found.Spec, deployment.Spec) {
-			found.Spec = deployment.Spec
-			if err := r.Update(ctx, found); err != nil {
-				return err
-			}
-		}
+	}
+
+	if err := manager.UpdateResources(ctx, mcpServer); err != nil {
+		return err
 	}
 
 	return nil
-}
-
-// buildDeployment creates a Deployment object for the MCPServer
-func (r *MCPServerReconciler) buildDeployment(mcpServer *mcpv1.MCPServer) *appsv1.Deployment {
-	replicas := r.getReplicaCount(mcpServer)
-	labels := r.buildLabels(mcpServer)
-	annotations := r.buildAnnotations(mcpServer)
-
-	container := r.buildContainer(mcpServer)
-	podSpec := r.buildPodSpec(mcpServer, container)
-
-	return &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      mcpServer.Name,
-			Namespace: mcpServer.Namespace,
-			Labels:    labels,
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"app": mcpServer.Name,
-				},
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels:      labels,
-					Annotations: annotations,
-				},
-				Spec: podSpec,
-			},
-		},
-	}
-}
-
-// getReplicaCount returns the desired replica count for the MCPServer
-func (r *MCPServerReconciler) getReplicaCount(mcpServer *mcpv1.MCPServer) int32 {
-	if mcpServer.Spec.Replicas != nil {
-		return *mcpServer.Spec.Replicas
-	}
-	return 1
-}
-
-// buildLabels constructs the standard labels for MCPServer resources
-func (r *MCPServerReconciler) buildLabels(mcpServer *mcpv1.MCPServer) map[string]string {
-	labels := map[string]string{
-		"app":                          mcpServer.Name,
-		"app.kubernetes.io/name":       "mcpserver",
-		"app.kubernetes.io/instance":   mcpServer.Name,
-		"app.kubernetes.io/component":  "mcp-server",
-		"app.kubernetes.io/managed-by": "mcp-operator",
-	}
-
-	// Add capabilities as labels
-	if len(mcpServer.Spec.Capabilities) > 0 {
-		for i, cap := range mcpServer.Spec.Capabilities {
-			labels[fmt.Sprintf("mcp.capability.%d", i)] = cap
-		}
-	}
-
-	// Merge with custom labels from PodTemplate
-	if mcpServer.Spec.PodTemplate != nil && mcpServer.Spec.PodTemplate.Labels != nil {
-		for k, v := range mcpServer.Spec.PodTemplate.Labels {
-			labels[k] = v
-		}
-	}
-
-	return labels
-}
-
-// buildAnnotations constructs the annotations for the pod template
-func (r *MCPServerReconciler) buildAnnotations(mcpServer *mcpv1.MCPServer) map[string]string {
-	annotations := map[string]string{}
-	if mcpServer.Spec.PodTemplate != nil && mcpServer.Spec.PodTemplate.Annotations != nil {
-		annotations = mcpServer.Spec.PodTemplate.Annotations
-	}
-	return annotations
-}
-
-// buildContainer creates the main MCP server container
-func (r *MCPServerReconciler) buildContainer(mcpServer *mcpv1.MCPServer) corev1.Container {
-	container := corev1.Container{
-		Name:  "mcp-server",
-		Image: mcpServer.Spec.Image,
-		Ports: []corev1.ContainerPort{
-			{
-				Name:          "http",
-				ContainerPort: r.getServicePort(mcpServer),
-				Protocol:      corev1.ProtocolTCP,
-			},
-		},
-		Env: mcpServer.Spec.Environment,
-	}
-
-	// Add resource requirements
-	if mcpServer.Spec.Resources != nil {
-		container.Resources = *mcpServer.Spec.Resources
-	}
-
-	// Add health probes
-	r.addHealthProbes(&container, mcpServer)
-
-	// Add volume mounts
-	if mcpServer.Spec.PodTemplate != nil && len(mcpServer.Spec.PodTemplate.VolumeMounts) > 0 {
-		container.VolumeMounts = mcpServer.Spec.PodTemplate.VolumeMounts
-	}
-
-	// Add security context
-	r.addSecurityContext(&container, mcpServer)
-
-	return container
-}
-
-// addHealthProbes configures health check probes for the container
-func (r *MCPServerReconciler) addHealthProbes(container *corev1.Container, mcpServer *mcpv1.MCPServer) {
-	if mcpServer.Spec.HealthCheck != nil && mcpServer.Spec.HealthCheck.Enabled != nil && !*mcpServer.Spec.HealthCheck.Enabled {
-		return
-	}
-
-	healthPath := defaultHealthPath
-	if mcpServer.Spec.HealthCheck != nil && mcpServer.Spec.HealthCheck.Path != "" {
-		healthPath = mcpServer.Spec.HealthCheck.Path
-	}
-
-	healthPort := intstr.FromInt(int(r.getServicePort(mcpServer)))
-	if mcpServer.Spec.HealthCheck != nil && mcpServer.Spec.HealthCheck.Port != nil {
-		healthPort = *mcpServer.Spec.HealthCheck.Port
-	}
-
-	probe := &corev1.Probe{
-		ProbeHandler: corev1.ProbeHandler{
-			HTTPGet: &corev1.HTTPGetAction{
-				Path: healthPath,
-				Port: healthPort,
-			},
-		},
-		InitialDelaySeconds: 30,
-		PeriodSeconds:       10,
-		TimeoutSeconds:      5,
-		FailureThreshold:    3,
-		SuccessThreshold:    1,
-	}
-
-	// Apply custom health check settings
-	if mcpServer.Spec.HealthCheck != nil {
-		if mcpServer.Spec.HealthCheck.InitialDelaySeconds != nil {
-			probe.InitialDelaySeconds = *mcpServer.Spec.HealthCheck.InitialDelaySeconds
-		}
-		if mcpServer.Spec.HealthCheck.PeriodSeconds != nil {
-			probe.PeriodSeconds = *mcpServer.Spec.HealthCheck.PeriodSeconds
-		}
-		if mcpServer.Spec.HealthCheck.TimeoutSeconds != nil {
-			probe.TimeoutSeconds = *mcpServer.Spec.HealthCheck.TimeoutSeconds
-		}
-		if mcpServer.Spec.HealthCheck.FailureThreshold != nil {
-			probe.FailureThreshold = *mcpServer.Spec.HealthCheck.FailureThreshold
-		}
-		if mcpServer.Spec.HealthCheck.SuccessThreshold != nil {
-			probe.SuccessThreshold = *mcpServer.Spec.HealthCheck.SuccessThreshold
-		}
-	}
-
-	container.LivenessProbe = probe
-	container.ReadinessProbe = probe
-}
-
-// addSecurityContext configures security context for the container
-func (r *MCPServerReconciler) addSecurityContext(container *corev1.Container, mcpServer *mcpv1.MCPServer) {
-	if mcpServer.Spec.Security == nil {
-		return
-	}
-
-	securityContext := &corev1.SecurityContext{}
-	if mcpServer.Spec.Security.RunAsUser != nil {
-		securityContext.RunAsUser = mcpServer.Spec.Security.RunAsUser
-	}
-	if mcpServer.Spec.Security.RunAsGroup != nil {
-		securityContext.RunAsGroup = mcpServer.Spec.Security.RunAsGroup
-	}
-	if mcpServer.Spec.Security.ReadOnlyRootFilesystem != nil {
-		securityContext.ReadOnlyRootFilesystem = mcpServer.Spec.Security.ReadOnlyRootFilesystem
-	}
-	container.SecurityContext = securityContext
-}
-
-// buildPodSpec creates the PodSpec with the given container and MCPServer configuration
-func (r *MCPServerReconciler) buildPodSpec(mcpServer *mcpv1.MCPServer, container corev1.Container) corev1.PodSpec {
-	podSpec := corev1.PodSpec{
-		ServiceAccountName: mcpServer.Name,
-		Containers:         []corev1.Container{container},
-	}
-
-	// Apply pod template specifications
-	if mcpServer.Spec.PodTemplate != nil {
-		r.applyPodTemplateSpec(&podSpec, mcpServer.Spec.PodTemplate)
-	}
-
-	return podSpec
-}
-
-// applyPodTemplateSpec applies pod template configurations to the pod spec
-func (r *MCPServerReconciler) applyPodTemplateSpec(podSpec *corev1.PodSpec, template *mcpv1.MCPServerPodTemplate) {
-	if template.NodeSelector != nil {
-		podSpec.NodeSelector = template.NodeSelector
-	}
-	if len(template.Tolerations) > 0 {
-		podSpec.Tolerations = template.Tolerations
-	}
-	if template.Affinity != nil {
-		podSpec.Affinity = template.Affinity
-	}
-	if template.ServiceAccountName != "" {
-		podSpec.ServiceAccountName = template.ServiceAccountName
-	}
-	if len(template.ImagePullSecrets) > 0 {
-		podSpec.ImagePullSecrets = template.ImagePullSecrets
-	}
-	if len(template.Volumes) > 0 {
-		podSpec.Volumes = template.Volumes
-	}
-}
-
-// reconcileService ensures the Service exists and matches the spec
-func (r *MCPServerReconciler) reconcileService(ctx context.Context, mcpServer *mcpv1.MCPServer) error {
-	service := r.buildService(mcpServer)
-
-	if err := controllerutil.SetControllerReference(mcpServer, service, r.Scheme); err != nil {
-		return err
-	}
-
-	found := &corev1.Service{}
-	err := r.Get(ctx, types.NamespacedName{Name: service.Name, Namespace: service.Namespace}, found)
-	if err != nil && errors.IsNotFound(err) {
-		if err := r.Create(ctx, service); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	} else {
-		// Update service if necessary (excluding fields that are managed by Kubernetes)
-		if found.Spec.Type != service.Spec.Type ||
-			!reflect.DeepEqual(found.Spec.Ports, service.Spec.Ports) ||
-			!reflect.DeepEqual(found.Spec.Selector, service.Spec.Selector) {
-			found.Spec.Type = service.Spec.Type
-			found.Spec.Ports = service.Spec.Ports
-			found.Spec.Selector = service.Spec.Selector
-			if err := r.Update(ctx, found); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-// buildService creates a Service object for the MCPServer
-func (r *MCPServerReconciler) buildService(mcpServer *mcpv1.MCPServer) *corev1.Service {
-	labels := map[string]string{
-		"app":                          mcpServer.Name,
-		"app.kubernetes.io/name":       "mcpserver",
-		"app.kubernetes.io/instance":   mcpServer.Name,
-		"app.kubernetes.io/component":  "mcp-server",
-		"app.kubernetes.io/managed-by": "mcp-operator",
-	}
-
-	serviceType := corev1.ServiceTypeClusterIP
-	port := r.getServicePort(mcpServer)
-	protocol := corev1.ProtocolTCP
-	annotations := map[string]string{}
-
-	if mcpServer.Spec.Service != nil {
-		if mcpServer.Spec.Service.Type != "" {
-			serviceType = mcpServer.Spec.Service.Type
-		}
-		if mcpServer.Spec.Service.Port != 0 {
-			port = mcpServer.Spec.Service.Port
-		}
-		if mcpServer.Spec.Service.Protocol != "" {
-			protocol = mcpServer.Spec.Service.Protocol
-		}
-		if mcpServer.Spec.Service.Annotations != nil {
-			annotations = mcpServer.Spec.Service.Annotations
-		}
-	}
-
-	targetPort := intstr.FromInt(int(port))
-	if mcpServer.Spec.Service != nil && mcpServer.Spec.Service.TargetPort != nil {
-		targetPort = *mcpServer.Spec.Service.TargetPort
-	}
-
-	service := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        mcpServer.Name,
-			Namespace:   mcpServer.Namespace,
-			Labels:      labels,
-			Annotations: annotations,
-		},
-		Spec: corev1.ServiceSpec{
-			Type: serviceType,
-			Ports: []corev1.ServicePort{
-				{
-					Name:       "http",
-					Port:       port,
-					TargetPort: targetPort,
-					Protocol:   protocol,
-				},
-			},
-			Selector: map[string]string{
-				"app": mcpServer.Name,
-			},
-		},
-	}
-
-	return service
-}
-
-// getServicePort returns the service port for the MCPServer
-func (r *MCPServerReconciler) getServicePort(mcpServer *mcpv1.MCPServer) int32 {
-	if mcpServer.Spec.Service != nil && mcpServer.Spec.Service.Port != 0 {
-		return mcpServer.Spec.Service.Port
-	}
-	return defaultPort
 }
 
 // reconcileHPA ensures the HorizontalPodAutoscaler exists if enabled
@@ -839,6 +500,13 @@ func (r *MCPServerReconciler) updateMCPServerStatus(ctx context.Context, mcpServ
 	mcpServer.Status.ReadyReplicas = deployment.Status.ReadyReplicas
 	mcpServer.Status.AvailableReplicas = deployment.Status.AvailableReplicas
 
+	// Update transport type in status
+	transportType := transport.GetDefaultTransportType()
+	if mcpServer.Spec.Transport != nil {
+		transportType = mcpServer.Spec.Transport.Type
+	}
+	mcpServer.Status.TransportType = transportType
+
 	// Determine phase based on deployment status
 	if deployment.Status.Replicas == 0 {
 		mcpServer.Status.Phase = mcpv1.MCPServerPhaseCreating
@@ -862,7 +530,7 @@ func (r *MCPServerReconciler) updateMCPServerStatus(ctx context.Context, mcpServ
 	// Set service endpoint
 	service := &corev1.Service{}
 	if err := r.Get(ctx, types.NamespacedName{Name: mcpServer.Name, Namespace: mcpServer.Namespace}, service); err == nil {
-		port := r.getServicePort(mcpServer)
+		port := transport.GetTransportPort(mcpServer)
 		if service.Spec.Type == corev1.ServiceTypeLoadBalancer && len(service.Status.LoadBalancer.Ingress) > 0 {
 			ingress := service.Status.LoadBalancer.Ingress[0]
 			if ingress.IP != "" {

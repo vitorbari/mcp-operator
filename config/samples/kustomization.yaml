@@ -1,4 +1,4 @@
 ## Append samples of your project ##
 resources:
-- mcp_v1_mcpserver.yaml
+- wikipedia-http.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	mcpv1 "github.com/vitorbari/mcp-operator/api/v1"
+	"github.com/vitorbari/mcp-operator/pkg/transport"
 )
 
 var _ = Describe("MCPServer Controller", func() {
@@ -78,8 +79,9 @@ var _ = Describe("MCPServer Controller", func() {
 			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
 
 			controllerReconciler = &MCPServerReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:           k8sClient,
+				Scheme:           k8sClient.Scheme(),
+				TransportFactory: transport.NewManagerFactory(k8sClient, k8sClient.Scheme()),
 			}
 		})
 
@@ -249,8 +251,9 @@ var _ = Describe("MCPServer Controller", func() {
 			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
 
 			controllerReconciler = &MCPServerReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:           k8sClient,
+				Scheme:           k8sClient.Scheme(),
+				TransportFactory: transport.NewManagerFactory(k8sClient, k8sClient.Scheme()),
 			}
 		})
 
@@ -362,6 +365,15 @@ var _ = Describe("MCPServer Controller", func() {
 							corev1.ResourceMemory: resource.MustParse("512Mi"),
 						},
 					},
+					Transport: &mcpv1.MCPServerTransport{
+						Type: mcpv1.MCPTransportHTTP,
+						Config: &mcpv1.MCPTransportConfigDetails{
+							HTTP: &mcpv1.MCPHTTPTransportConfig{
+								Port: 9090,
+								Path: "/mcp",
+							},
+						},
+					},
 					Service: &mcpv1.MCPServerService{
 						Type:       "ClusterIP",
 						Port:       9090,
@@ -389,8 +401,9 @@ var _ = Describe("MCPServer Controller", func() {
 			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
 
 			controllerReconciler = &MCPServerReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:           k8sClient,
+				Scheme:           k8sClient.Scheme(),
+				TransportFactory: transport.NewManagerFactory(k8sClient, k8sClient.Scheme()),
 			}
 		})
 

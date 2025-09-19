@@ -39,6 +39,7 @@ import (
 
 	mcpv1 "github.com/vitorbari/mcp-operator/api/v1"
 	"github.com/vitorbari/mcp-operator/internal/controller"
+	"github.com/vitorbari/mcp-operator/pkg/transport"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -202,9 +203,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize transport factory
+	transportFactory := transport.NewManagerFactory(mgr.GetClient(), mgr.GetScheme())
+
 	if err := (&controller.MCPServerReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		TransportFactory: transportFactory,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MCPServer")
 		os.Exit(1)

@@ -39,12 +39,24 @@ spec:
           spec:
             description: spec defines the desired state of MCPServer
             properties:
+              args:
+                description: Args specifies the container arguments to override or
+                  append to the default command
+                items:
+                  type: string
+                type: array
               capabilities:
                 description: Capabilities defines the MCP capabilities this server
                   provides
                 items:
                   type: string
                 minItems: 1
+                type: array
+              command:
+                description: Command specifies the container command to override the
+                  default entrypoint
+                items:
+                  type: string
                 type: array
               environment:
                 description: Environment defines environment variables for the MCP
@@ -3337,6 +3349,111 @@ spec:
                     - LoadBalancer
                     type: string
                 type: object
+              transport:
+                description: Transport defines the MCP transport configuration
+                properties:
+                  config:
+                    description: Config contains transport-specific configuration
+                    properties:
+                      custom:
+                        description: Custom configuration for custom transport
+                        properties:
+                          config:
+                            additionalProperties:
+                              type: string
+                            description: Config contains custom transport-specific
+                              configuration
+                            type: object
+                          port:
+                            description: Port specifies the port for custom transport
+                              connections
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
+                          protocol:
+                            description: Protocol specifies the protocol for custom
+                              transport
+                            type: string
+                        type: object
+                      http:
+                        description: HTTP configuration for streamable HTTP transport
+                        properties:
+                          path:
+                            default: /mcp
+                            description: Path specifies the HTTP endpoint path
+                            type: string
+                          port:
+                            default: 8080
+                            description: Port specifies the port for HTTP connections
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
+                          security:
+                            description: Security defines HTTP-specific security configuration
+                            properties:
+                              allowedOrigins:
+                                description: AllowedOrigins specifies allowed origins
+                                  for CORS
+                                items:
+                                  type: string
+                                type: array
+                              authentication:
+                                description: Authentication defines authentication
+                                  configuration
+                                properties:
+                                  secretRef:
+                                    description: SecretRef references a secret containing
+                                      authentication credentials
+                                    properties:
+                                      name:
+                                        description: name is unique within a namespace
+                                          to reference a secret resource.
+                                        type: string
+                                      namespace:
+                                        description: namespace defines the space within
+                                          which the secret name must be unique.
+                                        type: string
+                                    type: object
+                                    x-kubernetes-map-type: atomic
+                                  type:
+                                    default: none
+                                    description: Type specifies the authentication
+                                      type
+                                    enum:
+                                    - none
+                                    - bearer
+                                    - basic
+                                    type: string
+                                type: object
+                              bindLocalhost:
+                                description: BindLocalhost restricts binding to localhost
+                                  only
+                                type: boolean
+                              validateOrigin:
+                                description: ValidateOrigin enables origin validation
+                                  for HTTP requests
+                                type: boolean
+                            type: object
+                          sessionManagement:
+                            description: SessionManagement enables session management
+                              for the HTTP transport
+                            type: boolean
+                        type: object
+                    type: object
+                  type:
+                    allOf:
+                    - enum:
+                      - http
+                      - custom
+                    - enum:
+                      - http
+                      - custom
+                    default: http
+                    description: Type specifies the transport type
+                    type: string
+                type: object
             required:
             - image
             type: object
@@ -3422,6 +3539,12 @@ spec:
               serviceEndpoint:
                 description: ServiceEndpoint represents the endpoint where the MCP
                   server is accessible
+                type: string
+              transportType:
+                description: TransportType represents the active transport type
+                enum:
+                - http
+                - custom
                 type: string
             type: object
         required:
