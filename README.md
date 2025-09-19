@@ -1,16 +1,18 @@
 # MCP Operator
 
-A Kubernetes operator for managing Model Context Protocol (MCP) servers with enterprise-grade features including horizontal pod autoscaling, RBAC, and comprehensive configuration management.
+A Kubernetes operator for managing Model Context Protocol (MCP) servers with enterprise-grade features including horizontal pod autoscaling, RBAC, ingress support, transport configuration, and comprehensive observability.
 
 ## Description
 
-The MCP Operator simplifies the deployment and management of MCP servers on Kubernetes clusters. It provides a declarative API through custom resources that abstract away the complexity of managing deployments, services, RBAC, and autoscaling configurations.
+The MCP Operator simplifies the deployment and management of MCP servers on Kubernetes clusters. It provides a declarative API through custom resources that abstract away the complexity of managing deployments, services, RBAC, autoscaling, and monitoring configurations.
 
 **Key Features:**
 - **Declarative Management**: Define MCP servers using Kubernetes custom resources
+- **Transport Support**: HTTP streamable and custom transport protocols with automatic service configuration
 - **Horizontal Pod Autoscaling**: Built-in HPA support with CPU and memory metrics
 - **Enterprise Security**: RBAC integration with user and group access controls
-- **Production Ready**: Health checks, resource management, and comprehensive monitoring
+- **Ingress Support**: Automatic ingress creation with transport-specific annotations and MCP traffic analytics
+- **Production Monitoring**: Prometheus metrics, Grafana dashboards, and comprehensive observability
 - **Flexible Configuration**: Support for custom environments, volumes, and networking
 
 ## Architecture
@@ -18,14 +20,25 @@ The MCP Operator simplifies the deployment and management of MCP servers on Kube
 The MCP Operator introduces the `MCPServer` custom resource that declaratively manages:
 
 - **Kubernetes Deployments**: Container orchestration with configurable replicas
-- **Services**: Network exposure with customizable ports and service types
+- **Services**: Network exposure with transport-specific ports and protocols
 - **ServiceAccounts & RBAC**: Fine-grained security controls
 - **Horizontal Pod Autoscalers**: Automatic scaling based on resource utilization
-- **ConfigMaps & Secrets**: Configuration and credential management
+- **Ingress Resources**: External access with MCP-aware traffic routing
+- **Monitoring**: Prometheus metrics and Grafana dashboards
 
-## MCPServer Resource
+## Quick Start
 
-### Basic Example
+### Installation
+
+Install the MCP Operator using the pre-built installer:
+
+```sh
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/install.yaml
+```
+
+### Basic MCP Server
+
+Create a simple MCP server:
 
 ```yaml
 apiVersion: mcp.mcp-operator.io/v1
@@ -45,245 +58,301 @@ spec:
       memory: "512Mi"
 ```
 
-### Advanced Example with HPA
+Apply it to your cluster:
+
+```sh
+kubectl apply -f my-mcp-server.yaml
+```
+
+## MCPServer Resource Examples
+
+### HTTP Transport with Ingress
 
 ```yaml
 apiVersion: mcp.mcp-operator.io/v1
 kind: MCPServer
 metadata:
-  name: advanced-mcp-server
+  name: http-mcp-server
 spec:
-  image: "my-registry/mcp-server:v1.0.0"
-  replicas: 2
+  image: "mcp/wikipedia-mcp:latest"
+  transport:
+    type: http
+    config:
+      http:
+        port: 8080
+        sessionManagement: true
+
+  # External access via ingress
+  ingress:
+    enabled: true
+    host: "mcp.example.com"
+    path: "/"
+    className: "nginx"
+    tls:
+      - secretName: "mcp-tls"
+        hosts:
+          - "mcp.example.com"
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+```
+
+### Custom Transport with TCP Protocol
+
+```yaml
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: custom-mcp-server
+spec:
+  image: "my-registry/custom-mcp:v1.0.0"
+  transport:
+    type: custom
+    config:
+      custom:
+        protocol: "tcp"
+        port: 9000
+        config:
+          buffer_size: "1024"
+          timeout: "30s"
+```
+
+### Production Setup with HPA and Monitoring
+
+```yaml
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: production-mcp-server
+spec:
+  image: "my-registry/mcp-server:v2.0.0"
+  replicas: 3
+
+  # Transport configuration
+  transport:
+    type: http
+    config:
+      http:
+        port: 8080
+        sessionManagement: true
 
   # Horizontal Pod Autoscaler
   hpa:
     enabled: true
-    minReplicas: 2
-    maxReplicas: 10
+    minReplicas: 3
+    maxReplicas: 20
     targetCPUUtilizationPercentage: 70
     targetMemoryUtilizationPercentage: 80
+    scaleUpBehavior:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: "Percent"
+          value: 100
+          periodSeconds: 15
+    scaleDownBehavior:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: "Percent"
+          value: 10
+          periodSeconds: 60
 
   # Security Configuration
   security:
     allowedUsers:
       - "admin"
-      - "developer"
+      - "mcp-user"
     allowedGroups:
-      - "mcp-users"
+      - "mcp-operators"
+      - "data-scientists"
 
   # Service Configuration
   service:
     type: "ClusterIP"
     port: 8080
-    targetPort: 3000
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
 
   # Health Checks
   healthCheck:
     enabled: true
     path: "/health"
-    port: 3000
-    initialDelaySeconds: 15
+    port: 8080
+    initialDelaySeconds: 30
     periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  # Resource Requirements
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
 
   # Environment Variables
   environment:
     - name: "LOG_LEVEL"
       value: "info"
     - name: "MCP_PORT"
-      value: "3000"
+      value: "8080"
+    - name: "METRICS_ENABLED"
+      value: "true"
+
+  # Ingress with monitoring
+  ingress:
+    enabled: true
+    host: "api.example.com"
+    path: "/mcp"
+    className: "nginx"
+    annotations:
+      nginx.ingress.kubernetes.io/rate-limit: "100"
+      nginx.ingress.kubernetes.io/rate-limit-window: "1m"
 ```
 
-## Getting Started
+## Monitoring and Observability
 
-### Prerequisites
-- go version v1.24.0+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
+The MCP Operator provides comprehensive monitoring capabilities:
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
+### Prometheus Metrics
 
-```sh
-make docker-build docker-push IMG=<some-registry>/mcp-operator:tag
+Automatic metrics collection includes:
+- `mcpserver_ready_total` - Number of ready MCP servers
+- `mcpserver_replicas` - Current replica count per server and transport type
+- `mcpserver_transport_type_total` - Transport type distribution
+- `mcpserver_reconcile_duration_seconds` - Controller reconciliation timing
+- `mcpserver_phase` - Current phase tracking (Creating, Running, Scaling, Failed)
+- `mcpserver_resource_requests` - CPU and memory resource allocation
+
+### Grafana Dashboard
+
+The operator includes a pre-built Grafana dashboard with:
+- MCPServer status and health overview
+- Transport type distribution analytics
+- Replica count and scaling trends
+- Controller performance metrics
+- Resource utilization tracking
+
+Dashboard is automatically deployed as a ConfigMap that Grafana can discover.
+
+### Ingress Analytics
+
+Transport-specific ingress annotations provide:
+- MCP protocol version tracking
+- Session management analytics
+- Request routing and load balancing metrics
+- Advanced structured logging for traffic analysis
+
+## API Reference
+
+### MCPServer Spec
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `image` | string | **Required.** Container image for the MCP server |
+| `replicas` | int32 | Number of desired replicas (default: 1) |
+| `transport` | object | Transport configuration (HTTP or custom) |
+| `resources` | object | CPU and memory resource requirements |
+| `hpa` | object | Horizontal Pod Autoscaler configuration |
+| `security` | object | RBAC and access control settings |
+| `service` | object | Service exposure configuration |
+| `ingress` | object | Ingress configuration for external access |
+| `healthCheck` | object | Health check probe configuration |
+| `environment` | []object | Environment variables |
+| `podTemplate` | object | Additional pod template specifications |
+
+### MCPServer Status
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `phase` | string | Current phase: Creating, Running, Updating, Scaling, Failed, Terminating |
+| `replicas` | int32 | Current total replica count |
+| `readyReplicas` | int32 | Number of ready replicas |
+| `availableReplicas` | int32 | Number of available replicas |
+| `transportType` | string | Active transport type |
+| `serviceEndpoint` | string | Service endpoint URL |
+| `conditions` | []object | Detailed status conditions |
+| `lastReconcileTime` | timestamp | Last reconciliation timestamp |
+
+## Transport Configuration
+
+### HTTP Transport
+
+```yaml
+transport:
+  type: http
+  config:
+    http:
+      port: 8080                    # HTTP port (default: 8080)
+      sessionManagement: true       # Enable session affinity
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+### Custom Transport
 
-**Install the CRDs into the cluster:**
-
-```sh
-make install
+```yaml
+transport:
+  type: custom
+  config:
+    custom:
+      protocol: "tcp"               # Protocol: tcp, udp, sctp
+      port: 9000                    # Custom port
+      config:                       # Protocol-specific configuration
+        buffer_size: "1024"
+        timeout: "30s"
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+## Examples and Samples
 
-```sh
-make deploy IMG=<some-registry>/mcp-operator:tag
-```
+The `config/samples/` directory contains comprehensive examples:
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
+- `basic-mcpserver.yaml` - Simple MCP server deployment
+- `http-mcp-server-ingress.yaml` - HTTP transport with ingress
+- `custom-http-ingress.yaml` - Custom transport configuration
+- `monitoring-metrics-example.yaml` - Full monitoring setup
+- `wikipedia.yaml` - Real-world Wikipedia MCP server example
 
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
+Apply sample configurations:
 
 ```sh
 kubectl apply -k config/samples/
 ```
 
->**NOTE**: Ensure that the samples has default values to test it out.
+## Advanced Topics
 
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
+### Transport Manager Architecture
 
-```sh
-kubectl delete -k config/samples/
-```
+The operator uses a transport manager pattern to handle different MCP protocols:
+- **HTTP Manager**: Optimized for MCP-over-HTTP with streaming support
+- **Custom Manager**: Flexible configuration for TCP/UDP/SCTP protocols
 
-**Delete the APIs(CRDs) from the cluster:**
+### Resource Management
 
-```sh
-make uninstall
-```
+Automatic resource management includes:
+- Transport-specific service creation
+- Protocol-aware port allocation
+- Load balancer annotations for cloud providers
+- Health check configuration per transport type
 
-**UnDeploy the controller from the cluster:**
+### Security Model
 
-```sh
-make undeploy
-```
+Multi-layered security approach:
+- **RBAC Integration**: Fine-grained user and group access controls
+- **Network Policies**: Optional traffic isolation
+- **Service Mesh**: Compatible with Istio and Linkerd
+- **TLS Termination**: Automatic certificate management with cert-manager
 
-## Project Distribution
+## Documentation
 
-Following the options to release and provide this solution to the users.
+- **[Development Guide](development.md)** - Building, testing, and contributing
+- **[API Reference](docs/)** - Complete API documentation
+- **[Architecture Decision Records](docs/)** - Design decisions and rationale
+- **[Examples](config/samples/)** - Real-world configuration examples
 
-### By providing a bundle with all YAML files
+## Support and Community
 
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/mcp-operator:tag
-```
-
-**NOTE:** The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without its
-dependencies.
-
-2. Using the installer
-
-Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
-the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/mcp-operator/<tag or branch>/dist/install.yaml
-```
-
-### By providing a Helm Chart
-
-1. Build the chart using the optional helm plugin
-
-```sh
-kubebuilder edit --plugins=helm/v1-alpha
-```
-
-2. See that a chart was generated under 'dist/chart', and users
-can obtain this solution from there.
-
-**NOTE:** If you change the project, you need to update the Helm Chart
-using the same command above to sync the latest changes. Furthermore,
-if you create webhooks, you need to use the above command with
-the '--force' flag and manually ensure that any custom configuration
-previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
-is manually re-applied afterwards.
-
-## Development
-
-### Running Tests
-
-Run the comprehensive test suite:
-
-```sh
-make test
-```
-
-### Running the Operator Locally
-
-1. Install CRDs into your cluster:
-```sh
-make install
-```
-
-2. Run the operator locally:
-```sh
-make run
-```
-
-### Code Generation
-
-After modifying API types, regenerate code and manifests:
-
-```sh
-make manifests generate
-```
-
-## API Reference
-
-The operator provides the following custom resources:
-
-### MCPServer
-
-The `MCPServer` custom resource defines the desired state of an MCP server deployment.
-
-**Key Spec Fields:**
-- `image` (required): Container image for the MCP server
-- `replicas`: Number of desired replicas (default: 1)
-- `resources`: CPU and memory resource requirements
-- `hpa`: Horizontal Pod Autoscaler configuration
-- `security`: RBAC and access control settings
-- `service`: Service exposure configuration
-- `healthCheck`: Health check probe configuration
-- `environment`: Environment variables
-- `podTemplate`: Additional pod template specifications
-
-**Status Fields:**
-- `phase`: Current phase (Creating, Running, Scaling, Failed)
-- `replicas`: Current replica counts
-- `conditions`: Detailed status conditions
-- `serviceEndpoint`: Service endpoint URL
-
-## Contributing
-
-We welcome contributions! Please follow these guidelines:
-
-1. **Fork the repository** and create a feature branch
-2. **Write tests** for any new functionality
-3. **Run the test suite** with `make test`
-4. **Update documentation** as needed
-5. **Submit a pull request** with a clear description
-
-### Architecture Decision Records (ADRs)
-
-This project uses ADRs to document important architectural decisions:
-- [ADR-001: MCPServer API Design](docs/adr-001-mcpserver-api-design.md)
-- [ADR-002: MCPServer Controller Implementation](docs/adr-002-mcpserver-controller-implementation.md)
-- [ADR-003: MCPServer HPA Support](docs/adr-003-mcpserver-hpa-support.md)
-
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
-
-## Contributing
-
-By contributing to this project, you agree that your contributions will be licensed under the same Business Source License 1.1 as the project.
-
-### Contributor License Agreement
-- All contributions must be compatible with BSL 1.1
-- Contributors retain copyright of their contributions
-- Contributions become part of the Licensed Work under BSL 1.1
+- **Issues**: [GitHub Issues](https://github.com/vitorbari/mcp-operator/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/vitorbari/mcp-operator/discussions)
+- **Documentation**: [Project Wiki](https://github.com/vitorbari/mcp-operator/wiki)
 
 ## License
 
@@ -293,7 +362,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-https://www.apache.org/licenses/LICENSE-2.0.txt
+https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
