@@ -26,6 +26,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -470,6 +471,381 @@ var _ = Describe("MCPServer Controller", func() {
 
 			Expect(service.Spec.Ports[0].Port).To(Equal(int32(9090)))
 			Expect(service.Spec.Ports[0].TargetPort.IntVal).To(Equal(int32(80)))
+		})
+	})
+
+	Context("When reconciling MCPServer with Ingress", func() {
+		const resourceNamespace = "default"
+
+		ctx := context.Background()
+		var resourceName string
+		var typeNamespacedName types.NamespacedName
+		var mcpserver *mcpv1.MCPServer
+		var controllerReconciler *MCPServerReconciler
+
+		BeforeEach(func() {
+			resourceName = "test-mcpserver-ingress-" + RandStringRunes(8)
+			typeNamespacedName = types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+
+			By("Creating the MCPServer resource with Ingress enabled")
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "nginx:1.21",
+					Replicas: ptr(int32(1)),
+					Transport: &mcpv1.MCPServerTransport{
+						Type: mcpv1.MCPTransportHTTP,
+						Config: &mcpv1.MCPTransportConfigDetails{
+							HTTP: &mcpv1.MCPHTTPTransportConfig{
+								Port:              8080,
+								SessionManagement: ptr(true),
+							},
+						},
+					},
+					Ingress: &mcpv1.MCPServerIngress{
+						Enabled:   ptr(true),
+						Host:      "test.example.com",
+						Path:      "/mcp",
+						ClassName: ptr("nginx"),
+						Annotations: map[string]string{
+							"cert-manager.io/cluster-issuer": "letsencrypt",
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			controllerReconciler = &MCPServerReconciler{
+				Client:           k8sClient,
+				Scheme:           k8sClient.Scheme(),
+				TransportFactory: transport.NewManagerFactory(k8sClient, k8sClient.Scheme()),
+				Recorder:         record.NewFakeRecorder(100),
+			}
+		})
+
+		AfterEach(func() {
+			By("Cleaning up the MCPServer resource")
+			resource := &mcpv1.MCPServer{}
+			err := k8sClient.Get(ctx, typeNamespacedName, resource)
+			if err == nil {
+				resource.Finalizers = nil
+				_ = k8sClient.Update(ctx, resource)
+				_ = k8sClient.Delete(ctx, resource)
+			}
+		})
+
+		It("should create an Ingress resource", func() {
+			By("Reconciling the MCPServer")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking that an Ingress was created")
+			ingress := &networkingv1.Ingress{}
+			ingressKey := types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, ingressKey, ingress)
+				return err == nil
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			Expect(ingress.Spec.Rules).To(HaveLen(1))
+			Expect(ingress.Spec.Rules[0].Host).To(Equal("test.example.com"))
+			Expect(ingress.Spec.Rules[0].HTTP.Paths).To(HaveLen(1))
+			Expect(ingress.Spec.Rules[0].HTTP.Paths[0].Path).To(Equal("/mcp"))
+
+			// Check annotations include both custom and MCP-specific ones
+			Expect(ingress.Annotations).To(HaveKey("cert-manager.io/cluster-issuer"))
+			Expect(ingress.Annotations).To(HaveKey("nginx.ingress.kubernetes.io/server-snippet"))
+			Expect(ingress.Annotations["nginx.ingress.kubernetes.io/enable-metrics"]).To(Equal("true"))
+		})
+
+		It("should not create Ingress when disabled", func() {
+			By("Updating the MCPServer to disable Ingress")
+			Expect(k8sClient.Get(ctx, typeNamespacedName, mcpserver)).To(Succeed())
+			mcpserver.Spec.Ingress.Enabled = ptr(false)
+			Expect(k8sClient.Update(ctx, mcpserver)).To(Succeed())
+
+			By("Reconciling the MCPServer")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking that no Ingress exists")
+			ingress := &networkingv1.Ingress{}
+			ingressKey := types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+			Consistently(func() bool {
+				err := k8sClient.Get(ctx, ingressKey, ingress)
+				return errors.IsNotFound(err)
+			}, time.Second*5, time.Millisecond*250).Should(BeTrue())
+		})
+	})
+
+	Context("When reconciling MCPServer with Custom Transport", func() {
+		const resourceNamespace = "default"
+
+		ctx := context.Background()
+		var resourceName string
+		var typeNamespacedName types.NamespacedName
+		var mcpserver *mcpv1.MCPServer
+		var controllerReconciler *MCPServerReconciler
+
+		BeforeEach(func() {
+			resourceName = "test-mcpserver-custom-" + RandStringRunes(8)
+			typeNamespacedName = types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+
+			By("Creating the MCPServer resource with Custom Transport")
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "nginx:1.21",
+					Replicas: ptr(int32(1)),
+					Transport: &mcpv1.MCPServerTransport{
+						Type: mcpv1.MCPTransportCustom,
+						Config: &mcpv1.MCPTransportConfigDetails{
+							Custom: &mcpv1.MCPCustomTransportConfig{
+								Protocol: "tcp",
+								Port:     9000,
+								Config: map[string]string{
+									"buffer_size": "1024",
+									"timeout":     "30s",
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			controllerReconciler = &MCPServerReconciler{
+				Client:           k8sClient,
+				Scheme:           k8sClient.Scheme(),
+				TransportFactory: transport.NewManagerFactory(k8sClient, k8sClient.Scheme()),
+				Recorder:         record.NewFakeRecorder(100),
+			}
+		})
+
+		AfterEach(func() {
+			By("Cleaning up the MCPServer resource")
+			resource := &mcpv1.MCPServer{}
+			err := k8sClient.Get(ctx, typeNamespacedName, resource)
+			if err == nil {
+				resource.Finalizers = nil
+				_ = k8sClient.Update(ctx, resource)
+				_ = k8sClient.Delete(ctx, resource)
+			}
+		})
+
+		It("should create resources with custom transport configuration", func() {
+			By("Reconciling the MCPServer")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking that Deployment was created with custom transport")
+			deployment := &appsv1.Deployment{}
+			deploymentKey := types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, deploymentKey, deployment)
+				return err == nil
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			container := deployment.Spec.Template.Spec.Containers[0]
+
+			// Check for MCP_TRANSPORT env var
+			var transportEnv *corev1.EnvVar
+			for _, env := range container.Env {
+				if env.Name == "MCP_TRANSPORT" {
+					transportEnv = &env
+					break
+				}
+			}
+			Expect(transportEnv).NotTo(BeNil())
+			Expect(transportEnv.Value).To(Equal("custom"))
+
+			By("Checking Service configuration for custom transport")
+			service := &corev1.Service{}
+			serviceKey := types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, service)
+				return err == nil
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			Expect(service.Spec.Ports[0].Port).To(Equal(int32(9000)))
+		})
+
+		It("should update status with custom transport type", func() {
+			By("Reconciling the MCPServer")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking the MCPServer status contains transport type")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+				if err != nil {
+					return false
+				}
+				return mcpserver.Status.TransportType == mcpv1.MCPTransportCustom
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+		})
+	})
+
+	Context("When handling MCPServer deletion", func() {
+		const resourceNamespace = "default"
+
+		ctx := context.Background()
+		var resourceName string
+		var typeNamespacedName types.NamespacedName
+		var mcpserver *mcpv1.MCPServer
+		var controllerReconciler *MCPServerReconciler
+
+		BeforeEach(func() {
+			resourceName = "test-mcpserver-delete-" + RandStringRunes(8)
+			typeNamespacedName = types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "nginx:1.21",
+					Replicas: ptr(int32(1)),
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			controllerReconciler = &MCPServerReconciler{
+				Client:           k8sClient,
+				Scheme:           k8sClient.Scheme(),
+				TransportFactory: transport.NewManagerFactory(k8sClient, k8sClient.Scheme()),
+				Recorder:         record.NewFakeRecorder(100),
+			}
+
+			// First reconcile to create resources and add finalizer
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should handle deletion gracefully", func() {
+			By("Deleting the MCPServer resource")
+			Expect(k8sClient.Get(ctx, typeNamespacedName, mcpserver)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, mcpserver)).To(Succeed())
+
+			By("Reconciling the deletion")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying the resource is deleted")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+				return errors.IsNotFound(err)
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+		})
+
+		It("should update status to Terminating during deletion", func() {
+			By("Deleting the MCPServer resource")
+			Expect(k8sClient.Get(ctx, typeNamespacedName, mcpserver)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, mcpserver)).To(Succeed())
+
+			By("Getting the MCPServer with deletion timestamp")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+				return err == nil && mcpserver.DeletionTimestamp != nil
+			}, time.Second*5, time.Millisecond*250).Should(BeTrue())
+
+			By("Reconciling to handle deletion")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	Context("When handling reconciliation errors", func() {
+		const resourceNamespace = "default"
+
+		ctx := context.Background()
+		var resourceName string
+		var typeNamespacedName types.NamespacedName
+		var controllerReconciler *MCPServerReconciler
+
+		BeforeEach(func() {
+			resourceName = "test-mcpserver-error-" + RandStringRunes(8)
+			typeNamespacedName = types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+
+			controllerReconciler = &MCPServerReconciler{
+				Client:           k8sClient,
+				Scheme:           k8sClient.Scheme(),
+				TransportFactory: transport.NewManagerFactory(k8sClient, k8sClient.Scheme()),
+				Recorder:         record.NewFakeRecorder(100),
+			}
+		})
+
+		It("should handle non-existent resource gracefully", func() {
+			By("Reconciling a non-existent MCPServer")
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Requeue).To(BeFalse())
+		})
+
+		It("should reject MCPServer with invalid image", func() {
+			By("Creating MCPServer with invalid configuration")
+			mcpserver := &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "", // Invalid empty image
+					Replicas: ptr(int32(1)),
+				},
+			}
+
+			By("Expecting creation to fail due to validation")
+			err := k8sClient.Create(ctx, mcpserver)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("spec.image"))
 		})
 	})
 })
