@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -149,17 +150,27 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// Update status based on deployment status
+	statusChanged := false
 	if err := r.updateMCPServerStatus(ctx, mcpServer); err != nil {
 		log.Error(err, "Failed to update MCPServer status")
 		metrics.RecordReconcileMetrics("mcpserver", time.Since(startTime).Seconds(), "error")
 		return ctrl.Result{}, err
+	} else {
+		// Check if this was the first successful reconciliation
+		if mcpServer.Status.ObservedGeneration != mcpServer.Generation {
+			statusChanged = true
+		}
 	}
 
 	// Record reconciliation metrics
 	metrics.RecordReconcileMetrics("mcpserver", time.Since(startTime).Seconds(), "success")
 
-	log.Info("Successfully reconciled MCPServer")
-	r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "Reconciled", "Successfully reconciled MCPServer")
+	// Only log and emit events for significant changes to reduce noise
+	if statusChanged {
+		log.Info("Successfully reconciled MCPServer")
+		r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "Reconciled", "Successfully reconciled MCPServer")
+	}
+
 	return ctrl.Result{RequeueAfter: time.Minute * 5}, nil
 }
 
@@ -313,16 +324,16 @@ func (r *MCPServerReconciler) reconcileTransportResources(ctx context.Context, m
 		return err
 	}
 
-	// Create or update transport resources
-	if err := manager.CreateResources(ctx, mcpServer); err != nil {
-		return err
-	}
+	// Use retry logic for resource conflicts
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Create resources (this should be idempotent)
+		if err := manager.CreateResources(ctx, mcpServer); err != nil {
+			return err
+		}
 
-	if err := manager.UpdateResources(ctx, mcpServer); err != nil {
-		return err
-	}
-
-	return nil
+		// Update resources (this handles changes)
+		return manager.UpdateResources(ctx, mcpServer)
+	})
 }
 
 // reconcileHPA ensures the HorizontalPodAutoscaler exists if enabled
@@ -689,11 +700,26 @@ func (r *MCPServerReconciler) buildIngress(mcpServer *mcpv1.MCPServer) *networki
 	}
 }
 
-// updateStatus updates the MCPServer status
+// updateStatus updates the MCPServer status with retry logic for conflicts
 func (r *MCPServerReconciler) updateStatus(ctx context.Context, mcpServer *mcpv1.MCPServer) error {
 	mcpServer.Status.LastReconcileTime = &metav1.Time{Time: time.Now()}
 	mcpServer.Status.ObservedGeneration = mcpServer.Generation
-	return r.Status().Update(ctx, mcpServer)
+
+	// Retry logic for optimistic concurrency conflicts
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Re-fetch the MCPServer to get the latest resource version
+		latest := &mcpv1.MCPServer{}
+		if err := r.Get(ctx, types.NamespacedName{Name: mcpServer.Name, Namespace: mcpServer.Namespace}, latest); err != nil {
+			return err
+		}
+
+		// Copy the status to the latest version
+		latest.Status = mcpServer.Status
+		latest.Status.LastReconcileTime = &metav1.Time{Time: time.Now()}
+		latest.Status.ObservedGeneration = latest.Generation
+
+		return r.Status().Update(ctx, latest)
+	})
 }
 
 // updateStatusWithError updates the MCPServer status with error information
@@ -722,10 +748,7 @@ func (r *MCPServerReconciler) updateStatusWithError(ctx context.Context, mcpServ
 
 // updateMCPServerStatus updates the MCPServer status based on deployment status
 func (r *MCPServerReconciler) updateMCPServerStatus(ctx context.Context, mcpServer *mcpv1.MCPServer) error {
-	// Re-fetch the MCPServer to get the latest resourceVersion and avoid conflicts
-	if err := r.Get(ctx, types.NamespacedName{Name: mcpServer.Name, Namespace: mcpServer.Namespace}, mcpServer); err != nil {
-		return err
-	}
+	// Note: updateStatus() will handle re-fetching for conflict resolution
 
 	// Get deployment status
 	deployment := &appsv1.Deployment{}
@@ -799,14 +822,21 @@ func (r *MCPServerReconciler) updateMCPServerStatus(ctx context.Context, mcpServ
 		}
 	}
 
+	// Capture the current status for comparison
+	originalStatus := mcpServer.Status.DeepCopy()
+
 	// Update conditions
 	r.updateConditions(mcpServer, deployment)
 
 	// Update metrics
 	metrics.UpdateMCPServerMetrics(mcpServer)
 
-	// Update status
-	return r.updateStatus(ctx, mcpServer)
+	// Only update status if there are actual changes
+	if !reflect.DeepEqual(originalStatus, &mcpServer.Status) {
+		return r.updateStatus(ctx, mcpServer)
+	}
+
+	return nil
 }
 
 // updateConditions updates the MCPServer conditions based on deployment status
@@ -882,7 +912,11 @@ func (r *MCPServerReconciler) setCondition(mcpServer *mcpv1.MCPServer, newCondit
 	for i, condition := range mcpServer.Status.Conditions {
 		if condition.Type == newCondition.Type {
 			if condition.Status != newCondition.Status || condition.Reason != newCondition.Reason || condition.Message != newCondition.Message {
+				// Only update LastTransitionTime when the condition actually changes
 				mcpServer.Status.Conditions[i] = newCondition
+			} else {
+				// Condition content is the same, preserve the existing timestamp
+				// This prevents unnecessary status updates that trigger reconciliation loops
 			}
 			return
 		}

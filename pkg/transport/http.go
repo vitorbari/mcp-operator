@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -157,19 +158,22 @@ func (h *HTTPResourceManager) updateDeployment(ctx context.Context, mcpServer *m
 		return err
 	}
 
-	found := &appsv1.Deployment{}
-	err := h.client.Get(ctx, types.NamespacedName{Name: deployment.Name, Namespace: deployment.Namespace}, found)
-	if err != nil {
-		return err
-	}
+	// Use retry logic for optimistic concurrency conflicts
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		found := &appsv1.Deployment{}
+		err := h.client.Get(ctx, types.NamespacedName{Name: deployment.Name, Namespace: deployment.Namespace}, found)
+		if err != nil {
+			return err
+		}
 
-	// Update deployment if necessary
-	if !reflect.DeepEqual(found.Spec, deployment.Spec) {
-		found.Spec = deployment.Spec
-		return h.client.Update(ctx, found)
-	}
+		// Update deployment if necessary
+		if !reflect.DeepEqual(found.Spec, deployment.Spec) {
+			found.Spec = deployment.Spec
+			return h.client.Update(ctx, found)
+		}
 
-	return nil
+		return nil
+	})
 }
 
 // buildDeployment builds a deployment for HTTP transport

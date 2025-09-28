@@ -797,6 +797,149 @@ var _ = Describe("MCPServer Controller", func() {
 		})
 	})
 
+	Context("When reconciling MCPServer with custom command and args", func() {
+		const resourceNamespace = "default"
+
+		ctx := context.Background()
+		var resourceName string
+		var typeNamespacedName types.NamespacedName
+		var mcpserver *mcpv1.MCPServer
+		var controllerReconciler *MCPServerReconciler
+
+		BeforeEach(func() {
+			resourceName = "test-mcpserver-command-" + RandStringRunes(8)
+			typeNamespacedName = types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+
+			By("Creating the MCPServer resource with custom command and args")
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "mcp/wikipedia-mcp:latest",
+					Replicas: ptr(int32(1)),
+					Command:  []string{"python", "-m", "wikipedia_mcp"},
+					Args:     []string{"--transport", "sse", "--port", "8080", "--host", "0.0.0.0"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			controllerReconciler = &MCPServerReconciler{
+				Client:           k8sClient,
+				Scheme:           k8sClient.Scheme(),
+				TransportFactory: transport.NewManagerFactory(k8sClient, k8sClient.Scheme()),
+				Recorder:         record.NewFakeRecorder(100),
+			}
+		})
+
+		AfterEach(func() {
+			By("Cleaning up the MCPServer resource")
+			resource := &mcpv1.MCPServer{}
+			err := k8sClient.Get(ctx, typeNamespacedName, resource)
+			if err == nil {
+				resource.Finalizers = nil
+				_ = k8sClient.Update(ctx, resource)
+				_ = k8sClient.Delete(ctx, resource)
+			}
+		})
+
+		It("should create Deployment with custom command and args", func() {
+			By("Reconciling the MCPServer")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking that Deployment was created with custom command and args")
+			deployment := &appsv1.Deployment{}
+			deploymentKey := types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, deploymentKey, deployment)
+				return err == nil
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			container := deployment.Spec.Template.Spec.Containers[0]
+
+			// Verify the container command is set correctly
+			Expect(container.Command).To(Equal([]string{"python", "-m", "wikipedia_mcp"}))
+
+			// Verify the container args are set correctly
+			Expect(container.Args).To(Equal([]string{"--transport", "sse", "--port", "8080", "--host", "0.0.0.0"}))
+		})
+
+		It("should create Deployment with only custom command when args are empty", func() {
+			By("Updating the MCPServer to remove args")
+			Expect(k8sClient.Get(ctx, typeNamespacedName, mcpserver)).To(Succeed())
+			mcpserver.Spec.Args = nil
+			Expect(k8sClient.Update(ctx, mcpserver)).To(Succeed())
+
+			By("Reconciling the MCPServer")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking that Deployment has command but no args")
+			deployment := &appsv1.Deployment{}
+			deploymentKey := types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, deploymentKey, deployment)
+				return err == nil
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			container := deployment.Spec.Template.Spec.Containers[0]
+
+			// Verify the container command is still set
+			Expect(container.Command).To(Equal([]string{"python", "-m", "wikipedia_mcp"}))
+
+			// Verify the container args are empty
+			Expect(container.Args).To(BeEmpty())
+		})
+
+		It("should create Deployment with only custom args when command is empty", func() {
+			By("Updating the MCPServer to remove command")
+			Expect(k8sClient.Get(ctx, typeNamespacedName, mcpserver)).To(Succeed())
+			mcpserver.Spec.Command = nil
+			mcpserver.Spec.Args = []string{"--config", "/app/config.json"}
+			Expect(k8sClient.Update(ctx, mcpserver)).To(Succeed())
+
+			By("Reconciling the MCPServer")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking that Deployment has args but no command")
+			deployment := &appsv1.Deployment{}
+			deploymentKey := types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, deploymentKey, deployment)
+				return err == nil
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			container := deployment.Spec.Template.Spec.Containers[0]
+
+			// Verify the container command is empty
+			Expect(container.Command).To(BeEmpty())
+
+			// Verify the container args are set
+			Expect(container.Args).To(Equal([]string{"--config", "/app/config.json"}))
+		})
+	})
+
 	Context("When handling reconciliation errors", func() {
 		const resourceNamespace = "default"
 
