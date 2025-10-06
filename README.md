@@ -34,6 +34,8 @@ The MCP Operator introduces the `MCPServer` custom resource that declaratively m
 
 ## Quick Start
 
+> 📖 **New to MCP Operator?** Check out the [Getting Started Guide](GETTING_STARTED.md) for a complete tutorial.
+
 ### Installation
 
 Install the MCP Operator using the pre-built installer:
@@ -349,8 +351,8 @@ Multi-layered security approach:
 
 ## Documentation
 
-- **[Development Guide](development.md)** - Building, testing, and contributing
-- **[API Reference](docs/)** - Complete API documentation
+- **[Getting Started Guide](GETTING_STARTED.md)** - 5-minute quickstart tutorial
+- **[Contributing Guide](CONTRIBUTING.md)** - How to contribute to the project
 - **[Architecture Decision Records](docs/)** - Design decisions and rationale
 - **[Examples](config/samples/)** - Real-world configuration examples
 

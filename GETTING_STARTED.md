@@ -1,0 +1,254 @@
+# Getting Started with MCP Operator
+
+This guide will help you get the MCP Operator running in about 5 minutes.
+
+## Prerequisites
+
+Before you begin, you'll need:
+
+- **Kubernetes cluster** - One of the following:
+  - [Kind](https://kind.sigs.k8s.io/) (recommended for testing) - Lightweight and fast
+  - [Minikube](https://minikube.sigs.k8s.io/) - Full-featured local cluster
+  - Any cloud Kubernetes cluster (GKE, EKS, AKS)
+- **kubectl** - [Install kubectl](https://kubernetes.io/docs/tasks/tools/)
+- **Basic Kubernetes knowledge** - Familiarity with pods, deployments, and services
+
+### Setting up a local cluster
+
+**Using Kind (recommended):**
+
+```bash
+# Install Kind
+brew install kind  # macOS
+# or download from https://kind.sigs.k8s.io/docs/user/quick-start/#installation
+
+# Create a cluster
+kind create cluster --name mcp-test
+```
+
+**Using Minikube:**
+
+```bash
+# Install Minikube
+brew install minikube  # macOS
+# or download from https://minikube.sigs.k8s.io/docs/start/
+
+# Start a cluster
+minikube start
+```
+
+## Step 1: Install the MCP Operator
+
+Install the operator in your cluster:
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/install.yaml
+```
+
+Wait for the operator to be ready:
+
+```bash
+kubectl wait --for=condition=available --timeout=300s \
+  deployment/mcp-operator-controller-manager \
+  -n mcp-operator-system
+```
+
+Verify the installation:
+
+```bash
+kubectl get pods -n mcp-operator-system
+```
+
+You should see the controller manager running:
+
+```
+NAME                                               READY   STATUS    RESTARTS   AGE
+mcp-operator-controller-manager-xxxxxxxxxx-xxxxx   2/2     Running   0          30s
+```
+
+## Step 2: Deploy Your First MCP Server
+
+Create a file named `my-first-mcp-server.yaml`:
+
+```yaml
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: my-first-mcp-server
+  namespace: default
+spec:
+  image: "ghcr.io/modelcontextprotocol/servers/everything:latest"
+  replicas: 1
+  transport:
+    type: http
+    config:
+      http:
+        port: 8080
+        sessionManagement: true
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+```
+
+Apply it to your cluster:
+
+```bash
+kubectl apply -f my-first-mcp-server.yaml
+```
+
+## Step 3: Verify It's Working
+
+Check the MCPServer status:
+
+```bash
+kubectl get mcpserver my-first-mcp-server
+```
+
+You should see output like:
+
+```
+NAME                   PHASE     REPLICAS   READY   TRANSPORT   AGE
+my-first-mcp-server    Running   1          1       http        1m
+```
+
+View detailed status:
+
+```bash
+kubectl describe mcpserver my-first-mcp-server
+```
+
+Check the pods:
+
+```bash
+kubectl get pods -l app.kubernetes.io/name=my-first-mcp-server
+```
+
+View logs:
+
+```bash
+kubectl logs -l app.kubernetes.io/name=my-first-mcp-server
+```
+
+## Step 4: Access Your MCP Server
+
+The operator creates a Kubernetes service for your MCP server. To access it locally:
+
+```bash
+kubectl port-forward service/my-first-mcp-server-service 8080:8080
+```
+
+Now you can access your MCP server at `http://localhost:8080`.
+
+## Next Steps
+
+### Try More Examples
+
+Explore the sample configurations:
+
+```bash
+# Wikipedia MCP server
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/config/samples/wikipedia-http.yaml
+
+# Full-featured example with ingress
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/config/samples/http-mcp-server-ingress.yaml
+```
+
+### Enable Advanced Features
+
+**Horizontal Pod Autoscaling:**
+
+```yaml
+spec:
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+```
+
+**Ingress for External Access:**
+
+```yaml
+spec:
+  ingress:
+    enabled: true
+    host: "mcp.example.com"
+    className: "nginx"
+```
+
+See the [README](README.md) for complete API reference and more examples.
+
+## Troubleshooting
+
+### MCPServer stuck in "Creating" phase
+
+Check pod status:
+
+```bash
+kubectl get pods -l app.kubernetes.io/name=my-first-mcp-server
+kubectl describe pod -l app.kubernetes.io/name=my-first-mcp-server
+```
+
+### Pods are CrashLooping
+
+View logs to see what's failing:
+
+```bash
+kubectl logs -l app.kubernetes.io/name=my-first-mcp-server
+```
+
+Common issues:
+- **Image pull errors** - Verify the image exists and is accessible
+- **Resource limits** - Try increasing memory/CPU limits
+- **Port conflicts** - Ensure the port matches your container's expectations
+
+### Operator not responding
+
+Check operator logs:
+
+```bash
+kubectl logs -n mcp-operator-system \
+  deployment/mcp-operator-controller-manager \
+  -c manager
+```
+
+## Cleanup
+
+Remove your MCP server:
+
+```bash
+kubectl delete mcpserver my-first-mcp-server
+```
+
+Uninstall the operator:
+
+```bash
+kubectl delete -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/install.yaml
+```
+
+Delete your local cluster:
+
+```bash
+# Kind
+kind delete cluster --name mcp-test
+
+# Minikube
+minikube delete
+```
+
+## Get Help
+
+- **Found a bug?** [Open an issue](https://github.com/vitorbari/mcp-operator/issues/new)
+- **Have questions?** [Start a discussion](https://github.com/vitorbari/mcp-operator/discussions)
+- **Want to contribute?** See [CONTRIBUTING.md](CONTRIBUTING.md)
+
+## What's Next?
+
+- Read the [Architecture Documentation](docs/README.md)
+- Explore [Advanced Examples](config/samples/)
+- Learn about [Transport Configuration](README.md#transport-configuration)
+- Set up [Monitoring and Observability](README.md#monitoring-and-observability)
