@@ -1,5 +1,11 @@
 # MCP Operator
 
+> **⚠️ Alpha Software - Not Production Ready**
+>
+> This project is in early development and should be considered **experimental**. While we encourage you to try it out and provide feedback, please do not use it in production environments yet. APIs may change, features may be incomplete, and bugs are expected.
+>
+> **We welcome your feedback!** Please open issues for bugs, feature requests, or questions.
+
 A Kubernetes operator for managing Model Context Protocol (MCP) servers with enterprise-grade features including horizontal pod autoscaling, RBAC, ingress support, transport configuration, and comprehensive observability.
 
 ## Description
