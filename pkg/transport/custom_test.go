@@ -139,63 +139,38 @@ var _ = Describe("CustomResourceManager", func() {
 			Expect(service.Spec.Ports[0].Protocol).To(Equal(corev1.ProtocolTCP))
 		})
 
-		It("should create resources for UDP custom transport", func() {
-			mcpServer.Spec.Transport.Config.Custom.Protocol = "udp"
+		DescribeTable("should create resources for different protocols",
+			func(protocol string, expectedPortName string, expectedProtocol corev1.Protocol) {
+				mcpServer.Spec.Transport.Config.Custom.Protocol = protocol
 
-			err := customManager.CreateResources(ctx, mcpServer)
-			Expect(err).NotTo(HaveOccurred())
+				err := customManager.CreateResources(ctx, mcpServer)
+				Expect(err).NotTo(HaveOccurred())
 
-			// Check deployment container port protocol
-			deployment := &appsv1.Deployment{}
-			err = k8sClient.Get(ctx, client.ObjectKey{
-				Name:      mcpServer.Name,
-				Namespace: mcpServer.Namespace,
-			}, deployment)
-			Expect(err).NotTo(HaveOccurred())
+				// Check deployment container port protocol
+				deployment := &appsv1.Deployment{}
+				err = k8sClient.Get(ctx, client.ObjectKey{
+					Name:      mcpServer.Name,
+					Namespace: mcpServer.Namespace,
+				}, deployment)
+				Expect(err).NotTo(HaveOccurred())
 
-			container := deployment.Spec.Template.Spec.Containers[0]
-			Expect(container.Ports[0].Name).To(Equal(protocolUDP))
-			Expect(container.Ports[0].Protocol).To(Equal(corev1.ProtocolUDP))
+				container := deployment.Spec.Template.Spec.Containers[0]
+				Expect(container.Ports[0].Name).To(Equal(expectedPortName))
+				Expect(container.Ports[0].Protocol).To(Equal(expectedProtocol))
 
-			// Check service protocol
-			service := &corev1.Service{}
-			err = k8sClient.Get(ctx, client.ObjectKey{
-				Name:      mcpServer.Name,
-				Namespace: mcpServer.Namespace,
-			}, service)
-			Expect(err).NotTo(HaveOccurred())
+				// Check service protocol
+				service := &corev1.Service{}
+				err = k8sClient.Get(ctx, client.ObjectKey{
+					Name:      mcpServer.Name,
+					Namespace: mcpServer.Namespace,
+				}, service)
+				Expect(err).NotTo(HaveOccurred())
 
-			Expect(service.Spec.Ports[0].Protocol).To(Equal(corev1.ProtocolUDP))
-		})
-
-		It("should create resources for SCTP custom transport", func() {
-			mcpServer.Spec.Transport.Config.Custom.Protocol = "sctp"
-
-			err := customManager.CreateResources(ctx, mcpServer)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Check deployment container port protocol
-			deployment := &appsv1.Deployment{}
-			err = k8sClient.Get(ctx, client.ObjectKey{
-				Name:      mcpServer.Name,
-				Namespace: mcpServer.Namespace,
-			}, deployment)
-			Expect(err).NotTo(HaveOccurred())
-
-			container := deployment.Spec.Template.Spec.Containers[0]
-			Expect(container.Ports[0].Name).To(Equal(protocolSCTP))
-			Expect(container.Ports[0].Protocol).To(Equal(corev1.ProtocolSCTP))
-
-			// Check service protocol
-			service := &corev1.Service{}
-			err = k8sClient.Get(ctx, client.ObjectKey{
-				Name:      mcpServer.Name,
-				Namespace: mcpServer.Namespace,
-			}, service)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(service.Spec.Ports[0].Protocol).To(Equal(corev1.ProtocolSCTP))
-		})
+				Expect(service.Spec.Ports[0].Protocol).To(Equal(expectedProtocol))
+			},
+			Entry("UDP custom transport", "udp", protocolUDP, corev1.ProtocolUDP),
+			Entry("SCTP custom transport", "sctp", protocolSCTP, corev1.ProtocolSCTP),
+		)
 	})
 
 	Describe("UpdateResources", func() {

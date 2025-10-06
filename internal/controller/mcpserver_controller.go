@@ -932,12 +932,11 @@ func (r *MCPServerReconciler) updateConditions(mcpServer *mcpv1.MCPServer, deplo
 func (r *MCPServerReconciler) setCondition(mcpServer *mcpv1.MCPServer, newCondition mcpv1.MCPServerCondition) {
 	for i, condition := range mcpServer.Status.Conditions {
 		if condition.Type == newCondition.Type {
+			// Only update LastTransitionTime when the condition actually changes
+			// If condition content is the same, preserve the existing timestamp
+			// This prevents unnecessary status updates that trigger reconciliation loops
 			if condition.Status != newCondition.Status || condition.Reason != newCondition.Reason || condition.Message != newCondition.Message {
-				// Only update LastTransitionTime when the condition actually changes
 				mcpServer.Status.Conditions[i] = newCondition
-			} else {
-				// Condition content is the same, preserve the existing timestamp
-				// This prevents unnecessary status updates that trigger reconciliation loops
 			}
 			return
 		}
