@@ -61,16 +61,6 @@ type TransportResources struct {
 	Service    *corev1.Service
 }
 
-// IsNetworkTransport returns true if the transport type requires network resources
-func IsNetworkTransport(transportType mcpv1.MCPTransportType) bool {
-	switch transportType {
-	case mcpv1.MCPTransportHTTP, mcpv1.MCPTransportCustom:
-		return true
-	default:
-		return true // Default to network transport
-	}
-}
-
 // GetDefaultTransportType returns the default transport type
 func GetDefaultTransportType() mcpv1.MCPTransportType {
 	return mcpv1.MCPTransportHTTP
