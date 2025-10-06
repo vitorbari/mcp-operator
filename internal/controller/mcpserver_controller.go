@@ -93,10 +93,24 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// Add finalizer if not present
 	if !controllerutil.ContainsFinalizer(mcpServer, mcpServerFinalizer) {
-		controllerutil.AddFinalizer(mcpServer, mcpServerFinalizer)
-		if err := r.Update(ctx, mcpServer); err != nil {
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			// Get the latest version
+			latest := &mcpv1.MCPServer{}
+			if err := r.Get(ctx, types.NamespacedName{Name: mcpServer.Name, Namespace: mcpServer.Namespace}, latest); err != nil {
+				return err
+			}
+			// Add finalizer to latest version
+			controllerutil.AddFinalizer(latest, mcpServerFinalizer)
+			// Update with latest version
+			return r.Update(ctx, latest)
+		})
+		if err != nil {
 			log.Error(err, "Failed to add finalizer")
 			metrics.RecordReconcileMetrics("mcpserver", time.Since(startTime).Seconds(), "error")
+			return ctrl.Result{}, err
+		}
+		// Re-fetch after update to get latest resourceVersion
+		if err := r.Get(ctx, types.NamespacedName{Name: mcpServer.Name, Namespace: mcpServer.Namespace}, mcpServer); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -186,12 +200,25 @@ func (r *MCPServerReconciler) handleDeletion(ctx context.Context, mcpServer *mcp
 	mcpServer.Status.Message = "Terminating MCPServer resources"
 	r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "Terminating", "Terminating MCPServer resources")
 	if err := r.updateStatus(ctx, mcpServer); err != nil {
-		log.Error(err, "Failed to update status during deletion")
+		// Ignore NotFound errors during deletion - object may have been deleted already
+		if !errors.IsNotFound(err) {
+			log.Error(err, "Failed to update status during deletion")
+		}
 	}
 
-	// Remove finalizer to allow deletion
-	controllerutil.RemoveFinalizer(mcpServer, mcpServerFinalizer)
-	if err := r.Update(ctx, mcpServer); err != nil {
+	// Remove finalizer to allow deletion with retry
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Get the latest version
+		latest := &mcpv1.MCPServer{}
+		if err := r.Get(ctx, types.NamespacedName{Name: mcpServer.Name, Namespace: mcpServer.Namespace}, latest); err != nil {
+			return err
+		}
+		// Remove finalizer from latest version
+		controllerutil.RemoveFinalizer(latest, mcpServerFinalizer)
+		// Update with latest version
+		return r.Update(ctx, latest)
+	})
+	if err != nil {
 		log.Error(err, "Failed to remove finalizer")
 		return ctrl.Result{}, err
 	}
@@ -354,31 +381,25 @@ func (r *MCPServerReconciler) reconcileHPA(ctx context.Context, mcpServer *mcpv1
 		return nil
 	}
 
-	hpa := r.buildHPA(mcpServer)
+	// Use CreateOrUpdate with retry logic to handle both creation and updates idempotently
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		hpa := r.buildHPA(mcpServer)
 
-	if err := controllerutil.SetControllerReference(mcpServer, hpa, r.Scheme); err != nil {
-		return err
-	}
-
-	found := &autoscalingv2.HorizontalPodAutoscaler{}
-	err := r.Get(ctx, types.NamespacedName{Name: hpa.Name, Namespace: hpa.Namespace}, found)
-	if err != nil && errors.IsNotFound(err) {
-		if err := r.Create(ctx, hpa); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	} else {
-		// Update HPA if necessary
-		if !reflect.DeepEqual(found.Spec, hpa.Spec) {
-			found.Spec = hpa.Spec
-			if err := r.Update(ctx, found); err != nil {
+		_, err := controllerutil.CreateOrUpdate(ctx, r.Client, hpa, func() error {
+			// Set controller reference
+			if err := controllerutil.SetControllerReference(mcpServer, hpa, r.Scheme); err != nil {
 				return err
 			}
-		}
-	}
 
-	return nil
+			// Update the spec (this will be used for both create and update)
+			desiredSpec := r.buildHPA(mcpServer).Spec
+			hpa.Spec = desiredSpec
+
+			return nil
+		})
+
+		return err
+	})
 }
 
 // buildHPA creates a HorizontalPodAutoscaler object for the MCPServer
