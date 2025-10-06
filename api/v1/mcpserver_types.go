@@ -547,7 +547,7 @@ type MCPServer struct {
 
 	// metadata is a standard object metadata
 	// +optional
-	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec defines the desired state of MCPServer
 	// +required
@@ -555,7 +555,7 @@ type MCPServer struct {
 
 	// status defines the observed state of MCPServer
 	// +optional
-	Status MCPServerStatus `json:"status,omitempty,omitzero"`
+	Status MCPServerStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
