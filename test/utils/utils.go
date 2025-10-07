@@ -26,8 +26,10 @@ import (
 )
 
 const (
-	certmanagerVersion = "v1.16.3"
-	certmanagerURLTmpl = "https://github.com/cert-manager/cert-manager/releases/download/%s/cert-manager.yaml"
+	certmanagerVersion        = "v1.16.3"
+	certmanagerURLTmpl        = "https://github.com/cert-manager/cert-manager/releases/download/%s/cert-manager.yaml"
+	prometheusOperatorVersion = "v0.79.2"
+	prometheusOperatorURLTmpl = "https://github.com/prometheus-operator/prometheus-operator/releases/download/%s/bundle.yaml"
 )
 
 func warnError(err error) {
@@ -162,4 +164,65 @@ func GetProjectDir() (string, error) {
 	}
 	wd = strings.ReplaceAll(wd, "/test/e2e", "")
 	return wd, nil
+}
+
+// UninstallPrometheusOperator uninstalls the Prometheus Operator
+func UninstallPrometheusOperator() {
+	url := fmt.Sprintf(prometheusOperatorURLTmpl, prometheusOperatorVersion)
+	cmd := exec.Command("kubectl", "delete", "-f", url, "--ignore-not-found")
+	if _, err := Run(cmd); err != nil {
+		warnError(err)
+	}
+}
+
+// InstallPrometheusOperator installs the Prometheus Operator bundle.
+// This provides the ServiceMonitor CRD required by the operator's monitoring configuration.
+func InstallPrometheusOperator() error {
+	url := fmt.Sprintf(prometheusOperatorURLTmpl, prometheusOperatorVersion)
+	cmd := exec.Command("kubectl", "apply", "--server-side", "-f", url)
+	if _, err := Run(cmd); err != nil {
+		return err
+	}
+
+	// Wait for the Prometheus Operator to be ready
+	cmd = exec.Command("kubectl", "wait", "deployment/prometheus-operator",
+		"--for", "condition=Available",
+		"--namespace", "default",
+		"--timeout", "5m",
+	)
+
+	_, err := Run(cmd)
+	return err
+}
+
+// IsPrometheusOperatorCRDsInstalled checks if Prometheus Operator CRDs are installed
+// by verifying the existence of key CRDs related to Prometheus Operator.
+func IsPrometheusOperatorCRDsInstalled() bool {
+	// List of common Prometheus Operator CRDs
+	prometheusCRDs := []string{
+		"servicemonitors.monitoring.coreos.com",
+		"prometheuses.monitoring.coreos.com",
+		"prometheusrules.monitoring.coreos.com",
+		"podmonitors.monitoring.coreos.com",
+		"alertmanagers.monitoring.coreos.com",
+	}
+
+	// Execute the kubectl command to get all CRDs
+	cmd := exec.Command("kubectl", "get", "crds")
+	output, err := Run(cmd)
+	if err != nil {
+		return false
+	}
+
+	// Check if any of the Prometheus Operator CRDs are present
+	crdList := GetNonEmptyLines(output)
+	for _, crd := range prometheusCRDs {
+		for _, line := range crdList {
+			if strings.Contains(line, crd) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
