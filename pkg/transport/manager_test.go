@@ -59,16 +59,6 @@ var _ = Describe("ManagerFactory", func() {
 			Expect(httpManager.GetTransportType()).To(Equal(mcpv1.MCPTransportHTTP))
 		})
 
-		It("should return CustomResourceManager for Custom transport", func() {
-			manager, err := factory.GetManager(mcpv1.MCPTransportCustom)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(manager).NotTo(BeNil())
-
-			customManager, ok := manager.(*CustomResourceManager)
-			Expect(ok).To(BeTrue())
-			Expect(customManager.GetTransportType()).To(Equal(mcpv1.MCPTransportCustom))
-		})
-
 		It("should return error for unsupported transport type", func() {
 			_, err := factory.GetManager("unsupported")
 			Expect(err).To(HaveOccurred())
@@ -93,24 +83,6 @@ var _ = Describe("ManagerFactory", func() {
 			manager, err := factory.GetManagerForMCPServer(mcpServer)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(manager.GetTransportType()).To(Equal(mcpv1.MCPTransportHTTP))
-		})
-
-		It("should return Custom manager for MCPServer with Custom transport", func() {
-			mcpServer := &mcpv1.MCPServer{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-server",
-					Namespace: "default",
-				},
-				Spec: mcpv1.MCPServerSpec{
-					Transport: &mcpv1.MCPServerTransport{
-						Type: mcpv1.MCPTransportCustom,
-					},
-				},
-			}
-
-			manager, err := factory.GetManagerForMCPServer(mcpServer)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(manager.GetTransportType()).To(Equal(mcpv1.MCPTransportCustom))
 		})
 
 		It("should return HTTP manager for MCPServer with no transport specified", func() {
@@ -154,24 +126,6 @@ var _ = Describe("ManagerFactory", func() {
 
 			port := GetTransportPort(mcpServer)
 			Expect(port).To(Equal(int32(9090)))
-		})
-
-		It("should return correct port for Custom transport", func() {
-			mcpServer := &mcpv1.MCPServer{
-				Spec: mcpv1.MCPServerSpec{
-					Transport: &mcpv1.MCPServerTransport{
-						Type: mcpv1.MCPTransportCustom,
-						Config: &mcpv1.MCPTransportConfigDetails{
-							Custom: &mcpv1.MCPCustomTransportConfig{
-								Port: 9000,
-							},
-						},
-					},
-				},
-			}
-
-			port := GetTransportPort(mcpServer)
-			Expect(port).To(Equal(int32(9000)))
 		})
 
 		It("should return default port when no transport specified", func() {

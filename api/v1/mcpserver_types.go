@@ -410,25 +410,19 @@ type MCPServerTransport struct {
 }
 
 // MCPTransportType represents the type of transport
-// +kubebuilder:validation:Enum=http;custom
+// +kubebuilder:validation:Enum=http
 type MCPTransportType string
 
 const (
-	// MCPTransportHTTP indicates HTTP transport (MCP streamable HTTP)
+	// MCPTransportHTTP indicates HTTP transport (supports both SSE and standard HTTP)
 	MCPTransportHTTP MCPTransportType = "http"
-	// MCPTransportCustom indicates custom transport
-	MCPTransportCustom MCPTransportType = "custom"
 )
 
 // MCPTransportConfigDetails contains transport-specific configuration options
 type MCPTransportConfigDetails struct {
-	// HTTP configuration for streamable HTTP transport
+	// HTTP configuration for HTTP transport (supports SSE and standard HTTP)
 	// +optional
 	HTTP *MCPHTTPTransportConfig `json:"http,omitempty"`
-
-	// Custom configuration for custom transport
-	// +optional
-	Custom *MCPCustomTransportConfig `json:"custom,omitempty"`
 }
 
 // MCPHTTPTransportConfig defines configuration for HTTP transport
@@ -484,23 +478,6 @@ type MCPAuthenticationConfig struct {
 	// SecretRef references a secret containing authentication credentials
 	// +optional
 	SecretRef *corev1.SecretReference `json:"secretRef,omitempty"`
-}
-
-// MCPCustomTransportConfig defines configuration for custom transport
-type MCPCustomTransportConfig struct {
-	// Port specifies the port for custom transport connections
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=65535
-	// +optional
-	Port int32 `json:"port,omitempty"`
-
-	// Protocol specifies the protocol for custom transport
-	// +optional
-	Protocol string `json:"protocol,omitempty"`
-
-	// Config contains custom transport-specific configuration
-	// +optional
-	Config map[string]string `json:"config,omitempty"`
 }
 
 // MCPServerIngress defines ingress configuration for external access

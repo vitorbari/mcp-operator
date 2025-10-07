@@ -632,20 +632,6 @@ func (r *MCPServerReconciler) buildIngress(mcpServer *mcpv1.MCPServer) *networki
 				// Use session ID for consistent routing
 				annotations["nginx.ingress.kubernetes.io/upstream-hash-by"] = "$http_mcp_session_id"
 			}
-		case mcpv1.MCPTransportCustom:
-			// Add custom transport annotations
-			if mcpServer.Spec.Transport.Config != nil && mcpServer.Spec.Transport.Config.Custom != nil {
-				config := mcpServer.Spec.Transport.Config.Custom
-				if config.Protocol != "" {
-					switch config.Protocol {
-					case "tcp":
-						annotations["nginx.ingress.kubernetes.io/backend-protocol"] = "HTTP"
-						annotations["nginx.ingress.kubernetes.io/tcp-services-configmap"] = fmt.Sprintf("%s/%s-tcp", mcpServer.Namespace, mcpServer.Name)
-					case "udp":
-						annotations["nginx.ingress.kubernetes.io/udp-services-configmap"] = fmt.Sprintf("%s/%s-udp", mcpServer.Namespace, mcpServer.Name)
-					}
-				}
-			}
 		}
 	}
 

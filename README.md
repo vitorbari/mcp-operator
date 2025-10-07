@@ -14,7 +14,7 @@ The MCP Operator simplifies the deployment and management of MCP servers on Kube
 
 **Key Features:**
 - **Declarative Management**: Define MCP servers using Kubernetes custom resources
-- **Transport Support**: HTTP streamable and custom transport protocols with automatic service configuration
+- **Transport Support**: HTTP transport (supports both SSE and standard HTTP) with automatic service configuration
 - **Horizontal Pod Autoscaling**: Built-in HPA support with CPU and memory metrics
 - **Enterprise Security**: RBAC integration with user and group access controls
 - **Ingress Support**: Automatic ingress creation with transport-specific annotations and MCP traffic analytics
@@ -102,26 +102,6 @@ spec:
           - "mcp.example.com"
     annotations:
       cert-manager.io/cluster-issuer: "letsencrypt-prod"
-```
-
-### Custom Transport with TCP Protocol
-
-```yaml
-apiVersion: mcp.mcp-operator.io/v1
-kind: MCPServer
-metadata:
-  name: custom-mcp-server
-spec:
-  image: "my-registry/custom-mcp:v1.0.0"
-  transport:
-    type: custom
-    config:
-      custom:
-        protocol: "tcp"
-        port: 9000
-        config:
-          buffer_size: "1024"
-          timeout: "30s"
 ```
 
 ### Production Setup with HPA and Monitoring
@@ -292,32 +272,22 @@ transport:
   config:
     http:
       port: 8080                    # HTTP port (default: 8080)
-      sessionManagement: true       # Enable session affinity
+      path: "/mcp"                  # HTTP endpoint path (default: "/mcp")
+      sessionManagement: true       # Enable session affinity for SSE
 ```
 
-### Custom Transport
-
-```yaml
-transport:
-  type: custom
-  config:
-    custom:
-      protocol: "tcp"               # Protocol: tcp, udp, sctp
-      port: 9000                    # Custom port
-      config:                       # Protocol-specific configuration
-        buffer_size: "1024"
-        timeout: "30s"
-```
+The HTTP transport supports both:
+- **SSE (Server-Sent Events)** - For real-time streaming (configured via container args: `--transport sse`)
+- **Standard HTTP** - For request/response patterns
 
 ## Examples and Samples
 
 The `config/samples/` directory contains comprehensive examples:
 
-- `basic-mcpserver.yaml` - Simple MCP server deployment
-- `http-mcp-server-ingress.yaml` - HTTP transport with ingress
-- `custom-http-ingress.yaml` - Custom transport configuration
+- `http-mcp-server-ingress.yaml` - HTTP transport with ingress and TLS
+- `wikipedia-http.yaml` - Real-world Wikipedia MCP server with SSE
+- `mcp-everything-server.yaml` - Complete feature showcase
 - `monitoring-metrics-example.yaml` - Full monitoring setup
-- `wikipedia.yaml` - Real-world Wikipedia MCP server example
 
 Apply sample configurations:
 
@@ -327,11 +297,12 @@ kubectl apply -k config/samples/
 
 ## Advanced Topics
 
-### Transport Manager Architecture
+### Transport Architecture
 
-The operator uses a transport manager pattern to handle different MCP protocols:
-- **HTTP Manager**: Optimized for MCP-over-HTTP with streaming support
-- **Custom Manager**: Flexible configuration for TCP/UDP/SCTP protocols
+The operator provides HTTP transport support:
+- **HTTP Manager**: Handles HTTP-based MCP connections
+- **SSE Support**: Session management for Server-Sent Events streaming
+- **Path Configuration**: Flexible endpoint routing
 
 ### Resource Management
 

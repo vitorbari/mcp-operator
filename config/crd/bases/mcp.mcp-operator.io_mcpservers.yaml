@@ -3415,29 +3415,9 @@ spec:
                   config:
                     description: Config contains transport-specific configuration
                     properties:
-                      custom:
-                        description: Custom configuration for custom transport
-                        properties:
-                          config:
-                            additionalProperties:
-                              type: string
-                            description: Config contains custom transport-specific
-                              configuration
-                            type: object
-                          port:
-                            description: Port specifies the port for custom transport
-                              connections
-                            format: int32
-                            maximum: 65535
-                            minimum: 1
-                            type: integer
-                          protocol:
-                            description: Protocol specifies the protocol for custom
-                              transport
-                            type: string
-                        type: object
                       http:
-                        description: HTTP configuration for streamable HTTP transport
+                        description: HTTP configuration for HTTP transport (supports
+                          SSE and standard HTTP)
                         properties:
                           path:
                             default: /mcp
@@ -3506,7 +3486,6 @@ spec:
                     allOf:
                     - enum:
                       - http
-                      - custom
                     - enum:
                       - http
                       - custom
@@ -3604,7 +3583,6 @@ spec:
                 description: TransportType represents the active transport type
                 enum:
                 - http
-                - custom
                 type: string
             type: object
         required:

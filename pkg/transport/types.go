@@ -73,20 +73,10 @@ func GetTransportPort(mcpServer *mcpv1.MCPServer) int32 {
 	}
 
 	config := mcpServer.Spec.Transport.Config
-	transportType := mcpServer.Spec.Transport.Type
 
-	switch transportType {
-	case mcpv1.MCPTransportHTTP:
-		if config.HTTP != nil && config.HTTP.Port != 0 {
-			return config.HTTP.Port
-		}
-		return 8080
-	case mcpv1.MCPTransportCustom:
-		if config.Custom != nil && config.Custom.Port != 0 {
-			return config.Custom.Port
-		}
-		return 8080
-	default:
-		return 8080
+	if config.HTTP != nil && config.HTTP.Port != 0 {
+		return config.HTTP.Port
 	}
+
+	return 8080 // default
 }

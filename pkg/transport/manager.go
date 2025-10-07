@@ -44,8 +44,6 @@ func (f *ManagerFactory) GetManager(transportType mcpv1.MCPTransportType) (Resou
 	switch transportType {
 	case mcpv1.MCPTransportHTTP:
 		return NewHTTPResourceManager(f.client, f.scheme), nil
-	case mcpv1.MCPTransportCustom:
-		return NewCustomResourceManager(f.client, f.scheme), nil
 	default:
 		return nil, fmt.Errorf("unsupported transport type: %s", transportType)
 	}

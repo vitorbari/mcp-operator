@@ -1,5 +1,7 @@
 # ADR-004: Transport Configuration Support
 
+> **Status Update (2025-01):** Custom transport support was removed. The operator now only supports HTTP transport (which handles both SSE and standard HTTP). See decision rationale at the end of this document.
+
 ## Status
 
 Proposed
@@ -166,3 +168,27 @@ func (r *MCPServerReconciler) reconcileTransport(ctx context.Context, mcpServer 
 - [Streamable HTTP Transport Details](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http)
 - [ADR-001: MCPServer API Design](./adr-001-mcpserver-api-design.md)
 - [ADR-002: MCPServer Controller Implementation](./adr-002-mcpserver-controller-implementation.md)
+
+---
+
+## Update: Removal of Custom Transport (January 2025)
+
+### Decision
+
+Custom transport support was removed from the operator. Only HTTP transport remains.
+
+### Rationale
+
+1. **MCP Specification Alignment**: The MCP specification primarily defines HTTP-based transports (standard HTTP and SSE). The "custom" transport was an over-abstraction that wasn't clearly defined in the spec.
+
+2. **HTTP Covers All Network Use Cases**: Both SSE and standard HTTP use the HTTP protocol. The actual transport mechanism (SSE vs HTTP) is determined by the **container's implementation**, not the operator. The operator's role is simply to expose the HTTP endpoint.
+
+3. **Simplified API**: One transport type (`http`) is clearer and easier to understand than multiple types. Users configure their container to use SSE or standard HTTP via command args (e.g., `--transport sse`).
+
+4. **Reduced Complexity**: Eliminating custom transport removed ~500 lines of code, tests, and documentation without losing functionality.
+
+5. **Better Developer Experience**: Aligns with how users think about MCP: "I have an HTTP server that speaks MCP" rather than "I need to choose between HTTP and custom transports."
+
+### Migration Path
+
+The `custom` transport type was only used in one sample configuration that was effectively duplicating HTTP functionality. No breaking changes for existing users since the feature was experimental (alpha).

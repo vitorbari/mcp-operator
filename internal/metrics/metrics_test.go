@@ -187,16 +187,6 @@ var _ = Describe("Metrics", func() {
 			Expect(metric.GetGauge().GetValue()).To(Equal(float64(0)))
 		})
 
-		It("should handle custom transport type", func() {
-			mcpServer.Spec.Transport.Type = mcpv1.MCPTransportCustom
-			UpdateMCPServerMetrics(mcpServer)
-
-			// Check custom transport type is tracked
-			metric := &dto.Metric{}
-			Expect(transportTypeDistribution.WithLabelValues("custom").Write(metric)).To(Succeed())
-			Expect(metric.GetCounter().GetValue()).To(Equal(float64(1)))
-		})
-
 		It("should handle missing transport configuration", func() {
 			mcpServer.Spec.Transport = nil
 			UpdateMCPServerMetrics(mcpServer)
@@ -259,14 +249,6 @@ var _ = Describe("Metrics", func() {
 			}
 		})
 
-		It("should handle deletion with custom transport", func() {
-			mcpServer.Spec.Transport.Type = mcpv1.MCPTransportCustom
-			UpdateMCPServerMetrics(mcpServer)
-
-			DeleteMCPServerMetrics(mcpServer)
-
-			// Should not error even with custom transport
-		})
 	})
 
 	Describe("Registry integration", func() {
