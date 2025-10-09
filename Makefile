@@ -145,6 +145,17 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 	mkdir -p dist
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default > dist/install.yaml
+	@echo "Core installation manifest created: dist/install.yaml"
+
+.PHONY: build-installer-monitoring
+build-installer-monitoring: manifests generate kustomize ## Generate monitoring resources YAML (requires Prometheus Operator).
+	mkdir -p dist
+	$(KUSTOMIZE) build config/monitoring > dist/monitoring.yaml
+	@echo "Monitoring manifest created: dist/monitoring.yaml"
+	@echo "Note: Requires Prometheus Operator to be installed first"
+
+.PHONY: build-installer-all
+build-installer-all: build-installer build-installer-monitoring ## Generate all installation manifests.
 
 ##@ Deployment
 
