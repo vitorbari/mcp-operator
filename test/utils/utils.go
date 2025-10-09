@@ -29,7 +29,8 @@ const (
 	certmanagerVersion        = "v1.16.3"
 	certmanagerURLTmpl        = "https://github.com/cert-manager/cert-manager/releases/download/%s/cert-manager.yaml"
 	prometheusOperatorVersion = "v0.79.2"
-	prometheusOperatorURLTmpl = "https://github.com/prometheus-operator/prometheus-operator/releases/download/%s/bundle.yaml"
+	prometheusOperatorURLTmpl = "https://github.com/prometheus-operator/prometheus-operator/releases/" +
+		"download/%s/bundle.yaml"
 )
 
 func warnError(err error) {
