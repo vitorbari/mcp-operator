@@ -23,10 +23,8 @@ resources:
 #- ../webhook
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'. 'WEBHOOK' components are required.
 #- ../certmanager
-# [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
-- ../prometheus
-# [GRAFANA] Grafana dashboard for MCP Operator observability.
-- ../grafana
+# [PROMETHEUS] Prometheus monitoring resources are now in a separate manifest (dist/monitoring.yaml)
+# [GRAFANA] Grafana dashboard is now in a separate manifest (dist/monitoring.yaml)
 # [METRICS] Expose the controller manager metrics service.
 - metrics_service.yaml
 # [NETWORK POLICY] Protect the /metrics endpoint and Webhook Server with NetworkPolicy.
