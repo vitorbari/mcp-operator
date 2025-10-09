@@ -86,7 +86,7 @@ var _ = Describe("Manager", Ordered, func() {
 
 		By("deploying monitoring resources")
 		// Apply monitoring resources since Prometheus Operator is installed in BeforeSuite
-		cmd = exec.Command("kubectl", "apply", "-f", "../../dist/monitoring.yaml")
+		cmd = exec.Command("kubectl", "apply", "-f", "./dist/monitoring.yaml")
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy monitoring resources")
 	})
