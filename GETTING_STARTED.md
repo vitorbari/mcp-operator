@@ -59,6 +59,15 @@ Verify the installation:
 kubectl get pods -n mcp-operator-system
 ```
 
+### Optional: Enable Monitoring
+
+If you want metrics and dashboards (requires Prometheus Operator):
+
+```bash
+# Skip this if you don't have Prometheus Operator installed
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/monitoring.yaml
+```
+
 You should see the controller manager running:
 
 ```

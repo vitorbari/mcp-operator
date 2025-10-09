@@ -44,6 +44,20 @@ Install the MCP Operator using the pre-built installer:
 kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/install.yaml
 ```
 
+### Optional: Enable Monitoring
+
+If you have [Prometheus Operator](https://prometheus-operator.dev/) installed in your cluster, you can enable metrics collection and Grafana dashboards:
+
+```sh
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/monitoring.yaml
+```
+
+This adds:
+- **ServiceMonitor**: Automatic Prometheus metrics scraping
+- **Grafana Dashboard**: Pre-configured dashboard for operator observability
+
+**Don't have Prometheus Operator?** The operator works fine without it - monitoring is completely optional.
+
 ### Basic MCP Server
 
 Create a simple MCP server:
