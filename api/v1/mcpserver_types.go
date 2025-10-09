@@ -107,6 +107,14 @@ type MCPServerSecurity struct {
 	// ReadOnlyRootFilesystem specifies if the container should have a read-only root filesystem
 	// +optional
 	ReadOnlyRootFilesystem *bool `json:"readOnlyRootFilesystem,omitempty"`
+
+	// RunAsNonRoot indicates that the container must run as a non-root user
+	// +optional
+	RunAsNonRoot *bool `json:"runAsNonRoot,omitempty"`
+
+	// AllowPrivilegeEscalation controls whether a process can gain more privileges than its parent
+	// +optional
+	AllowPrivilegeEscalation *bool `json:"allowPrivilegeEscalation,omitempty"`
 }
 
 // MCPServerService defines service configuration

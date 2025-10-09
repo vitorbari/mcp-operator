@@ -119,9 +119,22 @@ func BuildBaseContainer(mcpServer *mcpv1.MCPServer, port int32) corev1.Container
 		container.VolumeMounts = mcpServer.Spec.PodTemplate.VolumeMounts
 	}
 
-	// Add security context
+	// Add security context with restricted PSS defaults
+	trueVal := true
+	falseVal := false
+	securityContext := &corev1.SecurityContext{
+		// Default to restricted PSS compliance
+		RunAsNonRoot:             &trueVal,
+		AllowPrivilegeEscalation: &falseVal,
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: corev1.SeccompProfileTypeRuntimeDefault,
+		},
+	}
+
 	if mcpServer.Spec.Security != nil {
-		securityContext := &corev1.SecurityContext{}
 		if mcpServer.Spec.Security.RunAsUser != nil {
 			securityContext.RunAsUser = mcpServer.Spec.Security.RunAsUser
 		}
@@ -131,8 +144,14 @@ func BuildBaseContainer(mcpServer *mcpv1.MCPServer, port int32) corev1.Container
 		if mcpServer.Spec.Security.ReadOnlyRootFilesystem != nil {
 			securityContext.ReadOnlyRootFilesystem = mcpServer.Spec.Security.ReadOnlyRootFilesystem
 		}
-		container.SecurityContext = securityContext
+		if mcpServer.Spec.Security.RunAsNonRoot != nil {
+			securityContext.RunAsNonRoot = mcpServer.Spec.Security.RunAsNonRoot
+		}
+		if mcpServer.Spec.Security.AllowPrivilegeEscalation != nil {
+			securityContext.AllowPrivilegeEscalation = mcpServer.Spec.Security.AllowPrivilegeEscalation
+		}
 	}
+	container.SecurityContext = securityContext
 
 	return container
 }

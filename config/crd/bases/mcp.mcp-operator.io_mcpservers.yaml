@@ -3343,6 +3343,10 @@ spec:
                 description: Security defines security-related configuration for the
                   MCP server
                 properties:
+                  allowPrivilegeEscalation:
+                    description: AllowPrivilegeEscalation controls whether a process
+                      can gain more privileges than its parent
+                    type: boolean
                   allowedGroups:
                     description: AllowedGroups specifies which groups can access this
                       MCP server
@@ -3364,6 +3368,10 @@ spec:
                       server process
                     format: int64
                     type: integer
+                  runAsNonRoot:
+                    description: RunAsNonRoot indicates that the container must run
+                      as a non-root user
+                    type: boolean
                   runAsUser:
                     description: RunAsUser specifies the user ID to run the MCP server
                       process
