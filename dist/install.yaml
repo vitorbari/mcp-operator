@@ -3962,7 +3962,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: vitorbari/mcp-operator:1.0.0-alpha
+        image: ghcr.io/vitorbari/mcp-operator:v0.1.0-alpha.1
         livenessProbe:
           httpGet:
             path: /healthz
