@@ -11,30 +11,28 @@
 >
 > **We welcome your feedback!** Please open issues for bugs, feature requests, or questions.
 
-A Kubernetes operator for managing Model Context Protocol (MCP) servers with enterprise-grade features including horizontal pod autoscaling, RBAC, ingress support, transport configuration, and comprehensive observability.
+A Kubernetes operator for managing Model Context Protocol (MCP) servers with features including HTTP/SSE transport, horizontal pod autoscaling, ingress support, and observability.
 
 ## Description
 
-The MCP Operator simplifies the deployment and management of MCP servers on Kubernetes clusters. It provides a declarative API through custom resources that abstract away the complexity of managing deployments, services, RBAC, autoscaling, and monitoring configurations.
+The MCP Operator simplifies deploying and managing MCP servers on Kubernetes. Define your MCP servers using a declarative API that handles deployments, services, autoscaling, and monitoring.
 
 **Key Features:**
-- **Declarative Management**: Define MCP servers using Kubernetes custom resources
-- **Transport Support**: HTTP transport (supports both SSE and standard HTTP) with automatic service configuration
-- **Horizontal Pod Autoscaling**: Built-in HPA support with CPU and memory metrics
-- **Enterprise Security**: RBAC integration with user and group access controls
-- **Ingress Support**: Automatic ingress creation with transport-specific annotations and MCP traffic analytics
-- **Production Monitoring**: Prometheus metrics, Grafana dashboards, and comprehensive observability
-- **Flexible Configuration**: Support for custom environments, volumes, and networking
+- **Declarative Management**: Define MCP servers using custom resources
+- **HTTP/SSE Transport**: Full support for HTTP and Server-Sent Events
+- **Horizontal Pod Autoscaling**: CPU and memory-based autoscaling
+- **Pod Security**: Built-in Pod Security Standards compliance
+- **Ingress Support**: External access with session management
+- **Observability**: Prometheus metrics and Grafana dashboards
 
 ## Architecture
 
-The MCP Operator introduces the `MCPServer` custom resource that declaratively manages:
+The `MCPServer` custom resource manages:
 
-- **Kubernetes Deployments**: Container orchestration with configurable replicas
-- **Services**: Network exposure with transport-specific ports and protocols
-- **ServiceAccounts & RBAC**: Fine-grained security controls
+- **Deployments**: Container orchestration with configurable replicas
+- **Services**: Network exposure with protocol-specific configuration
 - **Horizontal Pod Autoscalers**: Automatic scaling based on resource utilization
-- **Ingress Resources**: External access with MCP-aware traffic routing
+- **Ingress Resources**: External access with transport-aware routing
 - **Monitoring**: Prometheus metrics and Grafana dashboards
 
 ## Quick Start
@@ -211,38 +209,19 @@ spec:
       nginx.ingress.kubernetes.io/rate-limit-window: "1m"
 ```
 
-## Monitoring and Observability
+## Monitoring
 
-The MCP Operator provides comprehensive monitoring capabilities:
+The operator exports Prometheus metrics and includes a Grafana dashboard. Install with:
 
-### Prometheus Metrics
+```sh
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/monitoring.yaml
+```
 
-Automatic metrics collection includes:
-- `mcpserver_ready_total` - Number of ready MCP servers
-- `mcpserver_replicas` - Current replica count per server and transport type
-- `mcpserver_transport_type_total` - Transport type distribution
-- `mcpserver_reconcile_duration_seconds` - Controller reconciliation timing
-- `mcpserver_phase` - Current phase tracking (Creating, Running, Scaling, Failed)
-- `mcpserver_resource_requests` - CPU and memory resource allocation
-
-### Grafana Dashboard
-
-The operator includes a pre-built Grafana dashboard with:
-- MCPServer status and health overview
-- Transport type distribution analytics
-- Replica count and scaling trends
-- Controller performance metrics
-- Resource utilization tracking
-
-Dashboard is automatically deployed as a ConfigMap that Grafana can discover.
-
-### Ingress Analytics
-
-Transport-specific ingress annotations provide:
-- MCP protocol version tracking
-- Session management analytics
-- Request routing and load balancing metrics
-- Advanced structured logging for traffic analysis
+**Key Metrics:**
+- `mcpserver_ready_total` - Ready MCP servers
+- `mcpserver_replicas` - Replica counts by transport type
+- `mcpserver_phase` - Current phase tracking
+- `mcpserver_reconcile_duration_seconds` - Controller performance
 
 ## API Reference
 
@@ -255,7 +234,7 @@ Transport-specific ingress annotations provide:
 | `transport` | object | Transport configuration (HTTP or custom) |
 | `resources` | object | CPU and memory resource requirements |
 | `hpa` | object | Horizontal Pod Autoscaler configuration |
-| `security` | object | RBAC and access control settings |
+| `security` | object | Pod security context settings |
 | `service` | object | Service exposure configuration |
 | `ingress` | object | Ingress configuration for external access |
 | `healthCheck` | object | Health check probe configuration |
@@ -307,30 +286,22 @@ Apply sample configurations:
 kubectl apply -k config/samples/
 ```
 
-## Advanced Topics
+## Security
 
-### Transport Architecture
+The operator enforces Pod Security Standards by default:
+- **runAsNonRoot**: Containers must run as non-root users
+- **No Privilege Escalation**: Blocks privilege escalation
+- **Capabilities Dropped**: All Linux capabilities dropped by default
 
-The operator provides HTTP transport support:
-- **HTTP Manager**: Handles HTTP-based MCP connections
-- **SSE Support**: Session management for Server-Sent Events streaming
-- **Path Configuration**: Flexible endpoint routing
+Configure security context per MCPServer:
 
-### Resource Management
-
-Automatic resource management includes:
-- Transport-specific service creation
-- Protocol-aware port allocation
-- Load balancer annotations for cloud providers
-- Health check configuration per transport type
-
-### Security Model
-
-Multi-layered security approach:
-- **RBAC Integration**: Fine-grained user and group access controls
-- **Network Policies**: Optional traffic isolation
-- **Service Mesh**: Compatible with Istio and Linkerd
-- **TLS Termination**: Automatic certificate management with cert-manager
+```yaml
+spec:
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    readOnlyRootFilesystem: true
+```
 
 ## Documentation
 
