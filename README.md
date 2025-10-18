@@ -164,12 +164,10 @@ spec:
 
   # Security Configuration
   security:
-    allowedUsers:
-      - "admin"
-      - "mcp-user"
-    allowedGroups:
-      - "mcp-operators"
-      - "data-scientists"
+    runAsUser: 1000
+    runAsGroup: 1000
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
 
   # Service Configuration
   service:
@@ -183,10 +181,6 @@ spec:
     enabled: true
     path: "/health"
     port: 8080
-    initialDelaySeconds: 30
-    periodSeconds: 10
-    timeoutSeconds: 5
-    failureThreshold: 3
 
   # Resource Requirements
   resources:
@@ -301,12 +295,11 @@ The HTTP transport supports both:
 
 ## Examples and Samples
 
-The `config/samples/` directory contains comprehensive examples:
+The `config/samples/` directory contains examples for different use cases:
 
-- `http-mcp-server-ingress.yaml` - HTTP transport with ingress and TLS
-- `wikipedia-http.yaml` - Real-world Wikipedia MCP server with SSE
-- `mcp-everything-server.yaml` - Complete feature showcase
-- `monitoring-metrics-example.yaml` - Full monitoring setup
+- `wikipedia-http.yaml` - Minimal example using Wikipedia MCP server with SSE
+- `mcp-basic-example.yaml` - Common production setup with HPA and monitoring
+- `mcp-complete-example.yaml` - Complete example showing all available CRD fields
 
 Apply sample configurations:
 

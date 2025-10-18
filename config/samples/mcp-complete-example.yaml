@@ -1,0 +1,234 @@
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: mcp-complete-example
+  namespace: mcp-tests
+  labels:
+    app.kubernetes.io/name: mcp-operator
+    environment: production
+spec:
+  # ============================================
+  # REQUIRED: Container Image
+  # ============================================
+  image: "tzolov/mcp-everything-server:v3"
+
+  # ============================================
+  # Container Command and Arguments
+  # ============================================
+  # Override default container entrypoint
+  command: ["node", "dist/index.js", "sse"]
+
+  # Override or append to default command arguments
+  args: ["--verbose"]
+
+  # ============================================
+  # Replicas
+  # ============================================
+  replicas: 3
+
+  # ============================================
+  # Transport Configuration
+  # ============================================
+  transport:
+    type: "http"
+    config:
+      http:
+        port: 8080
+        path: "/mcp"
+        sessionManagement: true
+
+  # ============================================
+  # Resource Requirements
+  # ============================================
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  # ============================================
+  # Security Configuration
+  # ============================================
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+
+  # ============================================
+  # Service Configuration
+  # ============================================
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "http"
+
+  # ============================================
+  # Health Check Configuration
+  # ============================================
+  healthCheck:
+    enabled: true
+    path: "/health"
+    port: 8080
+
+  # ============================================
+  # Environment Variables
+  # ============================================
+  environment:
+    - name: LOG_LEVEL
+      value: "info"
+    - name: MCP_PORT
+      value: "8080"
+    - name: METRICS_ENABLED
+      value: "true"
+    - name: ENVIRONMENT
+      value: "production"
+
+  # ============================================
+  # Pod Template Configuration
+  # ============================================
+  podTemplate:
+    # Additional labels for pods
+    labels:
+      mcp.transport: http
+      mcp.service: everything
+      monitoring: enabled
+
+    # Additional annotations for pods
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "8080"
+      prometheus.io/path: "/metrics"
+
+    # Node selection constraints
+    nodeSelector:
+      workload-type: mcp-servers
+      disk-type: ssd
+
+    # Pod tolerations for node taints
+    tolerations:
+      - key: "dedicated"
+        operator: "Equal"
+        value: "mcp-servers"
+        effect: "NoSchedule"
+      - key: "high-priority"
+        operator: "Exists"
+        effect: "PreferNoSchedule"
+
+    # Pod affinity and anti-affinity rules
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values:
+                      - mcp-complete-example
+              topologyKey: kubernetes.io/hostname
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: node-role.kubernetes.io/worker
+                  operator: Exists
+
+    # Service account for the pod
+    serviceAccountName: mcp-service-account
+
+    # Secrets for pulling container images
+    imagePullSecrets:
+      - name: registry-credentials
+      - name: docker-hub-credentials
+
+    # Additional volumes
+    volumes:
+      - name: config-volume
+        configMap:
+          name: mcp-config
+      - name: secrets-volume
+        secret:
+          secretName: mcp-secrets
+      - name: cache-volume
+        emptyDir:
+          sizeLimit: 1Gi
+
+    # Volume mounts for the container
+    volumeMounts:
+      - name: config-volume
+        mountPath: /etc/mcp/config
+        readOnly: true
+      - name: secrets-volume
+        mountPath: /etc/mcp/secrets
+        readOnly: true
+      - name: cache-volume
+        mountPath: /var/cache/mcp
+
+  # ============================================
+  # Horizontal Pod Autoscaler (HPA)
+  # ============================================
+  hpa:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+    # Scale up behavior
+    scaleUpBehavior:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: "Percent"
+          value: 100
+          periodSeconds: 15
+        - type: "Pods"
+          value: 4
+          periodSeconds: 15
+
+    # Scale down behavior
+    scaleDownBehavior:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: "Percent"
+          value: 10
+          periodSeconds: 60
+        - type: "Pods"
+          value: 1
+          periodSeconds: 60
+
+  # ============================================
+  # Ingress Configuration
+  # ============================================
+  ingress:
+    enabled: true
+    className: "nginx"
+    host: "mcp.example.com"
+    path: "/mcp"
+    pathType: "Prefix"
+
+    # TLS configuration
+    tls:
+      - secretName: mcp-tls-cert
+        hosts:
+          - mcp.example.com
+          - api.mcp.example.com
+
+    # Ingress annotations
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/rate-limit: "100"
+      nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"

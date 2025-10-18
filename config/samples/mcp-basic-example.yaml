@@ -1,0 +1,52 @@
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: mcp-basic-example
+  namespace: mcp-tests
+spec:
+  # Container image for the MCP server
+  image: "tzolov/mcp-everything-server:v3"
+
+  # Override default command and arguments
+  command: ["node", "dist/index.js", "sse"]
+
+  # Number of replicas
+  replicas: 2
+
+  # Transport configuration
+  transport:
+    type: "http"
+    config:
+      http:
+        port: 8080
+        path: "/mcp"
+        sessionManagement: true
+
+  # Resource requirements
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Health check configuration
+  healthCheck:
+    enabled: true
+    path: "/health"
+    port: 8080
+
+  # Environment variables
+  environment:
+    - name: LOG_LEVEL
+      value: "info"
+    - name: MCP_PORT
+      value: "8080"
+
+  # Horizontal Pod Autoscaler
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70

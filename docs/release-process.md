@@ -111,7 +111,7 @@ kubectl describe deployment controller-manager -n mcp-operator-system | grep Ima
 # Should show: ghcr.io/vitorbari/mcp-operator:v0.1.0-alpha.2
 
 # Test operator functionality
-kubectl apply -f config/samples/mcp-everything-server.yaml
+kubectl apply -f config/samples/mcp-basic-example.yaml
 kubectl get mcpserver
 
 # Cleanup

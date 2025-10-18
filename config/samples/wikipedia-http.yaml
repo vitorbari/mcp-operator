@@ -3,13 +3,8 @@ kind: MCPServer
 metadata:
   name: wikipedia-http
   namespace: mcp-tests
-  labels:
-    app.kubernetes.io/name: mcp-operator
-    app.kubernetes.io/managed-by: kustomize
-    mcp.example: wikipedia
 spec:
   image: "mcp/wikipedia-mcp:latest"
-  replicas: 2
 
   # Override command to force SSE transport mode for FastMCP-based container
   command: ["python", "-m", "wikipedia_mcp"]
@@ -21,39 +16,11 @@ spec:
     config:
       http:
         port: 8080
-        path: "/mcp"
         sessionManagement: true
-
-  # Service configuration
-  service:
-    type: ClusterIP
-    port: 8080
 
   # Health checks - disabled for SSE transport as it doesn't provide /health endpoint
   healthCheck:
     enabled: false
-
-  # Ingress configuration for external access
-  ingress:
-    enabled: true
-    className: "nginx"
-    host: "wikipedia-mcp.example.com"
-    path: "/sse"
-    pathType: "Prefix"
-    annotations:
-      nginx.ingress.kubernetes.io/rewrite-target: "/sse"
-      cert-manager.io/cluster-issuer: "letsencrypt-prod"
-      # Metrics and monitoring
-      nginx.ingress.kubernetes.io/enable-metrics: "true"
-      nginx.ingress.kubernetes.io/server-snippet: |
-        access_log /var/log/nginx/wikipedia-mcp-access.log json;
-      # Additional monitoring annotations
-      nginx.org/prometheus-metrics: "true"
-      nginx.org/prometheus-port: "9113"
-    tls:
-      - secretName: wikipedia-mcp-tls
-        hosts:
-          - wikipedia-mcp.example.com
 
   # Resource requirements
   resources:
@@ -63,46 +30,3 @@ spec:
     limits:
       cpu: 500m
       memory: 512Mi
-
-  # HPA for handling variable search loads
-  hpa:
-    enabled: true
-    minReplicas: 1
-    maxReplicas: 5
-    targetCPUUtilizationPercentage: 70
-
-  # Environment variables
-  environment:
-    - name: LOG_LEVEL
-      value: "info"
-    - name: WIKIPEDIA_API_URL
-      value: "https://en.wikipedia.org/api/rest_v1"
-    - name: MAX_SEARCH_RESULTS
-      value: "10"
-    # FastMCP environment variables for HTTP transport
-    - name: FASTMCP_TRANSPORT
-      value: "http"
-    - name: FASTMCP_HTTP_PORT
-      value: "8080"
-    - name: FASTMCP_HTTP_HOST
-      value: "0.0.0.0"
-    - name: FASTMCP_PORT
-      value: "8080"
-    - name: FASTMCP_HOST
-      value: "0.0.0.0"
-
-  # Security configuration
-  security:
-    runAsUser: 1000
-    runAsGroup: 1000
-    readOnlyRootFilesystem: true
-
-  # Pod template customization
-  podTemplate:
-    labels:
-      mcp.transport: http
-      mcp.service: wikipedia
-    annotations:
-      prometheus.io/scrape: "true"
-      prometheus.io/port: "8080"
-      prometheus.io/path: "/metrics"
