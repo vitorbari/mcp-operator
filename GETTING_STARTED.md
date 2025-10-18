@@ -86,7 +86,8 @@ metadata:
   name: my-first-mcp-server
   namespace: default
 spec:
-  image: "ghcr.io/modelcontextprotocol/servers/everything:latest"
+  image: "tzolov/mcp-everything-server:v3"
+  command: ["node", "dist/index.js", "sse"]
   replicas: 1
   transport:
     type: http
@@ -120,8 +121,8 @@ kubectl get mcpserver my-first-mcp-server
 You should see output like:
 
 ```
-NAME                   PHASE     REPLICAS   READY   TRANSPORT   AGE
-my-first-mcp-server    Running   1          1       http        1m
+NAME                  PHASE     REPLICAS   READY   TRANSPORT   AGE
+my-first-mcp-server   Running   1          1       http        1m
 ```
 
 View detailed status:
@@ -164,6 +165,67 @@ kubectl port-forward service/my-first-mcp-server 8080:8080
 ```
 
 Now you can access your MCP server at `http://localhost:8080`.
+
+## Step 5: Connect an MCP Client
+
+Once your MCP server is accessible, you can connect to it using MCP-compatible clients.
+
+### Using MCP Inspector (Recommended for Testing)
+
+The [MCP Inspector](https://github.com/modelcontextprotocol/inspector) is the official testing tool for MCP servers:
+
+```bash
+# Install MCP Inspector globally
+npm install -g @modelcontextprotocol/inspector
+
+# Connect to your local MCP server
+mcp-inspector http://localhost:8080/mcp
+```
+
+This will open a web interface where you can:
+- Test available tools and prompts
+- Send requests to the MCP server
+- View server capabilities and resources
+- Debug MCP protocol interactions
+
+### Using Claude Desktop
+
+To connect Claude Desktop to your MCP server, add it to your Claude configuration:
+
+**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "url": "http://localhost:8080/mcp"
+    }
+  }
+}
+```
+
+Restart Claude Desktop to load the new server configuration.
+
+### Using Other MCP Clients
+
+For remote MCP servers with ingress enabled, you can connect from any location:
+
+```json
+{
+  "mcpServers": {
+    "remote-server": {
+      "url": "https://mcp.example.com/mcp"
+    }
+  }
+}
+```
+
+**Additional Resources:**
+- [Testing Remote MCP Servers (Cloudflare)](https://developers.cloudflare.com/agents/guides/test-remote-mcp-server/)
+- [Awesome Remote MCP Servers](https://github.com/jaw9c/awesome-remote-mcp-servers)
+- [MCP Protocol Documentation](https://modelcontextprotocol.io)
 
 ## Next Steps
 

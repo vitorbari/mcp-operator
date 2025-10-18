@@ -62,6 +62,15 @@ jobs:
           make manifests generate
           make build-installer-all IMG=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
 
+      - name: Commit manifests to main branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout main
+          git add dist/install.yaml dist/monitoring.yaml
+          git diff-index --quiet HEAD || git commit -m "Update installation manifests for ${{ steps.version.outputs.version }}"
+          git push origin main
+
       - name: Create release notes
         run: |
           cat > notes.md << 'EOF'
