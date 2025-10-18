@@ -22,7 +22,23 @@ spec:
     singular: mcpserver
   scope: Namespaced
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.replicas
+      name: Replicas
+      type: integer
+    - jsonPath: .status.readyReplicas
+      name: Ready
+      type: integer
+    - jsonPath: .status.transportType
+      name: Transport
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
     schema:
       openAPIV3Schema:
         description: MCPServer is the Schema for the mcpservers API
@@ -3863,7 +3879,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/vitorbari/mcp-operator:v0.1.0-alpha.4
+        image: ghcr.io/vitorbari/mcp-operator:v0.1.0-alpha.5
         livenessProbe:
           httpGet:
             path: /healthz
