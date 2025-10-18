@@ -351,11 +351,9 @@ Multi-layered security approach:
 - **[Release Process](docs/release-process.md)** - Creating new releases
 - **[Development Guide](development.md)** - Local development setup
 
-## Support and Community
+## Support
 
-- **Issues**: [GitHub Issues](https://github.com/vitorbari/mcp-operator/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/vitorbari/mcp-operator/discussions)
-- **Documentation**: [Project Wiki](https://github.com/vitorbari/mcp-operator/wiki)
+For bugs, feature requests, or questions, please [open an issue](https://github.com/vitorbari/mcp-operator/issues).
 
 ## License
 

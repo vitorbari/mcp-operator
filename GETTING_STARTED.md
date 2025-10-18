@@ -144,10 +144,23 @@ kubectl logs -l app.kubernetes.io/name=my-first-mcp-server
 
 ## Step 4: Access Your MCP Server
 
-The operator creates a Kubernetes service for your MCP server. To access it locally:
+The operator creates a Kubernetes service for your MCP server. Access methods vary by platform:
+
+**Minikube:**
 
 ```bash
-kubectl port-forward service/my-first-mcp-server-service 8080:8080
+# Open service in browser (automatically handles port forwarding)
+minikube service my-first-mcp-server
+
+# Or get the URL without opening browser
+minikube service my-first-mcp-server --url
+```
+
+**Kind or other Kubernetes clusters:**
+
+```bash
+# Port forward to access locally
+kubectl port-forward service/my-first-mcp-server 8080:8080
 ```
 
 Now you can access your MCP server at `http://localhost:8080`.
