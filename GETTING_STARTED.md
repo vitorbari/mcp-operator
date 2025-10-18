@@ -134,13 +134,13 @@ kubectl describe mcpserver my-first-mcp-server
 Check the pods:
 
 ```bash
-kubectl get pods -l app.kubernetes.io/name=my-first-mcp-server
+kubectl get pods -l app=my-first-mcp-server
 ```
 
 View logs:
 
 ```bash
-kubectl logs -l app.kubernetes.io/name=my-first-mcp-server
+kubectl logs -l app=my-first-mcp-server
 ```
 
 ## Step 4: Access Your MCP Server
@@ -273,8 +273,8 @@ See the [README](README.md) for complete API reference and more examples.
 Check pod status:
 
 ```bash
-kubectl get pods -l app.kubernetes.io/name=my-first-mcp-server
-kubectl describe pod -l app.kubernetes.io/name=my-first-mcp-server
+kubectl get pods -l app=my-first-mcp-server
+kubectl describe pod -l app=my-first-mcp-server
 ```
 
 ### Pods are CrashLooping
@@ -282,7 +282,7 @@ kubectl describe pod -l app.kubernetes.io/name=my-first-mcp-server
 View logs to see what's failing:
 
 ```bash
-kubectl logs -l app.kubernetes.io/name=my-first-mcp-server
+kubectl logs -l app=my-first-mcp-server
 ```
 
 Common issues:
