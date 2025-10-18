@@ -93,7 +93,7 @@ spec:
     type: http
     config:
       http:
-        port: 8080
+        port: 3001
         sessionManagement: true
   security:
     runAsUser: 1000
@@ -164,10 +164,10 @@ minikube service my-first-mcp-server --url
 
 ```bash
 # Port forward to access locally
-kubectl port-forward service/my-first-mcp-server 8080:8080
+kubectl port-forward service/my-first-mcp-server 3001:3001
 ```
 
-Now you can access your MCP server at `http://localhost:8080`.
+Now you can access your MCP server at `http://localhost:3001`.
 
 ## Step 5: Connect an MCP Client
 
@@ -182,7 +182,7 @@ The [MCP Inspector](https://github.com/modelcontextprotocol/inspector) is the of
 npm install -g @modelcontextprotocol/inspector
 
 # Connect to your local MCP server
-mcp-inspector http://localhost:8080/mcp
+mcp-inspector http://localhost:3001/mcp
 ```
 
 This will open a web interface where you can:
@@ -203,7 +203,7 @@ To connect Claude Desktop to your MCP server, add it to your Claude configuratio
 {
   "mcpServers": {
     "my-server": {
-      "url": "http://localhost:8080/mcp"
+      "url": "http://localhost:3001/mcp"
     }
   }
 }
