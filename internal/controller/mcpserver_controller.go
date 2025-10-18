@@ -133,15 +133,6 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return r.updateStatusWithError(ctx, mcpServer, err)
 	}
 
-	// Reconcile RBAC if security settings are provided
-	if mcpServer.Spec.Security != nil {
-		if err := r.reconcileRBAC(ctx, mcpServer); err != nil {
-			log.Error(err, "Failed to reconcile RBAC")
-			r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "RBACFailed", fmt.Sprintf("Failed to reconcile RBAC: %v", err))
-			return r.updateStatusWithError(ctx, mcpServer, err)
-		}
-	}
-
 	// Reconcile transport-specific resources
 	if err := r.reconcileTransportResources(ctx, mcpServer); err != nil {
 		log.Error(err, "Failed to reconcile transport resources")
@@ -248,96 +239,6 @@ func (r *MCPServerReconciler) reconcileServiceAccount(ctx context.Context, mcpSe
 		}
 	} else if err != nil {
 		return err
-	}
-
-	return nil
-}
-
-// reconcileRBAC creates Role and RoleBinding for user/group access control
-func (r *MCPServerReconciler) reconcileRBAC(ctx context.Context, mcpServer *mcpv1.MCPServer) error {
-	if mcpServer.Spec.Security == nil || (len(mcpServer.Spec.Security.AllowedUsers) == 0 && len(mcpServer.Spec.Security.AllowedGroups) == 0) {
-		return nil
-	}
-
-	// Create Role
-	role := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-access", mcpServer.Name),
-			Namespace: mcpServer.Namespace,
-		},
-		Rules: []rbacv1.PolicyRule{
-			{
-				APIGroups:     []string{""},
-				Resources:     []string{"services"},
-				Verbs:         []string{"get", "list"},
-				ResourceNames: []string{mcpServer.Name},
-			},
-		},
-	}
-
-	if err := controllerutil.SetControllerReference(mcpServer, role, r.Scheme); err != nil {
-		return err
-	}
-
-	found := &rbacv1.Role{}
-	err := r.Get(ctx, types.NamespacedName{Name: role.Name, Namespace: role.Namespace}, found)
-	if err != nil && errors.IsNotFound(err) {
-		if err := r.Create(ctx, role); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	}
-
-	// Create RoleBinding
-	subjects := []rbacv1.Subject{}
-
-	// Add allowed users
-	for _, user := range mcpServer.Spec.Security.AllowedUsers {
-		subjects = append(subjects, rbacv1.Subject{
-			Kind: "User",
-			Name: user,
-		})
-	}
-
-	// Add allowed groups
-	for _, group := range mcpServer.Spec.Security.AllowedGroups {
-		subjects = append(subjects, rbacv1.Subject{
-			Kind: "Group",
-			Name: group,
-		})
-	}
-
-	roleBinding := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-access", mcpServer.Name),
-			Namespace: mcpServer.Namespace,
-		},
-		Subjects: subjects,
-		RoleRef: rbacv1.RoleRef{
-			Kind:     "Role",
-			Name:     role.Name,
-			APIGroup: "rbac.authorization.k8s.io",
-		},
-	}
-
-	if err := controllerutil.SetControllerReference(mcpServer, roleBinding, r.Scheme); err != nil {
-		return err
-	}
-
-	foundRB := &rbacv1.RoleBinding{}
-	err = r.Get(ctx, types.NamespacedName{Name: roleBinding.Name, Namespace: roleBinding.Namespace}, foundRB)
-	if err != nil && errors.IsNotFound(err) {
-		if err := r.Create(ctx, roleBinding); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	} else if !reflect.DeepEqual(foundRB.Subjects, roleBinding.Subjects) {
-		foundRB.Subjects = roleBinding.Subjects
-		if err := r.Update(ctx, foundRB); err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -583,59 +484,25 @@ func (r *MCPServerReconciler) buildIngress(mcpServer *mcpv1.MCPServer) *networki
 		"app.kubernetes.io/managed-by": "mcp-operator",
 	}
 
-	// Start with base annotations for streaming and metrics
+	// Start with sensible defaults for long-lived connections
 	annotations := map[string]string{
 		"nginx.ingress.kubernetes.io/proxy-read-timeout":    "3600",
 		"nginx.ingress.kubernetes.io/proxy-send-timeout":    "3600",
 		"nginx.ingress.kubernetes.io/proxy-connect-timeout": "60",
 		"nginx.ingress.kubernetes.io/proxy-buffering":       "off",
-		// Enable metrics collection by default
-		"nginx.ingress.kubernetes.io/enable-metrics": "true",
-		"nginx.org/prometheus-metrics":               "true",
-		"nginx.org/prometheus-port":                  "9113",
 	}
 
-	// Get transport type for headers and logging
-	transportType := r.getMCPTransportType(mcpServer)
-
-	// Add advanced server snippet with MCP transport headers and analytics
-	serverSnippet := fmt.Sprintf(`
-		# Advanced logging for MCP analytics
-		access_log /var/log/nginx/%s-access.log json_combined;
-
-		# Add MCP transport type header for all requests
-		more_set_headers "X-MCP-Transport: %s";
-		more_set_headers "X-MCP-Server: %s";
-
-		# Location-specific configurations
-		location /mcp {
-			proxy_set_header X-MCP-Protocol-Version $http_mcp_protocol_version;
-			proxy_set_header X-MCP-Session-ID $http_mcp_session_id;
-			proxy_pass $target;
-		}
-	`, mcpServer.Name, transportType, mcpServer.Name)
-
-	annotations["nginx.ingress.kubernetes.io/server-snippet"] = serverSnippet
-
-	// Add transport-specific annotations
-	if mcpServer.Spec.Transport != nil {
-		switch mcpServer.Spec.Transport.Type {
-		case mcpv1.MCPTransportHTTP:
-			// Add session affinity for HTTP transport if session management is enabled
-			if mcpServer.Spec.Transport.Config != nil &&
-				mcpServer.Spec.Transport.Config.HTTP != nil &&
-				mcpServer.Spec.Transport.Config.HTTP.SessionManagement != nil &&
-				*mcpServer.Spec.Transport.Config.HTTP.SessionManagement {
-				annotations["nginx.ingress.kubernetes.io/affinity"] = "cookie"
-				annotations["nginx.ingress.kubernetes.io/session-cookie-name"] = "mcp-session"
-				annotations["nginx.ingress.kubernetes.io/session-cookie-expires"] = "86400"
-				// Use session ID for consistent routing
-				annotations["nginx.ingress.kubernetes.io/upstream-hash-by"] = "$http_mcp_session_id"
-			}
-		}
+	// Add session affinity if session management is enabled
+	if mcpServer.Spec.Transport != nil &&
+		mcpServer.Spec.Transport.Config != nil &&
+		mcpServer.Spec.Transport.Config.HTTP != nil &&
+		mcpServer.Spec.Transport.Config.HTTP.SessionManagement != nil &&
+		*mcpServer.Spec.Transport.Config.HTTP.SessionManagement {
+		annotations["nginx.ingress.kubernetes.io/affinity"] = "cookie"
+		annotations["nginx.ingress.kubernetes.io/session-cookie-name"] = "mcp-session"
 	}
 
-	// Merge custom annotations
+	// Merge custom annotations (user annotations take precedence)
 	if mcpServer.Spec.Ingress.Annotations != nil {
 		for k, v := range mcpServer.Spec.Ingress.Annotations {
 			annotations[k] = v
@@ -928,14 +795,6 @@ func (r *MCPServerReconciler) setCondition(mcpServer *mcpv1.MCPServer, newCondit
 		}
 	}
 	mcpServer.Status.Conditions = append(mcpServer.Status.Conditions, newCondition)
-}
-
-// getMCPTransportType returns the transport type string for headers and logging
-func (r *MCPServerReconciler) getMCPTransportType(mcpServer *mcpv1.MCPServer) string {
-	if mcpServer.Spec.Transport != nil {
-		return string(mcpServer.Spec.Transport.Type)
-	}
-	return "http" // default transport type
 }
 
 // SetupWithManager sets up the controller with the Manager.

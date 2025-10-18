@@ -45,13 +45,6 @@ spec:
                 items:
                   type: string
                 type: array
-              capabilities:
-                description: Capabilities defines the MCP capabilities this server
-                  provides
-                items:
-                  type: string
-                minItems: 1
-                type: array
               command:
                 description: Command specifies the container command to override the
                   default entrypoint
@@ -184,50 +177,16 @@ spec:
                     default: true
                     description: Enabled indicates if health checks should be performed
                     type: boolean
-                  failureThreshold:
-                    default: 3
-                    description: FailureThreshold specifies the number of failed checks
-                      before marking as unhealthy
-                    format: int32
-                    minimum: 1
-                    type: integer
-                  initialDelaySeconds:
-                    default: 30
-                    description: InitialDelaySeconds specifies the delay before the
-                      first health check
-                    format: int32
-                    minimum: 0
-                    type: integer
                   path:
                     default: /health
                     description: Path specifies the HTTP path for health checks
                     type: string
-                  periodSeconds:
-                    default: 10
-                    description: PeriodSeconds specifies the interval between health
-                      checks
-                    format: int32
-                    minimum: 1
-                    type: integer
                   port:
                     anyOf:
                     - type: integer
                     - type: string
                     description: Port specifies the port for health checks
                     x-kubernetes-int-or-string: true
-                  successThreshold:
-                    default: 1
-                    description: SuccessThreshold specifies the number of successful
-                      checks before marking as healthy
-                    format: int32
-                    minimum: 1
-                    type: integer
-                  timeoutSeconds:
-                    default: 5
-                    description: TimeoutSeconds specifies the timeout for health checks
-                    format: int32
-                    minimum: 1
-                    type: integer
                 type: object
               hpa:
                 description: HPA defines Horizontal Pod Autoscaler configuration
@@ -3347,18 +3306,6 @@ spec:
                     description: AllowPrivilegeEscalation controls whether a process
                       can gain more privileges than its parent
                     type: boolean
-                  allowedGroups:
-                    description: AllowedGroups specifies which groups can access this
-                      MCP server
-                    items:
-                      type: string
-                    type: array
-                  allowedUsers:
-                    description: AllowedUsers specifies which users or service accounts
-                      can access this MCP server
-                    items:
-                      type: string
-                    type: array
                   readOnlyRootFilesystem:
                     description: ReadOnlyRootFilesystem specifies if the container
                       should have a read-only root filesystem
@@ -3438,52 +3385,6 @@ spec:
                             maximum: 65535
                             minimum: 1
                             type: integer
-                          security:
-                            description: Security defines HTTP-specific security configuration
-                            properties:
-                              allowedOrigins:
-                                description: AllowedOrigins specifies allowed origins
-                                  for CORS
-                                items:
-                                  type: string
-                                type: array
-                              authentication:
-                                description: Authentication defines authentication
-                                  configuration
-                                properties:
-                                  secretRef:
-                                    description: SecretRef references a secret containing
-                                      authentication credentials
-                                    properties:
-                                      name:
-                                        description: name is unique within a namespace
-                                          to reference a secret resource.
-                                        type: string
-                                      namespace:
-                                        description: namespace defines the space within
-                                          which the secret name must be unique.
-                                        type: string
-                                    type: object
-                                    x-kubernetes-map-type: atomic
-                                  type:
-                                    default: none
-                                    description: Type specifies the authentication
-                                      type
-                                    enum:
-                                    - none
-                                    - bearer
-                                    - basic
-                                    type: string
-                                type: object
-                              bindLocalhost:
-                                description: BindLocalhost restricts binding to localhost
-                                  only
-                                type: boolean
-                              validateOrigin:
-                                description: ValidateOrigin enables origin validation
-                                  for HTTP requests
-                                type: boolean
-                            type: object
                           sessionManagement:
                             description: SessionManagement enables session management
                               for the HTTP transport

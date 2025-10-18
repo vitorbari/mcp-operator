@@ -18,7 +18,6 @@ package utils
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -41,13 +40,6 @@ func BuildStandardLabels(mcpServer *mcpv1.MCPServer) map[string]string {
 		"app.kubernetes.io/instance":   mcpServer.Name,
 		"app.kubernetes.io/component":  "mcp-server",
 		"app.kubernetes.io/managed-by": "mcp-operator",
-	}
-
-	// Add capabilities as labels
-	if len(mcpServer.Spec.Capabilities) > 0 {
-		for i, cap := range mcpServer.Spec.Capabilities {
-			labels[fmt.Sprintf("mcp.capability.%d", i)] = cap
-		}
 	}
 
 	// Add transport type as label
@@ -168,16 +160,19 @@ func AddHealthProbes(container *corev1.Container, mcpServer *mcpv1.MCPServer, po
 		return
 	}
 
+	// Get health check path
 	healthPath := "/health"
-	if mcpServer.Spec.HealthCheck != nil && mcpServer.Spec.HealthCheck.Path != "" {
+	if mcpServer.Spec.HealthCheck.Path != "" {
 		healthPath = mcpServer.Spec.HealthCheck.Path
 	}
 
+	// Get health check port
 	healthPort := intstr.FromInt(int(port))
-	if mcpServer.Spec.HealthCheck != nil && mcpServer.Spec.HealthCheck.Port != nil {
+	if mcpServer.Spec.HealthCheck.Port != nil {
 		healthPort = *mcpServer.Spec.HealthCheck.Port
 	}
 
+	// Create probe with sensible defaults
 	probe := &corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
 			HTTPGet: &corev1.HTTPGetAction{
@@ -190,25 +185,6 @@ func AddHealthProbes(container *corev1.Container, mcpServer *mcpv1.MCPServer, po
 		TimeoutSeconds:      5,
 		FailureThreshold:    3,
 		SuccessThreshold:    1,
-	}
-
-	// Apply custom health check settings
-	if mcpServer.Spec.HealthCheck != nil {
-		if mcpServer.Spec.HealthCheck.InitialDelaySeconds != nil {
-			probe.InitialDelaySeconds = *mcpServer.Spec.HealthCheck.InitialDelaySeconds
-		}
-		if mcpServer.Spec.HealthCheck.PeriodSeconds != nil {
-			probe.PeriodSeconds = *mcpServer.Spec.HealthCheck.PeriodSeconds
-		}
-		if mcpServer.Spec.HealthCheck.TimeoutSeconds != nil {
-			probe.TimeoutSeconds = *mcpServer.Spec.HealthCheck.TimeoutSeconds
-		}
-		if mcpServer.Spec.HealthCheck.FailureThreshold != nil {
-			probe.FailureThreshold = *mcpServer.Spec.HealthCheck.FailureThreshold
-		}
-		if mcpServer.Spec.HealthCheck.SuccessThreshold != nil {
-			probe.SuccessThreshold = *mcpServer.Spec.HealthCheck.SuccessThreshold
-		}
 	}
 
 	container.LivenessProbe = probe

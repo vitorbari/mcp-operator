@@ -44,11 +44,6 @@ type MCPServerSpec struct {
 	// +optional
 	Replicas *int32 `json:"replicas,omitempty"`
 
-	// Capabilities defines the MCP capabilities this server provides
-	// +kubebuilder:validation:MinItems=1
-	// +optional
-	Capabilities []string `json:"capabilities,omitempty"`
-
 	// Resources defines the resource requirements for the MCP server containers
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
@@ -88,14 +83,6 @@ type MCPServerSpec struct {
 
 // MCPServerSecurity defines security settings for the MCP server
 type MCPServerSecurity struct {
-	// AllowedUsers specifies which users or service accounts can access this MCP server
-	// +optional
-	AllowedUsers []string `json:"allowedUsers,omitempty"`
-
-	// AllowedGroups specifies which groups can access this MCP server
-	// +optional
-	AllowedGroups []string `json:"allowedGroups,omitempty"`
-
 	// RunAsUser specifies the user ID to run the MCP server process
 	// +optional
 	RunAsUser *int64 `json:"runAsUser,omitempty"`
@@ -162,36 +149,6 @@ type MCPServerHealthCheck struct {
 	// Port specifies the port for health checks
 	// +optional
 	Port *intstr.IntOrString `json:"port,omitempty"`
-
-	// InitialDelaySeconds specifies the delay before the first health check
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:default=30
-	// +optional
-	InitialDelaySeconds *int32 `json:"initialDelaySeconds,omitempty"`
-
-	// PeriodSeconds specifies the interval between health checks
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default=10
-	// +optional
-	PeriodSeconds *int32 `json:"periodSeconds,omitempty"`
-
-	// TimeoutSeconds specifies the timeout for health checks
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default=5
-	// +optional
-	TimeoutSeconds *int32 `json:"timeoutSeconds,omitempty"`
-
-	// FailureThreshold specifies the number of failed checks before marking as unhealthy
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default=3
-	// +optional
-	FailureThreshold *int32 `json:"failureThreshold,omitempty"`
-
-	// SuccessThreshold specifies the number of successful checks before marking as healthy
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default=1
-	// +optional
-	SuccessThreshold *int32 `json:"successThreshold,omitempty"`
 }
 
 // MCPServerPodTemplate defines additional pod template specifications
@@ -450,42 +407,6 @@ type MCPHTTPTransportConfig struct {
 	// SessionManagement enables session management for the HTTP transport
 	// +optional
 	SessionManagement *bool `json:"sessionManagement,omitempty"`
-
-	// Security defines HTTP-specific security configuration
-	// +optional
-	Security *MCPHTTPSecurityConfig `json:"security,omitempty"`
-}
-
-// MCPHTTPSecurityConfig defines security settings for HTTP transport
-type MCPHTTPSecurityConfig struct {
-	// ValidateOrigin enables origin validation for HTTP requests
-	// +optional
-	ValidateOrigin *bool `json:"validateOrigin,omitempty"`
-
-	// AllowedOrigins specifies allowed origins for CORS
-	// +optional
-	AllowedOrigins []string `json:"allowedOrigins,omitempty"`
-
-	// BindLocalhost restricts binding to localhost only
-	// +optional
-	BindLocalhost *bool `json:"bindLocalhost,omitempty"`
-
-	// Authentication defines authentication configuration
-	// +optional
-	Authentication *MCPAuthenticationConfig `json:"authentication,omitempty"`
-}
-
-// MCPAuthenticationConfig defines authentication settings
-type MCPAuthenticationConfig struct {
-	// Type specifies the authentication type
-	// +kubebuilder:validation:Enum=none;bearer;basic
-	// +kubebuilder:default=none
-	// +optional
-	Type string `json:"type,omitempty"`
-
-	// SecretRef references a secret containing authentication credentials
-	// +optional
-	SecretRef *corev1.SecretReference `json:"secretRef,omitempty"`
 }
 
 // MCPServerIngress defines ingress configuration for external access

@@ -204,44 +204,6 @@ func (h *HTTPResourceManager) buildDeployment(mcpServer *mcpv1.MCPServer) *appsv
 		})
 	}
 
-	// Add security-related environment variables
-	if mcpServer.Spec.Transport != nil &&
-		mcpServer.Spec.Transport.Config != nil &&
-		mcpServer.Spec.Transport.Config.HTTP != nil &&
-		mcpServer.Spec.Transport.Config.HTTP.Security != nil {
-
-		security := mcpServer.Spec.Transport.Config.HTTP.Security
-
-		if security.ValidateOrigin != nil && *security.ValidateOrigin {
-			container.Env = append(container.Env, corev1.EnvVar{
-				Name:  "MCP_VALIDATE_ORIGIN",
-				Value: "true",
-			})
-		}
-
-		if security.BindLocalhost != nil && *security.BindLocalhost {
-			container.Env = append(container.Env, corev1.EnvVar{
-				Name:  "MCP_BIND_LOCALHOST",
-				Value: "true",
-			})
-		}
-
-		if len(security.AllowedOrigins) > 0 {
-			// Join allowed origins with comma
-			origins := ""
-			for i, origin := range security.AllowedOrigins {
-				if i > 0 {
-					origins += ","
-				}
-				origins += origin
-			}
-			container.Env = append(container.Env, corev1.EnvVar{
-				Name:  "MCP_ALLOWED_ORIGINS",
-				Value: origins,
-			})
-		}
-	}
-
 	// Add health probes for HTTP endpoints
 	utils.AddHealthProbes(&container, mcpServer, port)
 

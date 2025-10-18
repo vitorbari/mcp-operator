@@ -23,9 +23,6 @@ spec:
         port: 8080
         path: "/mcp"
         sessionManagement: true
-        security:
-          validateOrigin: false  # Allow all origins for public Wikipedia access
-          bindLocalhost: false
 
   # Service configuration
   service:
@@ -109,8 +106,3 @@ spec:
       prometheus.io/scrape: "true"
       prometheus.io/port: "8080"
       prometheus.io/path: "/metrics"
-
-  # Capabilities this Wikipedia MCP server provides
-  capabilities:
-    - "tools"      # Wikipedia search and article retrieval tools
-    - "resources"  # Wikipedia article resources

@@ -27,7 +27,6 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -72,9 +71,6 @@ var _ = Describe("MCPServer Controller", func() {
 							corev1.ResourceCPU:    resource.MustParse("100m"),
 							corev1.ResourceMemory: resource.MustParse("128Mi"),
 						},
-					},
-					Security: &mcpv1.MCPServerSecurity{
-						AllowedUsers: []string{"test-user"},
 					},
 				},
 			}
@@ -144,47 +140,6 @@ var _ = Describe("MCPServer Controller", func() {
 			Expect(service.Spec.Selector).To(HaveKeyWithValue("app", resourceName))
 			Expect(service.Spec.Ports).To(HaveLen(1))
 			Expect(service.Spec.Ports[0].Port).To(Equal(int32(8080)))
-		})
-
-		It("should create RBAC resources", func() {
-			By("Reconciling the MCPServer")
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Checking that a ServiceAccount was created")
-			sa := &corev1.ServiceAccount{}
-			saKey := types.NamespacedName{
-				Name:      resourceName,
-				Namespace: resourceNamespace,
-			}
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, saKey, sa)
-				return err == nil
-			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
-
-			By("Checking that a Role was created")
-			role := &rbacv1.Role{}
-			roleKey := types.NamespacedName{
-				Name:      resourceName + "-access",
-				Namespace: resourceNamespace,
-			}
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, roleKey, role)
-				return err == nil
-			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
-
-			By("Checking that a RoleBinding was created")
-			rb := &rbacv1.RoleBinding{}
-			rbKey := types.NamespacedName{
-				Name:      resourceName + "-access",
-				Namespace: resourceNamespace,
-			}
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, rbKey, rb)
-				return err == nil
-			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
 		})
 
 		It("should update MCPServer status", func() {
@@ -384,11 +339,9 @@ var _ = Describe("MCPServer Controller", func() {
 						TargetPort: &intstr.IntOrString{IntVal: 80},
 					},
 					HealthCheck: &mcpv1.MCPServerHealthCheck{
-						Enabled:             ptr(true),
-						Path:                "/health",
-						Port:                &intstr.IntOrString{IntVal: 80},
-						InitialDelaySeconds: ptr(int32(10)),
-						PeriodSeconds:       ptr(int32(5)),
+						Enabled: ptr(true),
+						Path:    "/health",
+						Port:    &intstr.IntOrString{IntVal: 80},
 					},
 					Environment: []corev1.EnvVar{
 						{
@@ -448,7 +401,6 @@ var _ = Describe("MCPServer Controller", func() {
 			Expect(container.Resources.Limits.Memory().String()).To(Equal("512Mi"))
 			Expect(container.Env).To(ContainElement(corev1.EnvVar{Name: "LOG_LEVEL", Value: "debug"}))
 			Expect(container.LivenessProbe.HTTPGet.Path).To(Equal("/health"))
-			Expect(container.LivenessProbe.InitialDelaySeconds).To(Equal(int32(10)))
 		})
 
 		It("should create Service with custom port", func() {
@@ -563,10 +515,10 @@ var _ = Describe("MCPServer Controller", func() {
 			Expect(ingress.Spec.Rules[0].HTTP.Paths).To(HaveLen(1))
 			Expect(ingress.Spec.Rules[0].HTTP.Paths[0].Path).To(Equal("/mcp"))
 
-			// Check annotations include both custom and MCP-specific ones
+			// Check annotations include custom and proxy configuration
 			Expect(ingress.Annotations).To(HaveKey("cert-manager.io/cluster-issuer"))
-			Expect(ingress.Annotations).To(HaveKey("nginx.ingress.kubernetes.io/server-snippet"))
-			Expect(ingress.Annotations["nginx.ingress.kubernetes.io/enable-metrics"]).To(Equal("true"))
+			Expect(ingress.Annotations).To(HaveKey("nginx.ingress.kubernetes.io/proxy-buffering"))
+			Expect(ingress.Annotations["nginx.ingress.kubernetes.io/proxy-buffering"]).To(Equal("off"))
 		})
 
 		It("should not create Ingress when disabled", func() {
