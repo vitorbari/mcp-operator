@@ -29,3 +29,6 @@ go.work
 
 # OS generated files
 .DS_Store
+
+# Personal notes and drafts
+.notes/

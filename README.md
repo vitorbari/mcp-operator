@@ -1,5 +1,10 @@
 # MCP Operator
 
+[![Lint](https://github.com/vitorbari/mcp-operator/actions/workflows/lint.yml/badge.svg)](https://github.com/vitorbari/mcp-operator/actions/workflows/lint.yml)
+[![Tests](https://github.com/vitorbari/mcp-operator/actions/workflows/test.yml/badge.svg)](https://github.com/vitorbari/mcp-operator/actions/workflows/test.yml)
+[![E2E Tests](https://github.com/vitorbari/mcp-operator/actions/workflows/test-e2e.yml/badge.svg)](https://github.com/vitorbari/mcp-operator/actions/workflows/test-e2e.yml)
+[![Release](https://github.com/vitorbari/mcp-operator/actions/workflows/release.yml/badge.svg)](https://github.com/vitorbari/mcp-operator/actions/workflows/release.yml)
+
 > **⚠️ Alpha Software - Not Production Ready**
 >
 > This project is in early development and should be considered **experimental**. While we encourage you to try it out and provide feedback, please do not use it in production environments yet. APIs may change, features may be incomplete, and bugs are expected.
@@ -336,10 +341,15 @@ Multi-layered security approach:
 
 ## Documentation
 
-- **[Getting Started Guide](GETTING_STARTED.md)** - 5-minute quickstart tutorial
+### User Guides
+- **[Getting Started](GETTING_STARTED.md)** - 5-minute quickstart tutorial
+- **[Installation Guide](docs/installation.md)** - Detailed installation instructions
+- **[Configuration Examples](config/samples/)** - Real-world MCPServer configurations
+
+### Developer Resources
 - **[Contributing Guide](CONTRIBUTING.md)** - How to contribute to the project
-- **[Architecture Decision Records](docs/)** - Design decisions and rationale
-- **[Examples](config/samples/)** - Real-world configuration examples
+- **[Release Process](docs/release-process.md)** - Creating new releases
+- **[Development Guide](development.md)** - Local development setup
 
 ## Support and Community
 
