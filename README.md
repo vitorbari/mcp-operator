@@ -223,6 +223,13 @@ kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/d
 - `mcpserver_phase` - Current phase tracking
 - `mcpserver_reconcile_duration_seconds` - Controller performance
 
+### Grafana Dashboard
+
+The dashboard displays real-time metrics for all MCPServers including readiness, phase distribution, replica counts, controller performance, and resource utilization.
+
+<img width="2540" height="1324" alt="Screenshot 2025-10-19 at 20 58 00" src="https://github.com/user-attachments/assets/277ff6d9-e9ff-4fdb-ad76-b40077ae942e" />
+
+
 ## API Reference
 
 ### MCPServer Spec
