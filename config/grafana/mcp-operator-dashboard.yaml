@@ -11,21 +11,23 @@ data:
   mcp-operator.json: |
     {
       "id": null,
+      "uid": "mcp-operator-overview",
       "title": "MCP Operator Overview",
-      "description": "Comprehensive monitoring for MCP Operator and MCPServer resources",
+      "description": "Monitoring for MCP Operator and MCPServer resources",
       "tags": ["mcp", "operator", "kubernetes"],
       "timezone": "browser",
-      "schemaVersion": 27,
-      "version": 2,
+      "schemaVersion": 38,
+      "version": 3,
+      "editable": true,
       "panels": [
         {
           "id": 1,
           "title": "Total MCPServers",
           "type": "stat",
-          "gridPos": {"h": 4, "w": 3, "x": 0, "y": 0},
+          "gridPos": {"h": 5, "w": 4, "x": 0, "y": 0},
           "targets": [
             {
-              "expr": "count(mcpserver_ready_total)",
+              "expr": "count(mcpserver_ready_total) or vector(0)",
               "refId": "A"
             }
           ],
@@ -34,6 +36,7 @@ data:
               "color": {"mode": "thresholds"},
               "unit": "short",
               "thresholds": {
+                "mode": "absolute",
                 "steps": [
                   {"color": "blue", "value": null}
                 ]
@@ -43,24 +46,25 @@ data:
           "options": {
             "reduceOptions": {
               "values": false,
-              "calcs": ["lastNotNull"],
-              "fields": ""
+              "calcs": ["lastNotNull"]
             },
-            "orientation": "auto",
-            "textMode": "value_and_name",
-            "colorMode": "value",
-            "graphMode": "none"
+            "textMode": "value",
+            "colorMode": "background",
+            "graphMode": "none",
+            "text": {
+              "titleSize": 14,
+              "valueSize": 32
+            }
           }
         },
         {
           "id": 2,
-          "title": "Ready MCPServers",
+          "title": "Ready",
           "type": "stat",
-          "gridPos": {"h": 4, "w": 3, "x": 3, "y": 0},
+          "gridPos": {"h": 5, "w": 4, "x": 4, "y": 0},
           "targets": [
             {
-              "expr": "sum(mcpserver_ready_total)",
-              "legendFormat": "Ready",
+              "expr": "sum(mcpserver_ready_total) or vector(0)",
               "refId": "A"
             }
           ],
@@ -69,8 +73,9 @@ data:
               "color": {"mode": "thresholds"},
               "unit": "short",
               "thresholds": {
+                "mode": "absolute",
                 "steps": [
-                  {"color": "red", "value": 0},
+                  {"color": "red", "value": null},
                   {"color": "green", "value": 1}
                 ]
               }
@@ -79,23 +84,101 @@ data:
           "options": {
             "reduceOptions": {
               "values": false,
-              "calcs": ["lastNotNull"],
-              "fields": ""
+              "calcs": ["lastNotNull"]
             },
-            "orientation": "auto",
-            "textMode": "value_and_name",
-            "colorMode": "value",
-            "graphMode": "area"
+            "textMode": "value",
+            "colorMode": "background",
+            "graphMode": "area",
+            "text": {
+              "titleSize": 14,
+              "valueSize": 32
+            }
           }
         },
         {
           "id": 3,
-          "title": "Total Replicas",
+          "title": "Running",
           "type": "stat",
-          "gridPos": {"h": 4, "w": 3, "x": 6, "y": 0},
+          "gridPos": {"h": 5, "w": 4, "x": 8, "y": 0},
           "targets": [
             {
-              "expr": "sum(mcpserver_replicas)",
+              "expr": "sum(mcpserver_phase{phase=\"Running\"}) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "text", "value": null},
+                  {"color": "green", "value": 1}
+                ]
+              }
+            }
+          },
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": ["lastNotNull"]
+            },
+            "textMode": "value",
+            "colorMode": "background",
+            "graphMode": "area",
+            "text": {
+              "titleSize": 14,
+              "valueSize": 32
+            }
+          }
+        },
+        {
+          "id": 4,
+          "title": "Failed",
+          "type": "stat",
+          "gridPos": {"h": 5, "w": 4, "x": 12, "y": 0},
+          "targets": [
+            {
+              "expr": "sum(mcpserver_phase{phase=\"Failed\"}) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "text", "value": null},
+                  {"color": "red", "value": 1}
+                ]
+              }
+            }
+          },
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": ["lastNotNull"]
+            },
+            "textMode": "value",
+            "colorMode": "background",
+            "graphMode": "area",
+            "text": {
+              "titleSize": 14,
+              "valueSize": 32
+            }
+          }
+        },
+        {
+          "id": 5,
+          "title": "Total Replicas",
+          "type": "stat",
+          "gridPos": {"h": 5, "w": 4, "x": 16, "y": 0},
+          "targets": [
+            {
+              "expr": "sum(mcpserver_replicas) or vector(0)",
               "refId": "A"
             }
           ],
@@ -108,155 +191,54 @@ data:
           "options": {
             "reduceOptions": {
               "values": false,
-              "calcs": ["lastNotNull"],
-              "fields": ""
+              "calcs": ["lastNotNull"]
             },
-            "orientation": "auto",
-            "textMode": "value_and_name",
+            "textMode": "value",
             "colorMode": "value",
-            "graphMode": "area"
-          }
-        },
-        {
-          "id": 4,
-          "title": "Available Replicas",
-          "type": "stat",
-          "gridPos": {"h": 4, "w": 3, "x": 9, "y": 0},
-          "targets": [
-            {
-              "expr": "sum(mcpserver_available_replicas)",
-              "refId": "A"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "color": {"mode": "thresholds"},
-              "unit": "short",
-              "thresholds": {
-                "steps": [
-                  {"color": "red", "value": 0},
-                  {"color": "yellow", "value": 1},
-                  {"color": "green", "value": 2}
-                ]
-              }
-            }
-          },
-          "options": {
-            "reduceOptions": {
-              "values": false,
-              "calcs": ["lastNotNull"],
-              "fields": ""
-            },
-            "orientation": "auto",
-            "textMode": "value_and_name",
-            "colorMode": "value",
-            "graphMode": "area"
-          }
-        },
-        {
-          "id": 5,
-          "title": "Transport Types",
-          "type": "piechart",
-          "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
-          "targets": [
-            {
-              "expr": "sum by (type) (mcpserver_transport_type_total)",
-              "legendFormat": "{{type}}",
-              "refId": "A"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "color": {"mode": "palette-classic"}
-            }
-          },
-          "options": {
-            "reduceOptions": {
-              "values": false,
-              "calcs": ["lastNotNull"],
-              "fields": ""
-            },
-            "pieType": "pie",
-            "tooltip": {"mode": "single"},
-            "legend": {
-              "displayMode": "table",
-              "placement": "right",
-              "values": ["value"]
+            "graphMode": "area",
+            "text": {
+              "titleSize": 14,
+              "valueSize": 32
             }
           }
         },
         {
           "id": 6,
-          "title": "Reconciliation Rate (5m)",
+          "title": "Reconciliation Rate",
           "type": "stat",
-          "gridPos": {"h": 4, "w": 3, "x": 18, "y": 0},
+          "gridPos": {"h": 5, "w": 4, "x": 20, "y": 0},
           "targets": [
             {
-              "expr": "rate(mcpserver_reconcile_total{controller=\"mcpserver\"}[5m])",
+              "expr": "sum(rate(mcpserver_reconcile_total[5m])) or vector(0)",
               "refId": "A"
             }
           ],
           "fieldConfig": {
             "defaults": {
               "color": {"mode": "palette-classic"},
-              "unit": "reqps",
+              "unit": "ops",
               "decimals": 2
             }
           },
           "options": {
             "reduceOptions": {
               "values": false,
-              "calcs": ["lastNotNull"],
-              "fields": ""
+              "calcs": ["lastNotNull"]
             },
-            "orientation": "auto",
-            "textMode": "value_and_name",
+            "textMode": "value",
             "colorMode": "value",
-            "graphMode": "area"
+            "graphMode": "area",
+            "text": {
+              "titleSize": 14,
+              "valueSize": 28
+            }
           }
         },
         {
           "id": 7,
-          "title": "Avg Reconcile Duration",
-          "type": "stat",
-          "gridPos": {"h": 4, "w": 3, "x": 21, "y": 0},
-          "targets": [
-            {
-              "expr": "rate(mcpserver_reconcile_duration_seconds_sum{controller=\"mcpserver\"}[5m]) / rate(mcpserver_reconcile_duration_seconds_count{controller=\"mcpserver\"}[5m])",
-              "refId": "A"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "color": {"mode": "thresholds"},
-              "unit": "s",
-              "decimals": 3,
-              "thresholds": {
-                "steps": [
-                  {"color": "green", "value": null},
-                  {"color": "yellow", "value": 0.1},
-                  {"color": "red", "value": 0.5}
-                ]
-              }
-            }
-          },
-          "options": {
-            "reduceOptions": {
-              "values": false,
-              "calcs": ["lastNotNull"],
-              "fields": ""
-            },
-            "orientation": "auto",
-            "textMode": "value_and_name",
-            "colorMode": "value",
-            "graphMode": "area"
-          }
-        },
-        {
-          "id": 8,
-          "title": "MCPServer Status by Phase",
+          "title": "MCPServers by Phase",
           "type": "bargauge",
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "gridPos": {"h": 8, "w": 10, "x": 0, "y": 5},
           "targets": [
             {
               "expr": "sum by (phase) (mcpserver_phase)",
@@ -270,66 +252,176 @@ data:
               "unit": "short",
               "min": 0,
               "thresholds": {
+                "mode": "absolute",
                 "steps": [
                   {"color": "green", "value": null}
                 ]
-              },
-              "mappings": [
-                {"type": "value", "value": "0", "text": "0"}
-              ]
+              }
             },
             "overrides": [
               {
                 "matcher": {"id": "byName", "options": "Running"},
-                "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]
+                "properties": [{"id": "color", "value": {"fixedColor": "green", "mode": "fixed"}}]
               },
               {
                 "matcher": {"id": "byName", "options": "Failed"},
-                "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]
+                "properties": [{"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}}]
               },
               {
                 "matcher": {"id": "byName", "options": "Creating"},
-                "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "blue"}}]
+                "properties": [{"id": "color", "value": {"fixedColor": "blue", "mode": "fixed"}}]
               },
               {
                 "matcher": {"id": "byName", "options": "Scaling"},
-                "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]
+                "properties": [{"id": "color", "value": {"fixedColor": "yellow", "mode": "fixed"}}]
               },
               {
                 "matcher": {"id": "byName", "options": "Updating"},
-                "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]
-              },
-              {
-                "matcher": {"id": "byName", "options": "Terminating"},
-                "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "purple"}}]
+                "properties": [{"id": "color", "value": {"fixedColor": "orange", "mode": "fixed"}}]
               }
             ]
           },
           "options": {
             "reduceOptions": {
               "values": false,
-              "calcs": ["lastNotNull"],
-              "fields": ""
+              "calcs": ["lastNotNull"]
             },
             "orientation": "horizontal",
             "displayMode": "gradient",
-            "showUnfilled": true
+            "showUnfilled": true,
+            "minVizWidth": 0,
+            "minVizHeight": 20,
+            "text": {
+              "titleSize": 14,
+              "valueSize": 16
+            }
+          }
+        },
+        {
+          "id": 8,
+          "title": "Transport Types",
+          "type": "piechart",
+          "gridPos": {"h": 8, "w": 7, "x": 10, "y": 5},
+          "targets": [
+            {
+              "expr": "sum by (type) (mcpserver_transport_type_total)",
+              "legendFormat": "{{type}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "unit": "short"
+            }
+          },
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": ["lastNotNull"]
+            },
+            "pieType": "donut",
+            "tooltip": {"mode": "single"},
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "values": ["value", "percent"],
+              "calcs": []
+            },
+            "displayLabels": ["name", "percent"]
           }
         },
         {
           "id": 9,
-          "title": "Features Enabled",
+          "title": "Controller Performance",
           "type": "stat",
-          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 4},
+          "gridPos": {"h": 4, "w": 7, "x": 17, "y": 5},
           "targets": [
             {
-              "expr": "sum(mcpserver_hpa_enabled)",
-              "legendFormat": "HPA Enabled",
+              "expr": "rate(mcpserver_reconcile_duration_seconds_sum[5m]) / rate(mcpserver_reconcile_duration_seconds_count[5m])",
+              "legendFormat": "Avg Duration",
               "refId": "A"
             },
             {
-              "expr": "sum(mcpserver_ingress_enabled)",
-              "legendFormat": "Ingress Enabled",
+              "expr": "sum(rate(mcpserver_reconcile_total{result=\"success\"}[5m]))",
+              "legendFormat": "Success Rate",
+              "refId": "B"
+            },
+            {
+              "expr": "sum(rate(mcpserver_reconcile_total{result=\"error\"}[5m]))",
+              "legendFormat": "Error Rate",
+              "refId": "C"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "unit": "short",
+              "decimals": 3,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "yellow", "value": 0.1},
+                  {"color": "red", "value": 0.5}
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {"id": "byName", "options": "Avg Duration"},
+                "properties": [
+                  {"id": "unit", "value": "s"},
+                  {"id": "decimals", "value": 3}
+                ]
+              },
+              {
+                "matcher": {"id": "byName", "options": "Success Rate"},
+                "properties": [
+                  {"id": "unit", "value": "ops"},
+                  {"id": "decimals", "value": 2},
+                  {"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}
+                ]
+              },
+              {
+                "matcher": {"id": "byName", "options": "Error Rate"},
+                "properties": [
+                  {"id": "unit", "value": "ops"},
+                  {"id": "decimals", "value": 2},
+                  {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": ["lastNotNull"]
+            },
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "colorMode": "value",
+            "graphMode": "none",
+            "text": {
+              "titleSize": 12,
+              "valueSize": 18
+            }
+          }
+        },
+        {
+          "id": 10,
+          "title": "Features",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 7, "x": 17, "y": 9},
+          "targets": [
+            {
+              "expr": "sum(mcpserver_hpa_enabled) or vector(0)",
+              "legendFormat": "HPA",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(mcpserver_ingress_enabled) or vector(0)",
+              "legendFormat": "Ingress",
               "refId": "B"
             }
           ],
@@ -342,65 +434,84 @@ data:
           "options": {
             "reduceOptions": {
               "values": false,
-              "calcs": ["lastNotNull"],
-              "fields": ""
+              "calcs": ["lastNotNull"]
             },
             "orientation": "auto",
             "textMode": "value_and_name",
-            "colorMode": "value"
+            "colorMode": "value",
+            "text": {
+              "titleSize": 12,
+              "valueSize": 20
+            }
           }
         },
         {
-          "id": 10,
-          "title": "Replica Health (Desired vs Available)",
+          "id": 11,
+          "title": "Replica Health Over Time",
           "type": "timeseries",
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 13},
           "targets": [
             {
               "expr": "mcpserver_replicas",
-              "legendFormat": "{{namespace}}/{{name}} (Desired)",
+              "legendFormat": "{{namespace}}/{{name}} - Desired",
               "refId": "A"
             },
             {
-              "expr": "mcpserver_available_replicas",
-              "legendFormat": "{{namespace}}/{{name}} (Available)",
+              "expr": "mcpserver_ready_replicas",
+              "legendFormat": "{{namespace}}/{{name}} - Ready",
               "refId": "B"
+            },
+            {
+              "expr": "mcpserver_available_replicas",
+              "legendFormat": "{{namespace}}/{{name}} - Available",
+              "refId": "C"
             }
           ],
           "fieldConfig": {
             "defaults": {
               "color": {"mode": "palette-classic"},
               "unit": "short",
-              "min": 0
+              "min": 0,
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "spanNulls": false,
+                "showPoints": "auto",
+                "pointSize": 5,
+                "stacking": {"mode": "none"},
+                "axisPlacement": "auto",
+                "drawStyle": "line"
+              }
             }
           },
           "options": {
             "tooltip": {"mode": "multi", "sort": "none"},
             "legend": {
               "displayMode": "table",
-              "placement": "right",
-              "calcs": ["lastNotNull", "max"]
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": ["lastNotNull", "mean", "max"]
             }
           }
         },
         {
-          "id": 11,
-          "title": "Reconciliation Duration (Percentiles)",
+          "id": 12,
+          "title": "Reconciliation Duration (p50, p95, p99)",
           "type": "timeseries",
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 13},
           "targets": [
             {
-              "expr": "histogram_quantile(0.99, rate(mcpserver_reconcile_duration_seconds_bucket{controller=\"mcpserver\"}[5m]))",
+              "expr": "histogram_quantile(0.99, rate(mcpserver_reconcile_duration_seconds_bucket[5m]))",
               "legendFormat": "p99",
               "refId": "A"
             },
             {
-              "expr": "histogram_quantile(0.95, rate(mcpserver_reconcile_duration_seconds_bucket{controller=\"mcpserver\"}[5m]))",
+              "expr": "histogram_quantile(0.95, rate(mcpserver_reconcile_duration_seconds_bucket[5m]))",
               "legendFormat": "p95",
               "refId": "B"
             },
             {
-              "expr": "histogram_quantile(0.50, rate(mcpserver_reconcile_duration_seconds_bucket{controller=\"mcpserver\"}[5m]))",
+              "expr": "histogram_quantile(0.50, rate(mcpserver_reconcile_duration_seconds_bucket[5m]))",
               "legendFormat": "p50",
               "refId": "C"
             }
@@ -409,61 +520,34 @@ data:
             "defaults": {
               "color": {"mode": "palette-classic"},
               "unit": "s",
-              "min": 0
-            }
-          },
-          "options": {
-            "tooltip": {"mode": "multi"},
-            "legend": {
-              "displayMode": "table",
-              "placement": "right",
-              "calcs": ["mean", "max"]
-            }
-          }
-        },
-        {
-          "id": 12,
-          "title": "Reconciliation Rate by Result",
-          "type": "timeseries",
-          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 20},
-          "targets": [
-            {
-              "expr": "rate(mcpserver_reconcile_total{controller=\"mcpserver\"}[5m])",
-              "legendFormat": "{{result}}",
-              "refId": "A"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "color": {"mode": "palette-classic"},
-              "unit": "reqps",
-              "min": 0
-            },
-            "overrides": [
-              {
-                "matcher": {"id": "byName", "options": "success"},
-                "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]
-              },
-              {
-                "matcher": {"id": "byName", "options": "error"},
-                "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]
+              "min": 0,
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "spanNulls": false,
+                "showPoints": "auto",
+                "pointSize": 5,
+                "stacking": {"mode": "none"},
+                "axisPlacement": "auto",
+                "drawStyle": "line"
               }
-            ]
+            }
           },
           "options": {
-            "tooltip": {"mode": "multi"},
+            "tooltip": {"mode": "multi", "sort": "none"},
             "legend": {
               "displayMode": "table",
               "placement": "bottom",
-              "calcs": ["mean", "lastNotNull"]
+              "showLegend": true,
+              "calcs": ["lastNotNull", "mean", "max"]
             }
           }
         },
         {
           "id": 13,
-          "title": "CPU Requests by MCPServer",
+          "title": "Resource Requests - CPU (milliCores)",
           "type": "timeseries",
-          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 20},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 21},
           "targets": [
             {
               "expr": "mcpserver_resource_requests{resource=\"cpu\"}",
@@ -477,24 +561,32 @@ data:
               "unit": "short",
               "min": 0,
               "custom": {
-                "axisLabel": "milliCores"
+                "lineWidth": 2,
+                "fillOpacity": 20,
+                "spanNulls": false,
+                "showPoints": "auto",
+                "pointSize": 5,
+                "stacking": {"mode": "normal"},
+                "axisPlacement": "auto",
+                "drawStyle": "line"
               }
             }
           },
           "options": {
-            "tooltip": {"mode": "multi"},
+            "tooltip": {"mode": "multi", "sort": "desc"},
             "legend": {
               "displayMode": "table",
               "placement": "bottom",
-              "calcs": ["lastNotNull"]
+              "showLegend": true,
+              "calcs": ["lastNotNull", "mean"]
             }
           }
         },
         {
           "id": 14,
-          "title": "Memory Requests by MCPServer",
+          "title": "Resource Requests - Memory",
           "type": "timeseries",
-          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 20},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 21},
           "targets": [
             {
               "expr": "mcpserver_resource_requests{resource=\"memory\"}",
@@ -506,77 +598,34 @@ data:
             "defaults": {
               "color": {"mode": "palette-classic"},
               "unit": "bytes",
-              "min": 0
+              "min": 0,
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 20,
+                "spanNulls": false,
+                "showPoints": "auto",
+                "pointSize": 5,
+                "stacking": {"mode": "normal"},
+                "axisPlacement": "auto",
+                "drawStyle": "line"
+              }
             }
           },
           "options": {
-            "tooltip": {"mode": "multi"},
+            "tooltip": {"mode": "multi", "sort": "desc"},
             "legend": {
               "displayMode": "table",
               "placement": "bottom",
-              "calcs": ["lastNotNull"]
+              "showLegend": true,
+              "calcs": ["lastNotNull", "mean"]
             }
           }
         },
         {
           "id": 15,
-          "title": "MCPServers by Transport Type",
+          "title": "MCPServer Status Details",
           "type": "table",
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
-          "targets": [
-            {
-              "expr": "mcpserver_replicas",
-              "format": "table",
-              "instant": true,
-              "refId": "A"
-            }
-          ],
-          "transformations": [
-            {
-              "id": "organize",
-              "options": {
-                "excludeByName": {
-                  "Time": true,
-                  "__name__": true,
-                  "controller": true,
-                  "job": true,
-                  "instance": true
-                },
-                "indexByName": {
-                  "namespace": 0,
-                  "name": 1,
-                  "transport_type": 2,
-                  "Value": 3
-                },
-                "renameByName": {
-                  "name": "MCPServer",
-                  "namespace": "Namespace",
-                  "transport_type": "Transport Type",
-                  "Value": "Replicas"
-                }
-              }
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "color": {"mode": "palette-classic"}
-            }
-          },
-          "options": {
-            "showHeader": true,
-            "sortBy": [
-              {
-                "displayName": "Namespace",
-                "desc": false
-              }
-            ]
-          }
-        },
-        {
-          "id": 16,
-          "title": "MCPServer Readiness Status",
-          "type": "table",
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+          "gridPos": {"h": 10, "w": 24, "x": 0, "y": 29},
           "targets": [
             {
               "expr": "mcpserver_ready_total",
@@ -589,6 +638,18 @@ data:
               "format": "table",
               "instant": true,
               "refId": "B"
+            },
+            {
+              "expr": "mcpserver_replicas",
+              "format": "table",
+              "instant": true,
+              "refId": "C"
+            },
+            {
+              "expr": "mcpserver_ready_replicas",
+              "format": "table",
+              "instant": true,
+              "refId": "D"
             }
           ],
           "transformations": [
@@ -596,20 +657,34 @@ data:
               "id": "merge"
             },
             {
-              "id": "filterFieldsByName",
-              "options": {
-                "include": {
-                  "names": ["namespace", "name", "phase", "Value #A"]
-                }
-              }
-            },
-            {
               "id": "organize",
               "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "controller": true,
+                  "endpoint": true,
+                  "instance": true,
+                  "job": true,
+                  "pod": true,
+                  "service": true
+                },
+                "indexByName": {
+                  "namespace": 0,
+                  "name": 1,
+                  "transport_type": 2,
+                  "phase": 3,
+                  "Value #C": 4,
+                  "Value #D": 5,
+                  "Value #A": 6
+                },
                 "renameByName": {
-                  "name": "MCPServer",
                   "namespace": "Namespace",
+                  "name": "MCPServer",
+                  "transport_type": "Transport",
                   "phase": "Phase",
+                  "Value #C": "Desired Replicas",
+                  "Value #D": "Ready Replicas",
                   "Value #A": "Ready"
                 }
               }
@@ -618,10 +693,15 @@ data:
           "fieldConfig": {
             "defaults": {
               "color": {"mode": "thresholds"},
+              "custom": {
+                "align": "left",
+                "cellOptions": {"type": "auto"},
+                "filterable": true
+              },
               "thresholds": {
+                "mode": "absolute",
                 "steps": [
-                  {"color": "red", "value": 0},
-                  {"color": "green", "value": 1}
+                  {"color": "text", "value": null}
                 ]
               }
             },
@@ -632,6 +712,59 @@ data:
                   {
                     "id": "custom.cellOptions",
                     "value": {"type": "color-background"}
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {"color": "red", "value": null},
+                        {"color": "green", "value": 1}
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {"id": "byName", "options": "Phase"},
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {"type": "color-background"}
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "Running": {
+                            "text": "Running",
+                            "color": "green"
+                          },
+                          "Failed": {
+                            "text": "Failed",
+                            "color": "red"
+                          },
+                          "Creating": {
+                            "text": "Creating",
+                            "color": "blue"
+                          },
+                          "Scaling": {
+                            "text": "Scaling",
+                            "color": "yellow"
+                          },
+                          "Updating": {
+                            "text": "Updating",
+                            "color": "orange"
+                          },
+                          "Terminating": {
+                            "text": "Terminating",
+                            "color": "purple"
+                          }
+                        }
+                      }
+                    ]
                   }
                 ]
               }
@@ -639,6 +772,13 @@ data:
           },
           "options": {
             "showHeader": true,
+            "cellHeight": "sm",
+            "footer": {
+              "show": false,
+              "reducer": ["sum"],
+              "countRows": false,
+              "fields": ""
+            },
             "sortBy": [
               {
                 "displayName": "Namespace",
@@ -652,6 +792,8 @@ data:
         "from": "now-1h",
         "to": "now"
       },
-      "timepicker": {},
-      "refresh": "30s"
+      "timepicker": {
+        "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "1d"]
+      },
+      "refresh": "10s"
     }
