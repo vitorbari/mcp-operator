@@ -375,6 +375,571 @@ spec:
 			Expect(labels["app.kubernetes.io/managed-by"]).To(Equal("mcp-operator"))
 		})
 
+		It("should configure container settings (command, args, resources, environment)", func() {
+			mcpServerName := "test-container-config"
+			mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: nginxinc/nginx-unprivileged:latest
+  command: ["/bin/sh", "-c"]
+  args: ["echo 'Custom command executed' && nginx -g 'daemon off;'"]
+  replicas: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  environment:
+    - name: LOG_LEVEL
+      value: "debug"
+    - name: MCP_PORT
+      value: "8080"
+    - name: CUSTOM_VAR
+      value: "test-value"
+`, mcpServerName, testNamespace)
+
+			By("creating MCPServer with container configuration")
+			err := applyMCPServerYAML(mcpServerYAML)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for MCPServer to reach Running phase")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying Deployment has custom command")
+			cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].command}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("/bin/sh"))
+			Expect(output).To(ContainSubstring("-c"))
+
+			By("verifying Deployment has custom args")
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].args}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("Custom command executed"))
+
+			By("verifying Deployment has CPU requests")
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].resources.requests.cpu}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("100m"))
+
+			By("verifying Deployment has memory requests")
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].resources.requests.memory}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("128Mi"))
+
+			By("verifying Deployment has CPU limits")
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].resources.limits.cpu}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("500m"))
+
+			By("verifying Deployment has memory limits")
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].resources.limits.memory}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("512Mi"))
+
+			By("verifying Deployment has environment variables")
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "json")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			var deploymentData map[string]interface{}
+			err = json.Unmarshal([]byte(output), &deploymentData)
+			Expect(err).NotTo(HaveOccurred())
+
+			spec := deploymentData["spec"].(map[string]interface{})
+			template := spec["template"].(map[string]interface{})
+			podSpec := template["spec"].(map[string]interface{})
+			containers := podSpec["containers"].([]interface{})
+			container := containers[0].(map[string]interface{})
+			env := container["env"].([]interface{})
+
+			logLevelFound := false
+			mcpPortFound := false
+			customVarFound := false
+
+			for _, e := range env {
+				envVar := e.(map[string]interface{})
+				if envVar["name"] == "LOG_LEVEL" && envVar["value"] == "debug" {
+					logLevelFound = true
+				}
+				if envVar["name"] == "MCP_PORT" && envVar["value"] == "8080" {
+					mcpPortFound = true
+				}
+				if envVar["name"] == "CUSTOM_VAR" && envVar["value"] == "test-value" {
+					customVarFound = true
+				}
+			}
+
+			Expect(logLevelFound).To(BeTrue(), "LOG_LEVEL environment variable should be set")
+			Expect(mcpPortFound).To(BeTrue(), "MCP_PORT environment variable should be set")
+			Expect(customVarFound).To(BeTrue(), "CUSTOM_VAR environment variable should be set")
+		})
+
+		It("should apply security context settings", func() {
+			mcpServerName := "test-security"
+			mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: nginxinc/nginx-unprivileged:latest
+  replicas: 1
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+`, mcpServerName, testNamespace)
+
+			By("creating MCPServer with security context")
+			err := applyMCPServerYAML(mcpServerYAML)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for MCPServer to reach Running phase")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying Deployment has runAsUser")
+			cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].securityContext.runAsUser}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("1000"))
+
+			By("verifying Deployment has runAsGroup")
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].securityContext.runAsGroup}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("1000"))
+
+			By("verifying Deployment has runAsNonRoot")
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].securityContext.runAsNonRoot}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("true"))
+
+			By("verifying Deployment has allowPrivilegeEscalation set to false")
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("false"))
+		})
+
+		It("should configure transport and service settings", func() {
+			mcpServerName := "test-transport-service"
+			mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: nginxinc/nginx-unprivileged:latest
+  replicas: 1
+  transport:
+    type: http
+    config:
+      http:
+        port: 3001
+        path: "/mcp"
+        sessionManagement: true
+  service:
+    type: ClusterIP
+    port: 3001
+    protocol: TCP
+    annotations:
+      custom-annotation: "test-value"
+      prometheus.io/scrape: "true"
+`, mcpServerName, testNamespace)
+
+			By("creating MCPServer with transport and service configuration")
+			err := applyMCPServerYAML(mcpServerYAML)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for MCPServer to reach Running phase")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying Service has correct port configuration")
+			cmd := exec.Command("kubectl", "get", "service", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.ports[0].port}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("3001"))
+
+			By("verifying Service has session affinity for SSE")
+			cmd = exec.Command("kubectl", "get", "service", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.sessionAffinity}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("ClientIP"))
+
+			By("verifying status reports correct transport type")
+			cmd = exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.status.transportType}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("http"))
+
+			By("verifying Service type")
+			cmd = exec.Command("kubectl", "get", "service", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.type}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("ClusterIP"))
+
+			By("verifying Service protocol")
+			cmd = exec.Command("kubectl", "get", "service", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.ports[0].protocol}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("TCP"))
+
+			By("verifying Service has custom annotations")
+			cmd = exec.Command("kubectl", "get", "service", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.metadata.annotations.custom-annotation}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("test-value"))
+
+			cmd = exec.Command("kubectl", "get", "service", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.metadata.annotations.prometheus\\.io/scrape}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("true"))
+		})
+
+		It("should create and configure HPA when enabled", func() {
+			mcpServerName := "test-hpa"
+			mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: nginxinc/nginx-unprivileged:latest
+  replicas: 2
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+`, mcpServerName, testNamespace)
+
+			By("creating MCPServer with HPA enabled")
+			err := applyMCPServerYAML(mcpServerYAML)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for MCPServer to reach Running phase")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying HPA resource is created")
+			Eventually(func() error {
+				cmd := exec.Command("kubectl", "get", "hpa", mcpServerName, "-n", testNamespace)
+				_, err := utils.Run(cmd)
+				return err
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			By("verifying HPA has correct minReplicas")
+			cmd := exec.Command("kubectl", "get", "hpa", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.minReplicas}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("2"))
+
+			By("verifying HPA has correct maxReplicas")
+			cmd = exec.Command("kubectl", "get", "hpa", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.maxReplicas}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("5"))
+
+			By("verifying HPA has CPU target")
+			cmd = exec.Command("kubectl", "get", "hpa", mcpServerName,
+				"-n", testNamespace, "-o", "json")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("cpu"))
+			Expect(output).To(ContainSubstring("70"))
+
+			By("verifying HPA has memory target")
+			Expect(output).To(ContainSubstring("memory"))
+			Expect(output).To(ContainSubstring("80"))
+		})
+
+		It("should configure health check probes", func() {
+			mcpServerName := "test-healthcheck"
+			mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: nginxinc/nginx-unprivileged:latest
+  replicas: 1
+  healthCheck:
+    enabled: true
+    path: "/"
+    port: 8080
+`, mcpServerName, testNamespace)
+
+			By("creating MCPServer with health check configuration")
+			err := applyMCPServerYAML(mcpServerYAML)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for MCPServer to reach Running phase")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying Deployment has liveness probe")
+			cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].livenessProbe.httpGet.path}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("/"))
+
+			By("verifying liveness probe port")
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].livenessProbe.httpGet.port}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("8080"))
+
+			By("verifying Deployment has readiness probe")
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].readinessProbe.httpGet.path}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("/"))
+
+			By("verifying readiness probe port")
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].readinessProbe.httpGet.port}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("8080"))
+		})
+
+		It("should apply pod template customizations", func() {
+			mcpServerName := "test-podtemplate"
+			mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: nginxinc/nginx-unprivileged:latest
+  replicas: 1
+  podTemplate:
+    labels:
+      custom-label: "test-value"
+      app-version: "1.0.0"
+    annotations:
+      prometheus.io/scrape: "true"
+      custom-annotation: "test"
+    nodeSelector:
+      kubernetes.io/os: linux
+`, mcpServerName, testNamespace)
+
+			By("creating MCPServer with pod template customizations")
+			err := applyMCPServerYAML(mcpServerYAML)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for MCPServer to reach Running phase")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("waiting for Pod to be created")
+			Eventually(func() error {
+				cmd := exec.Command("kubectl", "get", "pods", "-l", "app="+mcpServerName, "-n", testNamespace)
+				_, err := utils.Run(cmd)
+				return err
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			By("verifying Pod has custom labels")
+			cmd := exec.Command("kubectl", "get", "pods", "-l", "app="+mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.items[0].metadata.labels.custom-label}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("test-value"))
+
+			cmd = exec.Command("kubectl", "get", "pods", "-l", "app="+mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.items[0].metadata.labels.app-version}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("1.0.0"))
+
+			By("verifying Pod has custom annotations")
+			cmd = exec.Command("kubectl", "get", "pods", "-l", "app="+mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.items[0].metadata.annotations.prometheus\\.io/scrape}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("true"))
+
+			cmd = exec.Command("kubectl", "get", "pods", "-l", "app="+mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.items[0].metadata.annotations.custom-annotation}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("test"))
+
+			By("verifying Pod has node selector")
+			cmd = exec.Command("kubectl", "get", "pods", "-l", "app="+mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.items[0].spec.nodeSelector.kubernetes\\.io/os}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("linux"))
+		})
+
+		It("should create and configure Ingress when enabled", func() {
+			mcpServerName := "test-ingress"
+			mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: nginxinc/nginx-unprivileged:latest
+  replicas: 1
+  ingress:
+    enabled: true
+    className: "nginx"
+    host: "mcp.test.local"
+    path: "/mcp"
+    pathType: "Prefix"
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: "/"
+      custom.annotation/test: "value"
+`, mcpServerName, testNamespace)
+
+			By("creating MCPServer with ingress enabled")
+			err := applyMCPServerYAML(mcpServerYAML)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for MCPServer to reach Running phase")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying Ingress resource is created")
+			Eventually(func() error {
+				cmd := exec.Command("kubectl", "get", "ingress", mcpServerName, "-n", testNamespace)
+				_, err := utils.Run(cmd)
+				return err
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			By("verifying Ingress has correct className")
+			cmd := exec.Command("kubectl", "get", "ingress", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.ingressClassName}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("nginx"))
+
+			By("verifying Ingress has correct host")
+			cmd = exec.Command("kubectl", "get", "ingress", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.rules[0].host}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("mcp.test.local"))
+
+			By("verifying Ingress has correct path")
+			cmd = exec.Command("kubectl", "get", "ingress", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.rules[0].http.paths[0].path}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("/mcp"))
+
+			By("verifying Ingress has correct pathType")
+			cmd = exec.Command("kubectl", "get", "ingress", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.rules[0].http.paths[0].pathType}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("Prefix"))
+
+			By("verifying Ingress has custom annotations")
+			cmd = exec.Command("kubectl", "get", "ingress", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.metadata.annotations.nginx\\.ingress\\.kubernetes\\.io/rewrite-target}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("/"))
+
+			cmd = exec.Command("kubectl", "get", "ingress", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.metadata.annotations.custom\\.annotation/test}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("value"))
+		})
+
 		It("should properly clean up resources on deletion", func() {
 			mcpServerName := "test-cleanup"
 			mcpServerYAML := fmt.Sprintf(`
