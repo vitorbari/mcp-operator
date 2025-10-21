@@ -648,6 +648,81 @@ spec:
 			Expect(output).To(Equal("true"))
 		})
 
+		It("should update Service sessionAffinity when sessionManagement changes", func() {
+			mcpServerName := "test-session-update"
+
+			// First create MCPServer without sessionManagement
+			mcpServerYAMLWithoutSession := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: nginxinc/nginx-unprivileged:latest
+  replicas: 1
+  transport:
+    type: http
+    config:
+      http:
+        port: 3001
+        path: "/mcp"
+        sessionManagement: false
+`, mcpServerName, testNamespace)
+
+			By("creating MCPServer without sessionManagement")
+			err := applyMCPServerYAML(mcpServerYAMLWithoutSession)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for MCPServer to reach Running phase")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying Service has sessionAffinity None initially")
+			cmd := exec.Command("kubectl", "get", "service", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.sessionAffinity}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("None"))
+
+			// Now update to enable sessionManagement
+			mcpServerYAMLWithSession := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: nginxinc/nginx-unprivileged:latest
+  replicas: 1
+  transport:
+    type: http
+    config:
+      http:
+        port: 3001
+        path: "/mcp"
+        sessionManagement: true
+`, mcpServerName, testNamespace)
+
+			By("updating MCPServer to enable sessionManagement")
+			err = applyMCPServerYAML(mcpServerYAMLWithSession)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying Service sessionAffinity updates to ClientIP")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "service", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.spec.sessionAffinity}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("ClientIP"))
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+		})
+
 		It("should create and configure HPA when enabled", func() {
 			mcpServerName := "test-hpa"
 			mcpServerYAML := fmt.Sprintf(`
