@@ -263,6 +263,8 @@ The dashboard displays real-time metrics for all MCPServers including readiness,
 
 ## Transport Configuration
 
+**Default Behavior:** If no `transport` is specified, the operator defaults to HTTP transport with port 8080 and creates a ClusterIP Service automatically.
+
 ### HTTP Transport
 
 ```yaml
