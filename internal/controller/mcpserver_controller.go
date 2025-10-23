@@ -40,6 +40,7 @@ import (
 
 	mcpv1 "github.com/vitorbari/mcp-operator/api/v1"
 	"github.com/vitorbari/mcp-operator/internal/metrics"
+	"github.com/vitorbari/mcp-operator/internal/validator"
 	"github.com/vitorbari/mcp-operator/pkg/transport"
 )
 
@@ -167,6 +168,35 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
+	// Perform protocol validation if enabled and server is running
+	requeueAfter := time.Minute * 5
+	if r.shouldValidate(mcpServer) {
+		validationResult := r.validateServer(ctx, mcpServer)
+		if validationResult != nil {
+			// Update validation status
+			if err := r.updateValidationStatus(ctx, mcpServer, validationResult); err != nil {
+				log.Error(err, "Failed to update validation status")
+			}
+
+			// Handle strict mode
+			if r.isStrictModeEnabled(mcpServer) && !validationResult.IsCompliant() {
+				log.Info("Validation failed in strict mode, marking as Failed")
+				mcpServer.Status.Phase = mcpv1.MCPServerPhaseFailed
+				mcpServer.Status.Message = "Protocol validation failed in strict mode"
+				r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "ValidationFailed",
+					"Protocol validation failed in strict mode")
+				if err := r.updateStatus(ctx, mcpServer); err != nil {
+					log.Error(err, "Failed to update status after validation failure")
+				}
+			}
+
+			// Schedule next validation if periodic checks enabled
+			if interval := r.getValidationInterval(mcpServer); interval > 0 {
+				requeueAfter = interval
+			}
+		}
+	}
+
 	// Record reconciliation metrics
 	metrics.RecordReconcileMetrics("mcpserver", time.Since(startTime).Seconds(), "success")
 
@@ -176,7 +206,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "Reconciled", "Successfully reconciled MCPServer")
 	}
 
-	return ctrl.Result{RequeueAfter: time.Minute * 5}, nil
+	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
 // handleDeletion handles the deletion of MCPServer resources
@@ -795,6 +825,201 @@ func (r *MCPServerReconciler) setCondition(mcpServer *mcpv1.MCPServer, newCondit
 		}
 	}
 	mcpServer.Status.Conditions = append(mcpServer.Status.Conditions, newCondition)
+}
+
+// shouldValidate determines if protocol validation should be performed
+func (r *MCPServerReconciler) shouldValidate(mcpServer *mcpv1.MCPServer) bool {
+	// Check if validation is enabled
+	if mcpServer.Spec.Validation == nil {
+		return false
+	}
+
+	// Check if enabled is explicitly set to false
+	if mcpServer.Spec.Validation.Enabled != nil && !*mcpServer.Spec.Validation.Enabled {
+		return false
+	}
+
+	// Only validate if server is in Running phase
+	if mcpServer.Status.Phase != mcpv1.MCPServerPhaseRunning {
+		return false
+	}
+
+	// Check if we should validate on startup
+	testOnStartup := true
+	if mcpServer.Spec.Validation.TestOnStartup != nil {
+		testOnStartup = *mcpServer.Spec.Validation.TestOnStartup
+	}
+
+	// If we haven't validated yet and testOnStartup is enabled, validate
+	if mcpServer.Status.Validation == nil && testOnStartup {
+		return true
+	}
+
+	// If we have validated before, check if it's time for periodic validation
+	if mcpServer.Status.Validation != nil && mcpServer.Status.Validation.LastValidated != nil {
+		interval := r.getValidationInterval(mcpServer)
+		if interval > 0 {
+			timeSinceLastValidation := time.Since(mcpServer.Status.Validation.LastValidated.Time)
+			return timeSinceLastValidation >= interval
+		}
+	}
+
+	return false
+}
+
+// validateServer performs MCP protocol validation on the server
+func (r *MCPServerReconciler) validateServer(ctx context.Context, mcpServer *mcpv1.MCPServer) *validator.ValidationResult {
+	log := logf.FromContext(ctx)
+
+	// Build the endpoint URL from the service
+	endpoint := r.buildValidationEndpoint(mcpServer)
+	if endpoint == "" {
+		log.Info("Cannot determine validation endpoint, skipping validation")
+		return nil
+	}
+
+	// Create validator with appropriate timeout
+	timeout := 30 * time.Second
+	if interval := r.getValidationInterval(mcpServer); interval > 0 && interval < timeout {
+		timeout = interval / 2 // Use half the interval as timeout
+	}
+	v := validator.NewValidatorWithTimeout(endpoint, timeout)
+
+	// Prepare validation options
+	opts := validator.ValidationOptions{
+		Timeout: timeout,
+	}
+
+	// Add required capabilities if specified
+	if mcpServer.Spec.Validation != nil && len(mcpServer.Spec.Validation.RequiredCapabilities) > 0 {
+		opts.RequiredCapabilities = mcpServer.Spec.Validation.RequiredCapabilities
+	}
+
+	// Add strict mode if specified
+	if r.isStrictModeEnabled(mcpServer) {
+		opts.StrictMode = true
+	}
+
+	// Perform validation
+	result, err := v.Validate(ctx, opts)
+	if err != nil {
+		log.Error(err, "Validation call failed")
+		// Record failure metrics
+		metrics.RecordValidationMetrics(mcpServer, 0, false)
+		return nil
+	}
+
+	// Record validation metrics (duration is already tracked in result)
+	if result != nil {
+		metrics.RecordValidationMetrics(mcpServer, result.Duration.Seconds(), result.IsCompliant())
+	}
+
+	return result
+}
+
+// buildValidationEndpoint constructs the endpoint URL for validation
+func (r *MCPServerReconciler) buildValidationEndpoint(mcpServer *mcpv1.MCPServer) string {
+	// Use the internal service endpoint for validation
+	serviceName := mcpServer.Name
+	namespace := mcpServer.Namespace
+
+	// Determine the port
+	port := int32(8080)
+	if mcpServer.Spec.Service != nil && mcpServer.Spec.Service.Port != 0 {
+		port = mcpServer.Spec.Service.Port
+	}
+	if mcpServer.Spec.Transport != nil &&
+		mcpServer.Spec.Transport.Config != nil &&
+		mcpServer.Spec.Transport.Config.HTTP != nil &&
+		mcpServer.Spec.Transport.Config.HTTP.Port != 0 {
+		port = mcpServer.Spec.Transport.Config.HTTP.Port
+	}
+
+	// Determine the path
+	path := "/mcp"
+	if mcpServer.Spec.Transport != nil &&
+		mcpServer.Spec.Transport.Config != nil &&
+		mcpServer.Spec.Transport.Config.HTTP != nil &&
+		mcpServer.Spec.Transport.Config.HTTP.Path != "" {
+		path = mcpServer.Spec.Transport.Config.HTTP.Path
+	}
+
+	// Build the endpoint URL using the internal service DNS name
+	return fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s", serviceName, namespace, port, path)
+}
+
+// updateValidationStatus updates the validation status in the MCPServer
+func (r *MCPServerReconciler) updateValidationStatus(ctx context.Context, mcpServer *mcpv1.MCPServer, result *validator.ValidationResult) error {
+	log := logf.FromContext(ctx)
+
+	// Convert validator result to CRD status
+	validationStatus := &mcpv1.ValidationStatus{
+		ProtocolVersion: result.ProtocolVersion,
+		Capabilities:    result.Capabilities,
+		Compliant:       result.IsCompliant(),
+		LastValidated:   &metav1.Time{Time: time.Now()},
+		Issues:          make([]mcpv1.ValidationIssue, 0, len(result.Issues)),
+	}
+
+	// Convert issues
+	for _, issue := range result.Issues {
+		validationStatus.Issues = append(validationStatus.Issues, mcpv1.ValidationIssue{
+			Level:   issue.Level,
+			Message: issue.Message,
+			Code:    issue.Code,
+		})
+	}
+
+	// Update the status
+	mcpServer.Status.Validation = validationStatus
+
+	// Update status with retry logic
+	if err := r.updateStatus(ctx, mcpServer); err != nil {
+		log.Error(err, "Failed to update validation status")
+		return err
+	}
+
+	// Emit event based on validation result
+	if result.IsCompliant() {
+		r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "ValidationPassed", "MCP protocol validation succeeded")
+	} else {
+		r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "ValidationFailed",
+			fmt.Sprintf("MCP protocol validation failed: %s", result.ErrorMessages()))
+	}
+
+	return nil
+}
+
+// isStrictModeEnabled checks if strict mode validation is enabled
+func (r *MCPServerReconciler) isStrictModeEnabled(mcpServer *mcpv1.MCPServer) bool {
+	if mcpServer.Spec.Validation == nil {
+		return false
+	}
+	if mcpServer.Spec.Validation.StrictMode == nil {
+		return false
+	}
+	return *mcpServer.Spec.Validation.StrictMode
+}
+
+// getValidationInterval returns the validation check interval
+func (r *MCPServerReconciler) getValidationInterval(mcpServer *mcpv1.MCPServer) time.Duration {
+	if mcpServer.Spec.Validation == nil {
+		return time.Minute * 5 // Default 5 minutes
+	}
+
+	intervalStr := mcpServer.Spec.Validation.HealthCheckInterval
+	if intervalStr == "" {
+		return time.Minute * 5 // Default 5 minutes
+	}
+
+	// Parse the duration string
+	duration, err := time.ParseDuration(intervalStr)
+	if err != nil {
+		// If parsing fails, return default
+		return time.Minute * 5
+	}
+
+	return duration
 }
 
 // SetupWithManager sets up the controller with the Manager.

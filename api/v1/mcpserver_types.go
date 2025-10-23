@@ -79,6 +79,10 @@ type MCPServerSpec struct {
 	// Ingress defines the ingress configuration for external access
 	// +optional
 	Ingress *MCPServerIngress `json:"ingress,omitempty"`
+
+	// Validation defines MCP protocol validation configuration
+	// +optional
+	Validation *ValidationSpec `json:"validation,omitempty"`
 }
 
 // MCPServerSecurity defines security settings for the MCP server
@@ -231,6 +235,10 @@ type MCPServerStatus struct {
 	// ObservedGeneration represents the most recent generation observed by the controller
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// Validation represents the MCP protocol validation status
+	// +optional
+	Validation *ValidationStatus `json:"validation,omitempty"`
 }
 
 // MCPServerPhase represents the current phase of an MCP server deployment
@@ -444,12 +452,80 @@ type MCPServerIngress struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
+// ValidationSpec defines MCP protocol validation configuration
+type ValidationSpec struct {
+	// Enabled indicates if protocol validation should be performed
+	// +kubebuilder:default=true
+	// +optional
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// StrictMode fails deployment if validation fails
+	// +kubebuilder:default=false
+	// +optional
+	StrictMode *bool `json:"strictMode,omitempty"`
+
+	// RequiredCapabilities specifies capabilities that must be present
+	// Valid values: "tools", "resources", "prompts"
+	// +optional
+	RequiredCapabilities []string `json:"requiredCapabilities,omitempty"`
+
+	// TestOnStartup validates the server on startup
+	// +kubebuilder:default=true
+	// +optional
+	TestOnStartup *bool `json:"testOnStartup,omitempty"`
+
+	// HealthCheckInterval specifies interval for periodic validation checks
+	// +kubebuilder:default="5m"
+	// +optional
+	HealthCheckInterval string `json:"healthCheckInterval,omitempty"`
+}
+
+// ValidationStatus represents the MCP protocol validation status
+type ValidationStatus struct {
+	// ProtocolVersion is the detected MCP protocol version
+	// +optional
+	ProtocolVersion string `json:"protocolVersion,omitempty"`
+
+	// Capabilities lists the capabilities discovered from the server
+	// +optional
+	Capabilities []string `json:"capabilities,omitempty"`
+
+	// Compliant indicates if the server is protocol compliant
+	// +optional
+	Compliant bool `json:"compliant"`
+
+	// LastValidated is the timestamp of the last validation check
+	// +optional
+	LastValidated *metav1.Time `json:"lastValidated,omitempty"`
+
+	// Issues contains validation issues found
+	// +optional
+	Issues []ValidationIssue `json:"issues,omitempty"`
+}
+
+// ValidationIssue represents a validation problem found
+type ValidationIssue struct {
+	// Level indicates the severity of the issue
+	// Valid values: "error", "warning", "info"
+	// +kubebuilder:validation:Enum=error;warning;info
+	Level string `json:"level"`
+
+	// Message is a human-readable description of the issue
+	Message string `json:"message"`
+
+	// Code is a machine-readable issue code
+	// +optional
+	Code string `json:"code,omitempty"`
+}
+
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Replicas",type=integer,JSONPath=`.status.replicas`
 // +kubebuilder:printcolumn:name="Ready",type=integer,JSONPath=`.status.readyReplicas`
 // +kubebuilder:printcolumn:name="Transport",type=string,JSONPath=`.status.transportType`
+// +kubebuilder:printcolumn:name="Compliant",type=boolean,JSONPath=`.status.validation.compliant`
+// +kubebuilder:printcolumn:name="Capabilities",type=string,JSONPath=`.status.validation.capabilities`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // MCPServer is the Schema for the mcpservers API

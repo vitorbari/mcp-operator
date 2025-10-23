@@ -1,0 +1,47 @@
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: wikipedia-validated
+  namespace: default
+spec:
+  image: "tzolov/mcp-everything-server:v3"
+  command: ["node", "dist/index.js", "sse"]
+  replicas: 1
+
+  # Transport configuration
+  transport:
+    type: http
+    config:
+      http:
+        port: 3001
+        path: "/mcp"
+        sessionManagement: true
+
+  # MCP Protocol Validation Configuration
+  validation:
+    # Enable protocol validation (default: true)
+    enabled: true
+
+    # Fail deployment if validation fails (default: false)
+    # When true, the MCPServer will be marked as Failed if validation fails
+    strictMode: false
+
+    # Require specific capabilities to be present
+    # Valid values: "tools", "resources", "prompts"
+    requiredCapabilities:
+      - "tools"
+
+    # Validate the server on startup (default: true)
+    testOnStartup: true
+
+    # Interval for periodic health checks (default: "5m")
+    # Valid time units: s, m, h
+    healthCheckInterval: "5m"
+
+  # Security context
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+

@@ -27,6 +27,12 @@ spec:
     - jsonPath: .status.transportType
       name: Transport
       type: string
+    - jsonPath: .status.validation.compliant
+      name: Compliant
+      type: boolean
+    - jsonPath: .status.validation.capabilities
+      name: Capabilities
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -3418,6 +3424,35 @@ spec:
                     description: Type specifies the transport type
                     type: string
                 type: object
+              validation:
+                description: Validation defines MCP protocol validation configuration
+                properties:
+                  enabled:
+                    default: true
+                    description: Enabled indicates if protocol validation should be
+                      performed
+                    type: boolean
+                  healthCheckInterval:
+                    default: 5m
+                    description: HealthCheckInterval specifies interval for periodic
+                      validation checks
+                    type: string
+                  requiredCapabilities:
+                    description: |-
+                      RequiredCapabilities specifies capabilities that must be present
+                      Valid values: "tools", "resources", "prompts"
+                    items:
+                      type: string
+                    type: array
+                  strictMode:
+                    default: false
+                    description: StrictMode fails deployment if validation fails
+                    type: boolean
+                  testOnStartup:
+                    default: true
+                    description: TestOnStartup validates the server on startup
+                    type: boolean
+                type: object
             required:
             - image
             type: object
@@ -3509,6 +3544,54 @@ spec:
                 enum:
                 - http
                 type: string
+              validation:
+                description: Validation represents the MCP protocol validation status
+                properties:
+                  capabilities:
+                    description: Capabilities lists the capabilities discovered from
+                      the server
+                    items:
+                      type: string
+                    type: array
+                  compliant:
+                    description: Compliant indicates if the server is protocol compliant
+                    type: boolean
+                  issues:
+                    description: Issues contains validation issues found
+                    items:
+                      description: ValidationIssue represents a validation problem
+                        found
+                      properties:
+                        code:
+                          description: Code is a machine-readable issue code
+                          type: string
+                        level:
+                          description: |-
+                            Level indicates the severity of the issue
+                            Valid values: "error", "warning", "info"
+                          enum:
+                          - error
+                          - warning
+                          - info
+                          type: string
+                        message:
+                          description: Message is a human-readable description of
+                            the issue
+                          type: string
+                      required:
+                      - level
+                      - message
+                      type: object
+                    type: array
+                  lastValidated:
+                    description: LastValidated is the timestamp of the last validation
+                      check
+                    format: date-time
+                    type: string
+                  protocolVersion:
+                    description: ProtocolVersion is the detected MCP protocol version
+                    type: string
+                type: object
             type: object
         required:
         - spec
