@@ -113,12 +113,18 @@ func validServerConfig() mockServerConfig {
 }
 
 func TestNewValidator(t *testing.T) {
-	v := NewValidator("http://example.com/mcp")
+	v := NewValidator("http://example.com")
 	if v == nil {
 		t.Fatal("NewValidator returned nil")
 	}
-	if v.client == nil {
-		t.Error("Validator client is nil")
+	if v.baseURL == "" {
+		t.Error("Validator baseURL is empty")
+	}
+	if v.detector == nil {
+		t.Error("Validator detector is nil")
+	}
+	if v.timeout == 0 {
+		t.Error("Validator timeout is zero")
 	}
 }
 
@@ -369,8 +375,12 @@ func TestValidator_Timeout(t *testing.T) {
 		t.Error("Expected validation to fail on timeout")
 	}
 
-	if !hasIssue(result.Issues, CodeInitializeFailed) {
-		t.Error("Expected initialize failed issue")
+	// Timeout can occur during transport detection or initialization
+	hasTransportError := hasIssue(result.Issues, "TRANSPORT_DETECTION_FAILED")
+	hasInitError := hasIssue(result.Issues, CodeInitializeFailed)
+
+	if !hasTransportError && !hasInitError {
+		t.Errorf("Expected transport detection or initialize failed issue, got: %v", result.Issues)
 	}
 }
 
@@ -484,6 +494,95 @@ func TestContains(t *testing.T) {
 	if contains(slice, "logging") {
 		t.Error("Expected contains to return false for 'logging'")
 	}
+}
+
+func TestValidator_ExplicitTransportSpecification(t *testing.T) {
+	config := validServerConfig()
+	server := mockMCPServer(t, config)
+	defer server.Close()
+
+	validator := NewValidator(server.URL)
+	ctx := context.Background()
+
+	// Test explicit Streamable HTTP transport
+	t.Run("ExplicitStreamableHTTP", func(t *testing.T) {
+		result, err := validator.Validate(ctx, ValidationOptions{
+			Transport:      TransportStreamableHTTP,
+			ConfiguredPath: "",
+		})
+		if err != nil {
+			t.Fatalf("Validate returned error: %v", err)
+		}
+
+		if !result.Success {
+			t.Errorf("Expected validation to succeed, got failure with issues: %v", result.Issues)
+		}
+
+		if result.DetectedTransport != TransportStreamableHTTP {
+			t.Errorf("Expected transport %s, got %s", TransportStreamableHTTP, result.DetectedTransport)
+		}
+
+		if result.Endpoint != server.URL+"/mcp" {
+			t.Errorf("Expected endpoint %s, got %s", server.URL+"/mcp", result.Endpoint)
+		}
+	})
+
+	// Test explicit transport with custom path
+	t.Run("ExplicitTransportWithCustomPath", func(t *testing.T) {
+		result, err := validator.Validate(ctx, ValidationOptions{
+			Transport:      TransportStreamableHTTP,
+			ConfiguredPath: "/custom-path",
+		})
+		if err != nil {
+			t.Fatalf("Validate returned error: %v", err)
+		}
+
+		if !result.Success {
+			t.Errorf("Expected validation to succeed, got failure with issues: %v", result.Issues)
+		}
+
+		if result.Endpoint != server.URL+"/custom-path" {
+			t.Errorf("Expected endpoint %s, got %s", server.URL+"/custom-path", result.Endpoint)
+		}
+	})
+
+	// Test that auto-detection still works when transport is not specified
+	t.Run("AutoDetectionWhenTransportEmpty", func(t *testing.T) {
+		result, err := validator.Validate(ctx, ValidationOptions{
+			Transport: "", // Empty - should auto-detect
+		})
+		if err != nil {
+			t.Fatalf("Validate returned error: %v", err)
+		}
+
+		if !result.Success {
+			t.Errorf("Expected validation to succeed, got failure with issues: %v", result.Issues)
+		}
+
+		// Should detect Streamable HTTP (preferred)
+		if result.DetectedTransport != TransportStreamableHTTP {
+			t.Errorf("Expected auto-detection to prefer %s, got %s", TransportStreamableHTTP, result.DetectedTransport)
+		}
+	})
+
+	// Test that TransportUnknown triggers auto-detection
+	t.Run("AutoDetectionWhenTransportUnknown", func(t *testing.T) {
+		result, err := validator.Validate(ctx, ValidationOptions{
+			Transport: TransportUnknown, // Unknown - should auto-detect
+		})
+		if err != nil {
+			t.Fatalf("Validate returned error: %v", err)
+		}
+
+		if !result.Success {
+			t.Errorf("Expected validation to succeed, got failure with issues: %v", result.Issues)
+		}
+
+		// Should detect Streamable HTTP (preferred)
+		if result.DetectedTransport != TransportStreamableHTTP {
+			t.Errorf("Expected auto-detection to prefer %s, got %s", TransportStreamableHTTP, result.DetectedTransport)
+		}
+	})
 }
 
 // hasIssue checks if the issues list contains an issue with the given code

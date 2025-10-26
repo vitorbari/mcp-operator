@@ -25,7 +25,7 @@ import (
 	"net/http/httptest"
 
 	"github.com/vitorbari/mcp-operator/internal/mcp"
-	"github.com/vitorbari/mcp-operator/internal/validator"
+	"github.com/vitorbari/mcp-operator/pkg/validator"
 )
 
 // ExampleValidator demonstrates basic validator usage

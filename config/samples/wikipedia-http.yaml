@@ -10,12 +10,13 @@ spec:
   command: ["python", "-m", "wikipedia_mcp"]
   args: ["--transport", "sse", "--port", "8080", "--host", "0.0.0.0"]
 
-  # Streamable HTTP transport for Wikipedia MCP server
+  # SSE transport for Wikipedia MCP server
   transport:
     type: "http"
     config:
       http:
         port: 8080
+        path: "/sse"
         sessionManagement: true
 
   # Health checks - disabled for SSE transport as it doesn't provide /health endpoint
@@ -30,3 +31,15 @@ spec:
     limits:
       cpu: 500m
       memory: 512Mi
+
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+
+  # MCP Protocol Validation Configuration
+  validation:
+    enabled: true
+    strictMode: true
+    requiredCapabilities:
+      - "tools"
+    healthCheckInterval: "1m"

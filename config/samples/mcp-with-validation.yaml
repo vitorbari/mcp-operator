@@ -31,11 +31,9 @@ spec:
     requiredCapabilities:
       - "tools"
 
-    # Validate the server on startup (default: true)
-    testOnStartup: true
-
-    # Interval for periodic health checks (default: "5m")
+    # Interval for periodic validation checks (default: "5m")
     # Valid time units: s, m, h
+    # When enabled=true, validation runs on startup and then at this interval
     healthCheckInterval: "5m"
 
   # Security context

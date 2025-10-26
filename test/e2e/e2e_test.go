@@ -1226,7 +1226,6 @@ spec:
         sessionManagement: true
   validation:
     enabled: true
-    testOnStartup: true
     healthCheckInterval: "5m"
   security:
     runAsUser: 1000
@@ -1340,7 +1339,6 @@ spec:
         path: "/mcp"
   validation:
     enabled: true
-    testOnStartup: true
   security:
     runAsUser: 1000
     runAsGroup: 1000
@@ -1413,7 +1411,6 @@ spec:
         path: "/mcp"
   validation:
     enabled: true
-    testOnStartup: true
     strictMode: true
   security:
     runAsUser: 1000
@@ -1486,7 +1483,6 @@ spec:
         path: "/mcp"
   validation:
     enabled: true
-    testOnStartup: true
     strictMode: false
   security:
     runAsUser: 1000
@@ -1565,7 +1561,6 @@ spec:
         path: "/mcp"
   validation:
     enabled: true
-    testOnStartup: true
     requiredCapabilities:
       - tools
   security:
@@ -1646,7 +1641,6 @@ spec:
         path: "/mcp"
   validation:
     enabled: true
-    testOnStartup: true
   security:
     runAsUser: 1000
     runAsGroup: 1000
@@ -1717,7 +1711,6 @@ spec:
         path: "/mcp"
   validation:
     enabled: true
-    testOnStartup: true
   security:
     runAsUser: 1000
     runAsGroup: 1000

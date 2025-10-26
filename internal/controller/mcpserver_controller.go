@@ -40,8 +40,8 @@ import (
 
 	mcpv1 "github.com/vitorbari/mcp-operator/api/v1"
 	"github.com/vitorbari/mcp-operator/internal/metrics"
-	"github.com/vitorbari/mcp-operator/internal/validator"
 	"github.com/vitorbari/mcp-operator/pkg/transport"
+	"github.com/vitorbari/mcp-operator/pkg/validator"
 )
 
 // MCPServerReconciler reconciles a MCPServer object
@@ -844,14 +844,8 @@ func (r *MCPServerReconciler) shouldValidate(mcpServer *mcpv1.MCPServer) bool {
 		return false
 	}
 
-	// Check if we should validate on startup
-	testOnStartup := true
-	if mcpServer.Spec.Validation.TestOnStartup != nil {
-		testOnStartup = *mcpServer.Spec.Validation.TestOnStartup
-	}
-
-	// If we haven't validated yet and testOnStartup is enabled, validate
-	if mcpServer.Status.Validation == nil && testOnStartup {
+	// If we haven't validated yet, validate on startup
+	if mcpServer.Status.Validation == nil {
 		return true
 	}
 
@@ -890,6 +884,14 @@ func (r *MCPServerReconciler) validateServer(ctx context.Context, mcpServer *mcp
 		Timeout: timeout,
 	}
 
+	// Add configured path if specified
+	if mcpServer.Spec.Transport != nil &&
+		mcpServer.Spec.Transport.Config != nil &&
+		mcpServer.Spec.Transport.Config.HTTP != nil &&
+		mcpServer.Spec.Transport.Config.HTTP.Path != "" {
+		opts.ConfiguredPath = mcpServer.Spec.Transport.Config.HTTP.Path
+	}
+
 	// Add required capabilities if specified
 	if mcpServer.Spec.Validation != nil && len(mcpServer.Spec.Validation.RequiredCapabilities) > 0 {
 		opts.RequiredCapabilities = mcpServer.Spec.Validation.RequiredCapabilities
@@ -917,7 +919,8 @@ func (r *MCPServerReconciler) validateServer(ctx context.Context, mcpServer *mcp
 	return result
 }
 
-// buildValidationEndpoint constructs the endpoint URL for validation
+// buildValidationEndpoint constructs the base URL for validation
+// Returns base URL without path (e.g., "http://service:8080") to allow auto-detection
 func (r *MCPServerReconciler) buildValidationEndpoint(mcpServer *mcpv1.MCPServer) string {
 	// Use the internal service endpoint for validation
 	serviceName := mcpServer.Name
@@ -935,29 +938,24 @@ func (r *MCPServerReconciler) buildValidationEndpoint(mcpServer *mcpv1.MCPServer
 		port = mcpServer.Spec.Transport.Config.HTTP.Port
 	}
 
-	// Determine the path
-	path := "/mcp"
-	if mcpServer.Spec.Transport != nil &&
-		mcpServer.Spec.Transport.Config != nil &&
-		mcpServer.Spec.Transport.Config.HTTP != nil &&
-		mcpServer.Spec.Transport.Config.HTTP.Path != "" {
-		path = mcpServer.Spec.Transport.Config.HTTP.Path
-	}
-
-	// Build the endpoint URL using the internal service DNS name
-	return fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s", serviceName, namespace, port, path)
+	// Build the base URL using the internal service DNS name
+	// Path will be auto-detected by the validator
+	return fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", serviceName, namespace, port)
 }
 
 // updateValidationStatus updates the validation status in the MCPServer
 func (r *MCPServerReconciler) updateValidationStatus(ctx context.Context, mcpServer *mcpv1.MCPServer, result *validator.ValidationResult) error {
 	log := logf.FromContext(ctx)
 
+	now := metav1.Now()
+
 	// Convert validator result to CRD status
 	validationStatus := &mcpv1.ValidationStatus{
 		ProtocolVersion: result.ProtocolVersion,
 		Capabilities:    result.Capabilities,
 		Compliant:       result.IsCompliant(),
-		LastValidated:   &metav1.Time{Time: time.Now()},
+		LastValidated:   &now,
+		TransportUsed:   string(result.DetectedTransport),
 		Issues:          make([]mcpv1.ValidationIssue, 0, len(result.Issues)),
 	}
 
@@ -970,8 +968,26 @@ func (r *MCPServerReconciler) updateValidationStatus(ctx context.Context, mcpSer
 		})
 	}
 
-	// Update the status
+	// Update the validation status
 	mcpServer.Status.Validation = validationStatus
+
+	// Update transport status
+	if mcpServer.Status.Transport == nil {
+		mcpServer.Status.Transport = &mcpv1.TransportStatus{}
+	}
+	mcpServer.Status.Transport.DetectedProtocol = string(result.DetectedTransport)
+	mcpServer.Status.Transport.Endpoint = result.Endpoint
+	mcpServer.Status.Transport.LastDetected = &now
+
+	// Determine session support based on spec configuration
+	sessionSupport := false
+	if mcpServer.Spec.Transport != nil &&
+		mcpServer.Spec.Transport.Config != nil &&
+		mcpServer.Spec.Transport.Config.HTTP != nil &&
+		mcpServer.Spec.Transport.Config.HTTP.SessionManagement != nil {
+		sessionSupport = *mcpServer.Spec.Transport.Config.HTTP.SessionManagement
+	}
+	mcpServer.Status.Transport.SessionSupport = sessionSupport
 
 	// Update status with retry logic
 	if err := r.updateStatus(ctx, mcpServer); err != nil {
@@ -981,10 +997,12 @@ func (r *MCPServerReconciler) updateValidationStatus(ctx context.Context, mcpSer
 
 	// Emit event based on validation result
 	if result.IsCompliant() {
-		r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "ValidationPassed", "MCP protocol validation succeeded")
+		r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "ValidationPassed",
+			fmt.Sprintf("MCP protocol validation succeeded (transport: %s)", result.DetectedTransport))
 	} else {
 		r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "ValidationFailed",
-			fmt.Sprintf("MCP protocol validation failed: %s", result.ErrorMessages()))
+			fmt.Sprintf("MCP protocol validation failed (transport: %s): %s",
+				result.DetectedTransport, result.ErrorMessages()))
 	}
 
 	return nil

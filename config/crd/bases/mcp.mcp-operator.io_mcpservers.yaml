@@ -3448,10 +3448,6 @@ spec:
                     default: false
                     description: StrictMode fails deployment if validation fails
                     type: boolean
-                  testOnStartup:
-                    default: true
-                    description: TestOnStartup validates the server on startup
-                    type: boolean
                 type: object
             required:
             - image
@@ -3539,6 +3535,28 @@ spec:
                 description: ServiceEndpoint represents the endpoint where the MCP
                   server is accessible
                 type: string
+              transport:
+                description: Transport represents the detected transport protocol
+                  information
+                properties:
+                  detectedProtocol:
+                    description: |-
+                      DetectedProtocol indicates the detected MCP transport protocol
+                      Valid values: "streamable-http", "sse", "unknown"
+                    type: string
+                  endpoint:
+                    description: Endpoint is the full URL that was validated
+                    type: string
+                  lastDetected:
+                    description: LastDetected is the timestamp when transport detection
+                      occurred
+                    format: date-time
+                    type: string
+                  sessionSupport:
+                    description: SessionSupport indicates if the transport supports
+                      sessions
+                    type: boolean
+                type: object
               transportType:
                 description: TransportType represents the active transport type
                 enum:
@@ -3590,6 +3608,11 @@ spec:
                     type: string
                   protocolVersion:
                     description: ProtocolVersion is the detected MCP protocol version
+                    type: string
+                  transportUsed:
+                    description: |-
+                      TransportUsed indicates which transport protocol was used for validation
+                      Valid values: "streamable-http", "sse"
                     type: string
                 type: object
             type: object

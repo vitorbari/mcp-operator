@@ -239,6 +239,10 @@ type MCPServerStatus struct {
 	// Validation represents the MCP protocol validation status
 	// +optional
 	Validation *ValidationStatus `json:"validation,omitempty"`
+
+	// Transport represents the detected transport protocol information
+	// +optional
+	Transport *TransportStatus `json:"transport,omitempty"`
 }
 
 // MCPServerPhase represents the current phase of an MCP server deployment
@@ -469,11 +473,6 @@ type ValidationSpec struct {
 	// +optional
 	RequiredCapabilities []string `json:"requiredCapabilities,omitempty"`
 
-	// TestOnStartup validates the server on startup
-	// +kubebuilder:default=true
-	// +optional
-	TestOnStartup *bool `json:"testOnStartup,omitempty"`
-
 	// HealthCheckInterval specifies interval for periodic validation checks
 	// +kubebuilder:default="5m"
 	// +optional
@@ -501,6 +500,31 @@ type ValidationStatus struct {
 	// Issues contains validation issues found
 	// +optional
 	Issues []ValidationIssue `json:"issues,omitempty"`
+
+	// TransportUsed indicates which transport protocol was used for validation
+	// Valid values: "streamable-http", "sse"
+	// +optional
+	TransportUsed string `json:"transportUsed,omitempty"`
+}
+
+// TransportStatus represents the detected transport protocol information
+type TransportStatus struct {
+	// DetectedProtocol indicates the detected MCP transport protocol
+	// Valid values: "streamable-http", "sse", "unknown"
+	// +optional
+	DetectedProtocol string `json:"detectedProtocol,omitempty"`
+
+	// Endpoint is the full URL that was validated
+	// +optional
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// LastDetected is the timestamp when transport detection occurred
+	// +optional
+	LastDetected *metav1.Time `json:"lastDetected,omitempty"`
+
+	// SessionSupport indicates if the transport supports sessions
+	// +optional
+	SessionSupport bool `json:"sessionSupport,omitempty"`
 }
 
 // ValidationIssue represents a validation problem found
