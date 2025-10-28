@@ -40,7 +40,7 @@ import (
 
 	mcpv1 "github.com/vitorbari/mcp-operator/api/v1"
 	"github.com/vitorbari/mcp-operator/internal/metrics"
-	"github.com/vitorbari/mcp-operator/pkg/transport"
+	"github.com/vitorbari/mcp-operator/internal/transport"
 	"github.com/vitorbari/mcp-operator/pkg/validator"
 )
 

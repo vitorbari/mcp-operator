@@ -19,24 +19,21 @@ package validator
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/vitorbari/mcp-operator/internal/mcp"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-)
-
-const (
-	// Supported MCP protocol versions
-	ProtocolVersion20241105 = "2024-11-05"
-	ProtocolVersion20250326 = "2025-03-26"
 )
 
 // Validator validates MCP protocol compliance
 type Validator struct {
-	baseURL  string
-	detector *TransportDetector
-	timeout  time.Duration
+	baseURL          string
+	detector         *TransportDetector
+	timeout          time.Duration
+	transportFactory TransportFactory
+	versionDetector  *ProtocolVersionDetector
+	metricsRecorder  MetricsRecorder
 }
 
 // ValidationOptions configures validation behavior
@@ -94,7 +91,7 @@ type ServerInfo struct {
 	Version string
 }
 
-// ValidationIssue represents a validation problem
+// ValidationIssue represents a validation problem with actionable guidance
 type ValidationIssue struct {
 	// Level is the severity: "error", "warning", "info"
 	Level string
@@ -104,6 +101,15 @@ type ValidationIssue struct {
 
 	// Code is a machine-readable issue code
 	Code string
+
+	// Suggestions are actionable steps to resolve the issue (populated automatically)
+	Suggestions []string
+
+	// DocumentationURL provides more information (populated automatically)
+	DocumentationURL string
+
+	// RelatedIssues are issue codes that commonly occur together (populated automatically)
+	RelatedIssues []string
 }
 
 // Issue severity levels
@@ -125,22 +131,150 @@ const (
 	CodePromptsListFailed      = "PROMPTS_LIST_FAILED"
 )
 
-// NewValidator creates a new MCP protocol validator
-func NewValidator(baseURL string) *Validator {
-	defaultTimeout := 30 * time.Second
-	return &Validator{
-		baseURL:  baseURL,
-		detector: NewTransportDetector(defaultTimeout),
-		timeout:  defaultTimeout,
+// Option configures a Validator during creation
+type Option func(*Validator)
+
+// WithTimeout sets the validation timeout
+// This timeout applies to the entire validation operation including detection and initialization
+func WithTimeout(d time.Duration) Option {
+	return func(v *Validator) {
+		v.timeout = d
+		v.detector = NewTransportDetector(d)
 	}
 }
 
+// WithFactory sets a custom transport factory
+// This allows using custom transport implementations beyond the default HTTP and SSE
+func WithFactory(f TransportFactory) Option {
+	return func(v *Validator) {
+		v.transportFactory = f
+	}
+}
+
+// WithHTTPClient sets a custom HTTP client for all transports
+// This is useful for customizing connection pooling, timeouts, or proxy settings
+func WithHTTPClient(client *http.Client) Option {
+	return func(v *Validator) {
+		v.transportFactory = NewTransportFactory(client)
+	}
+}
+
+// WithMetricsRecorder sets a custom metrics recorder
+// This is primarily useful for testing or custom metrics collection
+func WithMetricsRecorder(m MetricsRecorder) Option {
+	return func(v *Validator) {
+		v.metricsRecorder = m
+	}
+}
+
+// newIssue creates a ValidationIssue with suggestions populated from the catalog
+func newIssue(level, code, message string) ValidationIssue {
+	issue := ValidationIssue{
+		Level:   level,
+		Code:    code,
+		Message: message,
+	}
+
+	// Enhance with catalog information if available
+	catalog := NewIssueCatalog()
+	if template, exists := catalog.issues[code]; exists {
+		issue.Suggestions = template.Suggestions
+		issue.DocumentationURL = template.DocumentationURL
+		issue.RelatedIssues = template.RelatedIssues
+	}
+
+	return issue
+}
+
+// newErrorIssue creates an error-level ValidationIssue
+func newErrorIssue(code, message string) ValidationIssue {
+	return newIssue(LevelError, code, message)
+}
+
+// newWarningIssue creates a warning-level ValidationIssue
+func newWarningIssue(code, message string) ValidationIssue {
+	return newIssue(LevelWarning, code, message)
+}
+
+// NewValidator creates a new MCP protocol validator with sensible defaults
+// Additional configuration can be provided via functional options
+//
+// Example usage:
+//   // Simple case with defaults
+//   validator := NewValidator("http://localhost:8080")
+//
+//   // With custom timeout
+//   validator := NewValidator("http://localhost:8080", WithTimeout(60*time.Second))
+//
+//   // With custom HTTP client for connection pooling
+//   validator := NewValidator("http://localhost:8080", WithHTTPClient(myClient))
+func NewValidator(baseURL string, opts ...Option) *Validator {
+	defaultTimeout := 30 * time.Second
+
+	// Create HTTP client with connection pooling and sensible defaults
+	httpClient := &http.Client{
+		Timeout: defaultTimeout,
+		Transport: &http.Transport{
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   10,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
+
+	v := &Validator{
+		baseURL:          baseURL,
+		timeout:          defaultTimeout,
+		detector:         NewTransportDetector(defaultTimeout),
+		transportFactory: NewTransportFactory(httpClient),
+		versionDetector:  NewProtocolVersionDetector(),
+		metricsRecorder:  NewMetricsRecorder(),
+	}
+
+	// Apply functional options
+	for _, opt := range opts {
+		opt(v)
+	}
+
+	return v
+}
+
 // NewValidatorWithTimeout creates a validator with custom timeout
+// Note: Consider using NewValidator with WithTimeout option instead for better composability
 func NewValidatorWithTimeout(baseURL string, timeout time.Duration) *Validator {
-	return &Validator{
-		baseURL:  baseURL,
-		detector: NewTransportDetector(timeout),
-		timeout:  timeout,
+	return NewValidator(baseURL, WithTimeout(timeout))
+}
+
+// NewValidatorWithFactory creates a validator with a custom transport factory
+// Note: Consider using NewValidator with WithTimeout and WithFactory options instead
+func NewValidatorWithFactory(baseURL string, timeout time.Duration, factory TransportFactory) *Validator {
+	return NewValidator(baseURL, WithTimeout(timeout), WithFactory(factory))
+}
+
+// SetMetricsRecorder allows replacing the metrics recorder (useful for testing)
+func (v *Validator) SetMetricsRecorder(recorder MetricsRecorder) {
+	v.metricsRecorder = recorder
+}
+
+// recordValidationMetrics records metrics for a validation result
+func (v *Validator) recordValidationMetrics(result *ValidationResult) {
+	transportName := string(result.DetectedTransport)
+	if transportName == "" {
+		transportName = "unknown"
+	}
+	v.metricsRecorder.RecordValidation(transportName, result.Success, result.Duration)
+
+	// Record protocol version if detected
+	if result.ProtocolVersion != "" {
+		v.metricsRecorder.RecordProtocolVersion(result.ProtocolVersion)
+	}
+
+	// Record errors
+	for _, issue := range result.Issues {
+		if issue.Level == LevelError {
+			v.metricsRecorder.RecordError(issue.Code, transportName)
+		}
 	}
 }
 
@@ -188,12 +322,12 @@ func (v *Validator) Validate(ctx context.Context, opts ValidationOptions) (*Vali
 		transportType, endpoint, err = v.detector.DetectTransport(ctx, v.baseURL, opts.ConfiguredPath)
 		if err != nil {
 			result.Success = false
-			result.Issues = append(result.Issues, ValidationIssue{
-				Level:   LevelError,
-				Code:    "TRANSPORT_DETECTION_FAILED",
-				Message: fmt.Sprintf("Failed to detect transport: %v", err),
-			})
+			result.Issues = append(result.Issues, newErrorIssue(
+				"TRANSPORT_DETECTION_FAILED",
+				fmt.Sprintf("Failed to detect transport: %v", err),
+			))
 			result.Duration = time.Since(startTime)
+			v.recordValidationMetrics(result)
 			return result, nil
 		}
 
@@ -201,29 +335,34 @@ func (v *Validator) Validate(ctx context.Context, opts ValidationOptions) (*Vali
 		result.Endpoint = endpoint
 	}
 
-	// Step 2: Validate using the detected transport
-	var validationErr error
-	switch transportType {
-	case TransportStreamableHTTP:
-		validationErr = v.validateStreamableHTTP(ctx, endpoint, opts, result)
-	case TransportSSE:
-		validationErr = v.validateSSE(ctx, endpoint, opts, result)
-	default:
-		result.Success = false
-		result.Issues = append(result.Issues, ValidationIssue{
-			Level:   LevelError,
-			Code:    "UNKNOWN_TRANSPORT",
-			Message: fmt.Sprintf("Unknown transport type: %s", transportType),
-		})
+	// Step 2: Create transport using factory
+	transportOpts := TransportOptions{
+		Timeout:                 v.timeout,
+		HTTPClient:              nil,
+		EnableSessionManagement: false,
 	}
 
+	transport, err := v.transportFactory.CreateTransport(transportType, endpoint, transportOpts)
+	if err != nil {
+		result.Success = false
+		result.Issues = append(result.Issues, newErrorIssue(
+			"TRANSPORT_CREATION_FAILED",
+			fmt.Sprintf("Failed to create transport: %v", err),
+		))
+		result.Duration = time.Since(startTime)
+		v.recordValidationMetrics(result)
+		return result, nil
+	}
+	defer transport.Close()
+
+	// Step 3: Validate using the transport
+	validationErr := v.validateWithTransport(ctx, transport, opts, result)
 	if validationErr != nil {
 		result.Success = false
-		result.Issues = append(result.Issues, ValidationIssue{
-			Level:   LevelError,
-			Code:    CodeInitializeFailed,
-			Message: fmt.Sprintf("Validation failed: %v", validationErr),
-		})
+		result.Issues = append(result.Issues, newErrorIssue(
+			CodeInitializeFailed,
+			fmt.Sprintf("Validation failed: %v", validationErr),
+		))
 	}
 
 	// Final success determination in strict mode
@@ -237,24 +376,24 @@ func (v *Validator) Validate(ctx context.Context, opts ValidationOptions) (*Vali
 	}
 
 	result.Duration = time.Since(startTime)
+
+	// Record metrics
+	v.recordValidationMetrics(result)
+
 	return result, nil
 }
 
-// validateStreamableHTTP validates using Streamable HTTP transport
-func (v *Validator) validateStreamableHTTP(ctx context.Context, endpoint string, opts ValidationOptions, result *ValidationResult) error {
-	// Create Streamable HTTP client for this endpoint
-	client := NewStreamableHTTPClient(endpoint, v.timeout)
-	defer client.Close()
-
-	// Step 1: Send initialize request
-	initResult, err := client.Initialize(ctx)
+// validateWithTransport performs validation using the Transport interface
+// This method works with any transport implementation (HTTP, SSE, stdio, etc.)
+func (v *Validator) validateWithTransport(ctx context.Context, transport Transport, opts ValidationOptions, result *ValidationResult) error {
+	// Step 1: Initialize transport
+	initResult, err := transport.Initialize(ctx)
 	if err != nil {
 		result.Success = false
-		result.Issues = append(result.Issues, ValidationIssue{
-			Level:   LevelError,
-			Code:    CodeInitializeFailed,
-			Message: fmt.Sprintf("Failed to initialize: %v", err),
-		})
+		result.Issues = append(result.Issues, newErrorIssue(
+			CodeInitializeFailed,
+			fmt.Sprintf("Failed to initialize: %v", err),
+		))
 		return err
 	}
 
@@ -262,22 +401,20 @@ func (v *Validator) validateStreamableHTTP(ctx context.Context, endpoint string,
 	result.ProtocolVersion = initResult.ProtocolVersion
 	if !isValidProtocolVersion(initResult.ProtocolVersion) {
 		result.Success = false
-		result.Issues = append(result.Issues, ValidationIssue{
-			Level: LevelError,
-			Code:  CodeInvalidProtocolVersion,
-			Message: fmt.Sprintf("Unsupported protocol version: %s (expected %s or %s)",
+		result.Issues = append(result.Issues, newErrorIssue(
+			CodeInvalidProtocolVersion,
+			fmt.Sprintf("Unsupported protocol version: %s (expected %s or %s)",
 				initResult.ProtocolVersion, ProtocolVersion20241105, ProtocolVersion20250326),
-		})
+		))
 	}
 
 	// Step 3: Check server info is present
 	if initResult.ServerInfo.Name == "" {
 		result.Success = false
-		result.Issues = append(result.Issues, ValidationIssue{
-			Level:   LevelError,
-			Code:    CodeMissingServerInfo,
-			Message: "Server info is missing or incomplete",
-		})
+		result.Issues = append(result.Issues, newErrorIssue(
+			CodeMissingServerInfo,
+			"Server info is missing or incomplete",
+		))
 	} else {
 		result.ServerInfo = &ServerInfo{
 			Name:    initResult.ServerInfo.Name,
@@ -290,126 +427,39 @@ func (v *Validator) validateStreamableHTTP(ctx context.Context, endpoint string,
 	result.Capabilities = capabilities
 
 	if len(capabilities) == 0 {
-		result.Issues = append(result.Issues, ValidationIssue{
-			Level:   LevelWarning,
-			Code:    CodeNoCapabilities,
-			Message: "Server advertises no capabilities",
-		})
+		result.Issues = append(result.Issues, newWarningIssue(
+			CodeNoCapabilities,
+			"Server advertises no capabilities",
+		))
 	}
 
 	// Step 5: Check required capabilities
 	for _, required := range opts.RequiredCapabilities {
 		if !contains(capabilities, required) {
 			result.Success = false
-			result.Issues = append(result.Issues, ValidationIssue{
-				Level: LevelError,
-				Code:  CodeMissingCapability,
-				Message: fmt.Sprintf("Required capability '%s' is not advertised by server",
-					required),
-			})
+			result.Issues = append(result.Issues, newErrorIssue(
+				CodeMissingCapability,
+				fmt.Sprintf("Required capability '%s' is not advertised by server", required),
+			))
 		}
 	}
 
-	// Step 6: Test capability endpoints
-	testStreamableHTTPCapabilityEndpoints(ctx, client, initResult.Capabilities, result)
-
-	return nil
-}
-
-// validateSSE validates using SSE transport
-func (v *Validator) validateSSE(ctx context.Context, endpoint string, opts ValidationOptions, result *ValidationResult) error {
-	logger := log.FromContext(ctx)
-	logger.Info("Starting SSE validation", "endpoint", endpoint)
-
-	// Create SSE client
-	client := NewSSEClient(endpoint, v.timeout)
-	defer client.Close()
-
-	// Step 1: Connect to SSE endpoint and get messages URL
-	if err := client.Connect(ctx); err != nil {
-		result.Success = false
-		result.Issues = append(result.Issues, ValidationIssue{
-			Level:   LevelError,
-			Code:    "SSE_CONNECTION_FAILED",
-			Message: fmt.Sprintf("Failed to connect to SSE endpoint: %v", err),
-		})
-		return err
-	}
-
-	// Step 2: Send initialize request
-	initResult, err := client.Initialize(ctx)
-	if err != nil {
-		result.Success = false
-		result.Issues = append(result.Issues, ValidationIssue{
-			Level:   LevelError,
-			Code:    CodeInitializeFailed,
-			Message: fmt.Sprintf("Failed to initialize via SSE: %v", err),
-		})
-		return err
-	}
-
-	// Step 3: Check protocol version
-	result.ProtocolVersion = initResult.ProtocolVersion
-	if !isValidProtocolVersion(initResult.ProtocolVersion) {
-		result.Success = false
-		result.Issues = append(result.Issues, ValidationIssue{
-			Level: LevelError,
-			Code:  CodeInvalidProtocolVersion,
-			Message: fmt.Sprintf("Unsupported protocol version: %s (expected %s or %s)",
-				initResult.ProtocolVersion, ProtocolVersion20241105, ProtocolVersion20250326),
-		})
-	}
-
-	// Step 4: Check server info is present
-	if initResult.ServerInfo.Name == "" {
-		result.Success = false
-		result.Issues = append(result.Issues, ValidationIssue{
-			Level:   LevelError,
-			Code:    CodeMissingServerInfo,
-			Message: "Server info is missing or incomplete",
-		})
-	} else {
-		result.ServerInfo = &ServerInfo{
-			Name:    initResult.ServerInfo.Name,
-			Version: initResult.ServerInfo.Version,
+	// Step 6: Test capability endpoints (only for transports that support it)
+	// Currently only Streamable HTTP has the methods for testing capabilities
+	if transport.Name() == TransportStreamableHTTP {
+		// We need to cast to the concrete type to access ListTools, ListResources, ListPrompts
+		if httpTransport, ok := transport.(*streamableHTTPTransport); ok {
+			testCapabilityEndpoints(ctx, httpTransport.client, initResult.Capabilities, result)
 		}
 	}
-
-	// Step 5: Discover capabilities
-	capabilities := discoverCapabilities(initResult.Capabilities)
-	result.Capabilities = capabilities
-
-	if len(capabilities) == 0 {
-		result.Issues = append(result.Issues, ValidationIssue{
-			Level:   LevelWarning,
-			Code:    CodeNoCapabilities,
-			Message: "Server advertises no capabilities",
-		})
-	}
-
-	// Step 6: Check required capabilities
-	for _, required := range opts.RequiredCapabilities {
-		if !contains(capabilities, required) {
-			result.Success = false
-			result.Issues = append(result.Issues, ValidationIssue{
-				Level: LevelError,
-				Code:  CodeMissingCapability,
-				Message: fmt.Sprintf("Required capability '%s' is not advertised by server",
-					required),
-			})
-		}
-	}
-
-	// Note: We skip capability endpoint testing for SSE as it would require
-	// implementing full SSE client with ListTools/ListResources/ListPrompts methods.
-	// The initialize request is sufficient to validate basic MCP compliance.
 
 	return nil
 }
 
 // isValidProtocolVersion checks if the protocol version is supported
 func isValidProtocolVersion(version string) bool {
-	return version == ProtocolVersion20241105 || version == ProtocolVersion20250326
+	detector := NewProtocolVersionDetector()
+	return detector.IsSupported(version)
 }
 
 // discoverCapabilities extracts capability names from server capabilities
@@ -432,38 +482,35 @@ func discoverCapabilities(caps mcp.ServerCapabilities) []string {
 	return capabilities
 }
 
-// testStreamableHTTPCapabilityEndpoints tests that advertised capabilities actually work
-func testStreamableHTTPCapabilityEndpoints(ctx context.Context, client *StreamableHTTPClient, caps mcp.ServerCapabilities, result *ValidationResult) {
+// testCapabilityEndpoints tests that advertised capabilities actually work
+func testCapabilityEndpoints(ctx context.Context, client *StreamableHTTPClient, caps mcp.ServerCapabilities, result *ValidationResult) {
 	// Test tools/list if tools capability is advertised
 	if caps.Tools != nil {
 		if _, err := client.ListTools(ctx); err != nil {
-			result.Issues = append(result.Issues, ValidationIssue{
-				Level:   LevelWarning,
-				Code:    CodeToolsListFailed,
-				Message: fmt.Sprintf("Tools capability advertised but tools/list failed: %v", err),
-			})
+			result.Issues = append(result.Issues, newWarningIssue(
+				CodeToolsListFailed,
+				fmt.Sprintf("Tools capability advertised but tools/list failed: %v", err),
+			))
 		}
 	}
 
 	// Test resources/list if resources capability is advertised
 	if caps.Resources != nil {
 		if _, err := client.ListResources(ctx); err != nil {
-			result.Issues = append(result.Issues, ValidationIssue{
-				Level:   LevelWarning,
-				Code:    CodeResourcesListFailed,
-				Message: fmt.Sprintf("Resources capability advertised but resources/list failed: %v", err),
-			})
+			result.Issues = append(result.Issues, newWarningIssue(
+				CodeResourcesListFailed,
+				fmt.Sprintf("Resources capability advertised but resources/list failed: %v", err),
+			))
 		}
 	}
 
 	// Test prompts/list if prompts capability is advertised
 	if caps.Prompts != nil {
 		if _, err := client.ListPrompts(ctx); err != nil {
-			result.Issues = append(result.Issues, ValidationIssue{
-				Level:   LevelWarning,
-				Code:    CodePromptsListFailed,
-				Message: fmt.Sprintf("Prompts capability advertised but prompts/list failed: %v", err),
-			})
+			result.Issues = append(result.Issues, newWarningIssue(
+				CodePromptsListFailed,
+				fmt.Sprintf("Prompts capability advertised but prompts/list failed: %v", err),
+			))
 		}
 	}
 }
@@ -502,4 +549,26 @@ func (r *ValidationResult) ErrorMessages() []string {
 		}
 	}
 	return messages
+}
+
+// EnhanceIssues returns enhanced versions of the validation issues with suggestions
+// Note: Issues are now pre-enhanced during validation, so this method simply converts them
+// to the EnhancedValidationIssue type for backward compatibility
+func (r *ValidationResult) EnhanceIssues() []EnhancedValidationIssue {
+	enhanced := make([]EnhancedValidationIssue, len(r.Issues))
+	for i, issue := range r.Issues {
+		enhanced[i] = EnhancedValidationIssue{
+			ValidationIssue:  issue,
+			Suggestions:      issue.Suggestions,
+			DocumentationURL: issue.DocumentationURL,
+			RelatedIssues:    issue.RelatedIssues,
+		}
+	}
+	return enhanced
+}
+
+// EnhanceIssuesWithCatalog returns enhanced issues using a custom catalog
+// Note: Issues are now pre-enhanced during validation, so this is kept for backward compatibility
+func (r *ValidationResult) EnhanceIssuesWithCatalog(catalog *IssueCatalog) []EnhancedValidationIssue {
+	return r.EnhanceIssues()
 }

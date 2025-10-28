@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	mcpv1 "github.com/vitorbari/mcp-operator/api/v1"
-	"github.com/vitorbari/mcp-operator/pkg/transport"
+	"github.com/vitorbari/mcp-operator/internal/transport"
 )
 
 var _ = Describe("MCPServer Controller", func() {

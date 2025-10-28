@@ -39,7 +39,7 @@ import (
 
 	mcpv1 "github.com/vitorbari/mcp-operator/api/v1"
 	"github.com/vitorbari/mcp-operator/internal/controller"
-	"github.com/vitorbari/mcp-operator/pkg/transport"
+	"github.com/vitorbari/mcp-operator/internal/transport"
 	// +kubebuilder:scaffold:imports
 )
 
