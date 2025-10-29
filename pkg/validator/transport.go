@@ -93,14 +93,31 @@ func (d *TransportDetector) DetectTransport(ctx context.Context, baseURL, config
 
 // tryStreamableHTTP checks if the endpoint supports Streamable HTTP transport
 func (d *TransportDetector) tryStreamableHTTP(ctx context.Context, endpoint string) bool {
+	// Create a minimal JSON-RPC 2.0 initialize request for detection
+	// This is what a real MCP client would send
+	detectRequest := `{
+		"jsonrpc": "2.0",
+		"id": 1,
+		"method": "initialize",
+		"params": {
+			"protocolVersion": "2024-11-05",
+			"capabilities": {},
+			"clientInfo": {
+				"name": "mcp-operator-validator",
+				"version": "0.1.0"
+			}
+		}
+	}`
+
 	// Create a test POST request
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader("{}"))
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(detectRequest))
 	if err != nil {
 		return false
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "text/event-stream, application/json")
+	// MCP Streamable HTTP requires accepting both JSON and SSE formats
+	req.Header.Set("Accept", "application/json, text/event-stream")
 
 	// Send request
 	resp, err := d.httpClient.Do(req)
@@ -115,16 +132,20 @@ func (d *TransportDetector) tryStreamableHTTP(ctx context.Context, endpoint stri
 		return false
 	}
 
-	// Check content type - should be JSON or SSE
+	// For Streamable HTTP, we expect a 200 OK with JSON response
+	// A 400 Bad Request means the server doesn't understand the JSON-RPC format
+	if resp.StatusCode == http.StatusBadRequest {
+		return false
+	}
+
+	// Check content type - should be JSON
 	contentType := resp.Header.Get("Content-Type")
-	if strings.Contains(contentType, "application/json") ||
-		strings.Contains(contentType, "text/event-stream") {
+	if strings.Contains(contentType, "application/json") {
 		return true
 	}
 
-	// Even if content type is not set, if we get 200 OK or similar success codes,
-	// it's likely Streamable HTTP
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+	// If we get 200 OK, it's likely Streamable HTTP even without proper content-type
+	if resp.StatusCode == http.StatusOK {
 		return true
 	}
 

@@ -304,9 +304,9 @@ func TestRetryableValidator_IsRetryable(t *testing.T) {
 	retryable := NewRetryableValidator(validator, retryConfig)
 
 	tests := []struct {
-		name       string
-		err        error
-		result     *ValidationResult
+		name        string
+		err         error
+		result      *ValidationResult
 		shouldRetry bool
 	}{
 		{

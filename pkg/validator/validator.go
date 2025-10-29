@@ -83,6 +83,12 @@ type ValidationResult struct {
 
 	// Endpoint is the full URL that was validated
 	Endpoint string
+
+	// RequiresAuth indicates whether the server requires authentication
+	RequiresAuth bool
+
+	// AuthMethod describes the authentication method required (if detected)
+	AuthMethod string
 }
 
 // ServerInfo contains server implementation details
@@ -129,6 +135,8 @@ const (
 	CodeToolsListFailed        = "TOOLS_LIST_FAILED"
 	CodeResourcesListFailed    = "RESOURCES_LIST_FAILED"
 	CodePromptsListFailed      = "PROMPTS_LIST_FAILED"
+	CodeAuthRequired           = "AUTH_REQUIRED"
+	CodeAuthOnInitialize       = "AUTH_ON_INITIALIZE"
 )
 
 // Option configures a Validator during creation
@@ -358,11 +366,23 @@ func (v *Validator) Validate(ctx context.Context, opts ValidationOptions) (*Vali
 	// Step 3: Validate using the transport
 	validationErr := v.validateWithTransport(ctx, transport, opts, result)
 	if validationErr != nil {
-		result.Success = false
-		result.Issues = append(result.Issues, newErrorIssue(
-			CodeInitializeFailed,
-			fmt.Sprintf("Validation failed: %v", validationErr),
-		))
+		// Check if this is an auth error
+		if isAuthError(validationErr) {
+			result.RequiresAuth = true
+			result.AuthMethod = extractAuthMethod(validationErr, nil)
+			result.Success = false
+			result.Issues = append(result.Issues, newIssue(
+				LevelInfo,
+				CodeAuthRequired,
+				"Server requires authentication",
+			))
+		} else {
+			result.Success = false
+			result.Issues = append(result.Issues, newErrorIssue(
+				CodeInitializeFailed,
+				fmt.Sprintf("Validation failed: %v", validationErr),
+			))
+		}
 	}
 
 	// Final success determination in strict mode
@@ -389,6 +409,20 @@ func (v *Validator) validateWithTransport(ctx context.Context, transport Transpo
 	// Step 1: Initialize transport
 	initResult, err := transport.Initialize(ctx)
 	if err != nil {
+		// Check if this is an auth error during initialization
+		if isAuthError(err) {
+			result.RequiresAuth = true
+			result.AuthMethod = extractAuthMethod(err, nil)
+			result.Success = false
+			// Add warning that auth is required on initialize (non-standard)
+			result.Issues = append(result.Issues, newIssue(
+				LevelWarning,
+				CodeAuthOnInitialize,
+				"Server requires authentication for initialization (non-standard behavior)",
+			))
+			return err
+		}
+
 		result.Success = false
 		result.Issues = append(result.Issues, newErrorIssue(
 			CodeInitializeFailed,
@@ -571,4 +605,53 @@ func (r *ValidationResult) EnhanceIssues() []EnhancedValidationIssue {
 // Note: Issues are now pre-enhanced during validation, so this is kept for backward compatibility
 func (r *ValidationResult) EnhanceIssuesWithCatalog(catalog *IssueCatalog) []EnhancedValidationIssue {
 	return r.EnhanceIssues()
+}
+
+// isAuthError checks if an error indicates authentication is required
+func isAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := err.Error()
+	// Check for HTTP 401 or 403 status codes in error message
+	return strings.Contains(errMsg, "401") ||
+		strings.Contains(errMsg, "403") ||
+		strings.Contains(errMsg, "Unauthorized") ||
+		strings.Contains(errMsg, "Forbidden")
+}
+
+// isAuthStatusCode checks if an HTTP status code indicates authentication is required
+func isAuthStatusCode(statusCode int) bool {
+	return statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden
+}
+
+// extractAuthMethod attempts to extract the authentication method from error or headers
+func extractAuthMethod(err error, headers http.Header) string {
+	if headers != nil {
+		if wwwAuth := headers.Get("WWW-Authenticate"); wwwAuth != "" {
+			// Extract auth scheme from WWW-Authenticate header
+			// Format: "Bearer realm=..." or "Basic realm=..."
+			parts := strings.Fields(wwwAuth)
+			if len(parts) > 0 {
+				return parts[0]
+			}
+		}
+	}
+
+	if err != nil {
+		errMsg := err.Error()
+		// Try to detect common auth methods from error messages
+		if strings.Contains(strings.ToLower(errMsg), "bearer") {
+			return "Bearer"
+		}
+		if strings.Contains(strings.ToLower(errMsg), "basic") {
+			return "Basic"
+		}
+		if strings.Contains(strings.ToLower(errMsg), "oauth") {
+			return "OAuth"
+		}
+	}
+
+	return "Unknown"
 }

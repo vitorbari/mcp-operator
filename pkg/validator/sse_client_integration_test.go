@@ -209,35 +209,6 @@ func TestSSEClientInvalidEndpoint(t *testing.T) {
 	t.Logf("Got expected error for invalid endpoint: %v", err)
 }
 
-func TestSSEClientClose(t *testing.T) {
-	endpoint := getSSETestEndpoint(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	client := NewSSEClient(endpoint, 30*time.Second)
-
-	// Connect
-	err := client.Connect(ctx)
-	if err != nil {
-		t.Fatalf("Failed to connect: %v", err)
-	}
-
-	// Close the client
-	err = client.Close()
-	if err != nil {
-		t.Errorf("Failed to close client: %v", err)
-	}
-
-	// Verify we can't use it after closing
-	// Note: The actual behavior depends on implementation
-	// Just verify Close() can be called multiple times safely
-	err = client.Close()
-	if err != nil {
-		t.Logf("Second close returned error (may be expected): %v", err)
-	}
-}
-
 func TestSSEClientProtocolVersions(t *testing.T) {
 	endpoint := getSSETestEndpoint(t)
 

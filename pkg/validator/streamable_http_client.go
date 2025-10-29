@@ -17,12 +17,14 @@ limitations under the License.
 package validator
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -36,6 +38,7 @@ type StreamableHTTPClient struct {
 	httpClient *http.Client
 	requestID  atomic.Int32
 	timeout    time.Duration
+	sessionID  string // MCP session ID from initialize response
 }
 
 // NewStreamableHTTPClient creates a new Streamable HTTP client for the given endpoint
@@ -66,7 +69,14 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) (*mcp.InitializeR
 	}
 
 	var result mcp.InitializeResult
-	if err := c.call(ctx, "initialize", params, &result); err != nil {
+	if err := c.callWithResponse(ctx, "initialize", params, &result, func(headers http.Header) {
+		// Capture session ID from initialize response
+		if sessionID := headers.Get("mcp-session-id"); sessionID != "" {
+			c.sessionID = sessionID
+		} else if sessionID := headers.Get("Mcp-Session-Id"); sessionID != "" {
+			c.sessionID = sessionID
+		}
+	}); err != nil {
 		return nil, fmt.Errorf("initialize failed: %w", err)
 	}
 
@@ -118,6 +128,11 @@ func (c *StreamableHTTPClient) Close() error {
 
 // call sends a JSON-RPC 2.0 request and decodes the response
 func (c *StreamableHTTPClient) call(ctx context.Context, method string, params any, result any) error {
+	return c.callWithResponse(ctx, method, params, result, nil)
+}
+
+// callWithResponse sends a JSON-RPC 2.0 request with an optional response header callback
+func (c *StreamableHTTPClient) callWithResponse(ctx context.Context, method string, params any, result any, headerCallback func(http.Header)) error {
 	// Generate request ID
 	requestID := int(c.requestID.Add(1))
 
@@ -142,7 +157,13 @@ func (c *StreamableHTTPClient) call(ctx context.Context, method string, params a
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
+	// MCP Streamable HTTP requires accepting both JSON and SSE formats
+	httpReq.Header.Set("Accept", "application/json, text/event-stream")
+
+	// Include session ID if we have one
+	if c.sessionID != "" {
+		httpReq.Header.Set("mcp-session-id", c.sessionID)
+	}
 
 	// Send HTTP request
 	httpResp, err := c.httpClient.Do(httpReq)
@@ -151,16 +172,33 @@ func (c *StreamableHTTPClient) call(ctx context.Context, method string, params a
 	}
 	defer httpResp.Body.Close()
 
+	// Call header callback if provided
+	if headerCallback != nil {
+		headerCallback(httpResp.Header)
+	}
+
 	// Check HTTP status code
 	if httpResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(httpResp.Body)
 		return fmt.Errorf("HTTP error %d: %s", httpResp.StatusCode, string(body))
 	}
 
-	// Read response body
-	responseBody, err := io.ReadAll(httpResp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
+	// Check content type to determine how to parse the response
+	contentType := httpResp.Header.Get("Content-Type")
+	var responseBody []byte
+
+	if contentType == "text/event-stream" || contentType == "text/event-stream; charset=utf-8" {
+		// Parse SSE format response
+		responseBody, err = c.parseSSEResponse(httpResp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to parse SSE response: %w", err)
+		}
+	} else {
+		// Parse regular JSON response
+		responseBody, err = io.ReadAll(httpResp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read response: %w", err)
+		}
 	}
 
 	// Parse JSON-RPC response
@@ -192,4 +230,35 @@ func (c *StreamableHTTPClient) call(ctx context.Context, method string, params a
 	}
 
 	return nil
+}
+
+// parseSSEResponse extracts the JSON data from an SSE formatted response
+func (c *StreamableHTTPClient) parseSSEResponse(body io.Reader) ([]byte, error) {
+	scanner := bufio.NewScanner(body)
+	var dataBuilder strings.Builder
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// SSE format has lines like:
+		// event: message
+		// id: ...
+		// data: {...}
+		//
+		// We only care about the data lines
+		if strings.HasPrefix(line, "data:") {
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			dataBuilder.WriteString(data)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading SSE stream: %w", err)
+	}
+
+	if dataBuilder.Len() == 0 {
+		return nil, fmt.Errorf("no data found in SSE response")
+	}
+
+	return []byte(dataBuilder.String()), nil
 }

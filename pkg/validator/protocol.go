@@ -42,7 +42,7 @@ var SupportedProtocolVersions = []string{
 
 // ProtocolVersionDetector handles protocol version detection and negotiation
 type ProtocolVersionDetector struct {
-	preferredVersion string
+	preferredVersion  string
 	supportedVersions []string
 }
 

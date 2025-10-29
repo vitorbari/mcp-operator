@@ -25,12 +25,12 @@ import (
 
 // MockMetricsRecorder is a test implementation of MetricsRecorder
 type MockMetricsRecorder struct {
-	mu                   sync.Mutex
-	validations          []ValidationMetric
-	detections           []DetectionMetric
-	retries              []RetryMetric
-	errors               []ErrorMetric
-	protocolVersions     []string
+	mu               sync.Mutex
+	validations      []ValidationMetric
+	detections       []DetectionMetric
+	retries          []RetryMetric
+	errors           []ErrorMetric
+	protocolVersions []string
 }
 
 type ValidationMetric struct {

@@ -235,6 +235,34 @@ func (c *IssueCatalog) registerDefaultIssues() {
 		DocumentationURL: "https://modelcontextprotocol.io/docs/best-practices/reliability",
 		RelatedIssues:    []string{"TRANSPORT_DETECTION_FAILED", "SSE_CONNECTION_FAILED"},
 	}
+
+	c.issues["AUTH_REQUIRED"] = IssueTemplate{
+		Code:        "AUTH_REQUIRED",
+		Title:       "Server requires authentication",
+		Description: "The server returned 401 Unauthorized or 403 Forbidden, indicating authentication is required",
+		Suggestions: []string{
+			"Provide authentication credentials to complete validation",
+			"Check server documentation for supported authentication methods",
+			"Common methods: Bearer token, API key, OAuth 2.1",
+			"Configure authentication in the MCPServer spec or environment variables",
+		},
+		DocumentationURL: "https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#authentication",
+		RelatedIssues:    []string{"AUTH_ON_INITIALIZE"},
+	}
+
+	c.issues["AUTH_ON_INITIALIZE"] = IssueTemplate{
+		Code:        "AUTH_ON_INITIALIZE",
+		Title:       "Authentication required for initialization",
+		Description: "Server requires authentication for the initialize request (non-standard behavior)",
+		Suggestions: []string{
+			"Best practice: Allow unauthenticated initialize requests for discoverability",
+			"Consider restricting auth to tool/resource/prompt execution only",
+			"This limits client integration and testing capabilities",
+			"Provide authentication credentials to continue validation",
+		},
+		DocumentationURL: "https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#authentication",
+		RelatedIssues:    []string{"AUTH_REQUIRED"},
+	}
 }
 
 // Enhance takes a ValidationIssue and returns an EnhancedValidationIssue with suggestions

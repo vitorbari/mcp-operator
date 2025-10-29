@@ -446,10 +446,10 @@ func TestValidationResult_EnhanceIssuesWithCatalog(t *testing.T) {
 		Success: false,
 		Issues: []ValidationIssue{
 			{
-				Level:        LevelError,
-				Code:         "TRANSPORT_DETECTION_FAILED",
-				Message:      "Failed to detect transport",
-				Suggestions:  []string{"Check server is running", "Verify endpoint URL"},
+				Level:            LevelError,
+				Code:             "TRANSPORT_DETECTION_FAILED",
+				Message:          "Failed to detect transport",
+				Suggestions:      []string{"Check server is running", "Verify endpoint URL"},
 				DocumentationURL: "https://github.com/vitorbari/mcp-operator",
 			},
 		},
