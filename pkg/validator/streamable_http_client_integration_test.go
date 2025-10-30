@@ -21,6 +21,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/vitorbari/mcp-operator/internal/mcp"
 )
 
 // Integration tests for Streamable HTTP client against real MCP servers
@@ -109,117 +111,96 @@ func TestStreamableHTTPClientMultipleRequests(t *testing.T) {
 	}
 }
 
-func TestStreamableHTTPClientListTools(t *testing.T) {
+func TestStreamableHTTPClientListCapabilities(t *testing.T) {
 	endpoint := getHTTPTestEndpoint(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	client := NewStreamableHTTPClient(endpoint, 30*time.Second)
-	defer func() {
-		_ = client.Close()
-	}()
-
-	// Initialize first
-	initResult, err := client.Initialize(ctx)
-	if err != nil {
-		t.Fatalf("Failed to initialize: %v", err)
+	tests := []struct {
+		name           string
+		capabilityName string
+		hasCapability  func(*mcp.InitializeResult) bool
+		listFunc       func(*StreamableHTTPClient, context.Context) (interface{}, error)
+		getCount       func(interface{}) int
+		logItems       func(*testing.T, interface{})
+	}{
+		{
+			name:           "ListTools",
+			capabilityName: "tools",
+			hasCapability:  func(r *mcp.InitializeResult) bool { return r.Capabilities.Tools != nil },
+			listFunc: func(c *StreamableHTTPClient, ctx context.Context) (interface{}, error) {
+				return c.ListTools(ctx)
+			},
+			getCount: func(result interface{}) int { return len(result.(*mcp.ListToolsResult).Tools) },
+			logItems: func(t *testing.T, result interface{}) {
+				for i, tool := range result.(*mcp.ListToolsResult).Tools {
+					t.Logf("  Tool %d: %s - %s", i+1, tool.Name, tool.Description)
+				}
+			},
+		},
+		{
+			name:           "ListResources",
+			capabilityName: "resources",
+			hasCapability:  func(r *mcp.InitializeResult) bool { return r.Capabilities.Resources != nil },
+			listFunc: func(c *StreamableHTTPClient, ctx context.Context) (interface{}, error) {
+				return c.ListResources(ctx)
+			},
+			getCount: func(result interface{}) int { return len(result.(*mcp.ListResourcesResult).Resources) },
+			logItems: func(t *testing.T, result interface{}) {
+				for i, resource := range result.(*mcp.ListResourcesResult).Resources {
+					t.Logf("  Resource %d: %s - %s", i+1, resource.Name, resource.Description)
+				}
+			},
+		},
+		{
+			name:           "ListPrompts",
+			capabilityName: "prompts",
+			hasCapability:  func(r *mcp.InitializeResult) bool { return r.Capabilities.Prompts != nil },
+			listFunc: func(c *StreamableHTTPClient, ctx context.Context) (interface{}, error) {
+				return c.ListPrompts(ctx)
+			},
+			getCount: func(result interface{}) int { return len(result.(*mcp.ListPromptsResult).Prompts) },
+			logItems: func(t *testing.T, result interface{}) {
+				for i, prompt := range result.(*mcp.ListPromptsResult).Prompts {
+					t.Logf("  Prompt %d: %s - %s", i+1, prompt.Name, prompt.Description)
+				}
+			},
+		},
 	}
 
-	// Only test ListTools if the server advertises tools capability
-	if initResult.Capabilities.Tools == nil {
-		t.Skip("Server does not advertise tools capability")
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
 
-	// Test ListTools
-	result, err := client.ListTools(ctx)
-	if err != nil {
-		t.Fatalf("Failed to list tools: %v", err)
-	}
+			client := NewStreamableHTTPClient(endpoint, 30*time.Second)
+			defer func() {
+				_ = client.Close()
+			}()
 
-	if result == nil {
-		t.Fatal("Expected non-nil tools list result")
-	}
+			// Initialize first
+			initResult, err := client.Initialize(ctx)
+			if err != nil {
+				t.Fatalf("Failed to initialize: %v", err)
+			}
 
-	t.Logf("Found %d tools", len(result.Tools))
-	for i, tool := range result.Tools {
-		t.Logf("  Tool %d: %s - %s", i+1, tool.Name, tool.Description)
-	}
-}
+			// Only test if the server advertises the capability
+			if !tt.hasCapability(initResult) {
+				t.Skipf("Server does not advertise %s capability", tt.capabilityName)
+			}
 
-func TestStreamableHTTPClientListResources(t *testing.T) {
-	endpoint := getHTTPTestEndpoint(t)
+			// Test the list function
+			result, err := tt.listFunc(client, ctx)
+			if err != nil {
+				t.Fatalf("Failed to list %s: %v", tt.capabilityName, err)
+			}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+			if result == nil {
+				t.Fatalf("Expected non-nil %s list result", tt.capabilityName)
+			}
 
-	client := NewStreamableHTTPClient(endpoint, 30*time.Second)
-	defer func() {
-		_ = client.Close()
-	}()
-
-	// Initialize first
-	initResult, err := client.Initialize(ctx)
-	if err != nil {
-		t.Fatalf("Failed to initialize: %v", err)
-	}
-
-	// Only test ListResources if the server advertises resources capability
-	if initResult.Capabilities.Resources == nil {
-		t.Skip("Server does not advertise resources capability")
-	}
-
-	// Test ListResources
-	result, err := client.ListResources(ctx)
-	if err != nil {
-		t.Fatalf("Failed to list resources: %v", err)
-	}
-
-	if result == nil {
-		t.Fatal("Expected non-nil resources list result")
-	}
-
-	t.Logf("Found %d resources", len(result.Resources))
-	for i, resource := range result.Resources {
-		t.Logf("  Resource %d: %s - %s", i+1, resource.Name, resource.Description)
-	}
-}
-
-func TestStreamableHTTPClientListPrompts(t *testing.T) {
-	endpoint := getHTTPTestEndpoint(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	client := NewStreamableHTTPClient(endpoint, 30*time.Second)
-	defer func() {
-		_ = client.Close()
-	}()
-
-	// Initialize first
-	initResult, err := client.Initialize(ctx)
-	if err != nil {
-		t.Fatalf("Failed to initialize: %v", err)
-	}
-
-	// Only test ListPrompts if the server advertises prompts capability
-	if initResult.Capabilities.Prompts == nil {
-		t.Skip("Server does not advertise prompts capability")
-	}
-
-	// Test ListPrompts
-	result, err := client.ListPrompts(ctx)
-	if err != nil {
-		t.Fatalf("Failed to list prompts: %v", err)
-	}
-
-	if result == nil {
-		t.Fatal("Expected non-nil prompts list result")
-	}
-
-	t.Logf("Found %d prompts", len(result.Prompts))
-	for i, prompt := range result.Prompts {
-		t.Logf("  Prompt %d: %s - %s", i+1, prompt.Name, prompt.Description)
+			count := tt.getCount(result)
+			t.Logf("Found %d %s", count, tt.capabilityName)
+			tt.logItems(t, result)
+		})
 	}
 }
 

@@ -243,7 +243,7 @@ spec:
 
 			By("verifying Ready condition becomes True when pods are running")
 			Eventually(func(g Gomega) {
-				result, err := getMCPServerStatus(mcpServerName, testNamespace)
+				result, err := getMCPServerStatus(mcpServerName)
 				g.Expect(err).NotTo(HaveOccurred())
 
 				status, ok := result["status"].(map[string]interface{})
@@ -255,7 +255,7 @@ spec:
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("verifying Available condition is set")
-			result, err := getMCPServerStatus(mcpServerName, testNamespace)
+			result, err := getMCPServerStatus(mcpServerName)
 			Expect(err).NotTo(HaveOccurred())
 
 			status, ok := result["status"].(map[string]interface{})
@@ -522,41 +522,23 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 
 			By("waiting for MCPServer to reach Running phase")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
-					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Running"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+			waitForMCPServerRunning(mcpServerName)
 
 			By("verifying Deployment has runAsUser")
-			cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].securityContext.runAsUser}")
-			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("1000"))
+			Expect(getDeploymentField(mcpServerName,
+				".spec.template.spec.containers[0].securityContext.runAsUser")).To(Equal("1000"))
 
 			By("verifying Deployment has runAsGroup")
-			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].securityContext.runAsGroup}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("1000"))
+			Expect(getDeploymentField(mcpServerName,
+				".spec.template.spec.containers[0].securityContext.runAsGroup")).To(Equal("1000"))
 
 			By("verifying Deployment has runAsNonRoot")
-			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].securityContext.runAsNonRoot}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("true"))
+			Expect(getDeploymentField(mcpServerName,
+				".spec.template.spec.containers[0].securityContext.runAsNonRoot")).To(Equal("true"))
 
 			By("verifying Deployment has allowPrivilegeEscalation set to false")
-			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("false"))
+			Expect(getDeploymentField(mcpServerName,
+				".spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation")).To(Equal("false"))
 		})
 
 		It("should configure transport and service settings", func() {
@@ -818,41 +800,23 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 
 			By("waiting for MCPServer to reach Running phase")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
-					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Running"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+			waitForMCPServerRunning(mcpServerName)
 
 			By("verifying Deployment has liveness probe")
-			cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].livenessProbe.httpGet.path}")
-			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("/"))
+			Expect(getDeploymentField(mcpServerName,
+				".spec.template.spec.containers[0].livenessProbe.httpGet.path")).To(Equal("/"))
 
 			By("verifying liveness probe port")
-			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].livenessProbe.httpGet.port}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("8080"))
+			Expect(getDeploymentField(mcpServerName,
+				".spec.template.spec.containers[0].livenessProbe.httpGet.port")).To(Equal("8080"))
 
 			By("verifying Deployment has readiness probe")
-			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].readinessProbe.httpGet.path}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("/"))
+			Expect(getDeploymentField(mcpServerName,
+				".spec.template.spec.containers[0].readinessProbe.httpGet.path")).To(Equal("/"))
 
 			By("verifying readiness probe port")
-			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].readinessProbe.httpGet.port}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("8080"))
+			Expect(getDeploymentField(mcpServerName,
+				".spec.template.spec.containers[0].readinessProbe.httpGet.port")).To(Equal("8080"))
 		})
 
 		It("should apply pod template customizations", func() {
@@ -1268,7 +1232,7 @@ spec:
 
 			By("waiting for validation status to be populated")
 			Eventually(func(g Gomega) {
-				result, err := getMCPServerStatus(mcpServerName, testNamespace)
+				result, err := getMCPServerStatus(mcpServerName)
 				g.Expect(err).NotTo(HaveOccurred())
 
 				status, ok := result["status"].(map[string]interface{})
@@ -1293,7 +1257,7 @@ spec:
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("verifying protocol version is detected")
-			result, err := getMCPServerStatus(mcpServerName, testNamespace)
+			result, err := getMCPServerStatus(mcpServerName)
 			Expect(err).NotTo(HaveOccurred())
 
 			status := result["status"].(map[string]interface{})
@@ -1359,7 +1323,7 @@ spec:
 
 			By("waiting for validation to complete")
 			Eventually(func(g Gomega) {
-				result, err := getMCPServerStatus(mcpServerName, testNamespace)
+				result, err := getMCPServerStatus(mcpServerName)
 				g.Expect(err).NotTo(HaveOccurred())
 
 				status, ok := result["status"].(map[string]interface{})
@@ -1442,7 +1406,7 @@ spec:
 			}, 3*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("verifying validation status shows non-compliant")
-			result, err := getMCPServerStatus(mcpServerName, testNamespace)
+			result, err := getMCPServerStatus(mcpServerName)
 			Expect(err).NotTo(HaveOccurred())
 
 			status := result["status"].(map[string]interface{})
@@ -1506,7 +1470,7 @@ spec:
 
 			By("waiting for validation to run")
 			Eventually(func(g Gomega) {
-				result, err := getMCPServerStatus(mcpServerName, testNamespace)
+				result, err := getMCPServerStatus(mcpServerName)
 				g.Expect(err).NotTo(HaveOccurred())
 
 				status, ok := result["status"].(map[string]interface{})
@@ -1524,7 +1488,7 @@ spec:
 			Expect(output).To(Equal("Running"))
 
 			By("verifying validation status shows non-compliant")
-			result, err := getMCPServerStatus(mcpServerName, testNamespace)
+			result, err := getMCPServerStatus(mcpServerName)
 			Expect(err).NotTo(HaveOccurred())
 
 			status := result["status"].(map[string]interface{})
@@ -1583,7 +1547,7 @@ spec:
 
 			By("waiting for validation to complete")
 			Eventually(func(g Gomega) {
-				result, err := getMCPServerStatus(mcpServerName, testNamespace)
+				result, err := getMCPServerStatus(mcpServerName)
 				g.Expect(err).NotTo(HaveOccurred())
 
 				status, ok := result["status"].(map[string]interface{})
@@ -1598,7 +1562,7 @@ spec:
 			}, 3*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("verifying required capability is present")
-			result, err := getMCPServerStatus(mcpServerName, testNamespace)
+			result, err := getMCPServerStatus(mcpServerName)
 			Expect(err).NotTo(HaveOccurred())
 
 			status := result["status"].(map[string]interface{})
@@ -1661,7 +1625,7 @@ spec:
 
 			By("waiting for validation to complete")
 			Eventually(func(g Gomega) {
-				result, err := getMCPServerStatus(mcpServerName, testNamespace)
+				result, err := getMCPServerStatus(mcpServerName)
 				g.Expect(err).NotTo(HaveOccurred())
 
 				status, ok := result["status"].(map[string]interface{})
@@ -1731,7 +1695,7 @@ spec:
 
 			By("waiting for validation to complete")
 			Eventually(func(g Gomega) {
-				result, err := getMCPServerStatus(mcpServerName, testNamespace)
+				result, err := getMCPServerStatus(mcpServerName)
 				g.Expect(err).NotTo(HaveOccurred())
 
 				status, ok := result["status"].(map[string]interface{})
@@ -1868,9 +1832,9 @@ func applyMCPServerYAML(yamlContent string) error {
 }
 
 // getMCPServerStatus fetches MCPServer status
-func getMCPServerStatus(name, ns string) (map[string]interface{}, error) {
+func getMCPServerStatus(name string) (map[string]interface{}, error) {
 	cmd := exec.Command("kubectl", "get", "mcpserver", name,
-		"-n", ns, "-o", "json")
+		"-n", testNamespace, "-o", "json")
 	output, err := utils.Run(cmd)
 	if err != nil {
 		return nil, err
@@ -1901,4 +1865,24 @@ func findCondition(status map[string]interface{}, condType string) map[string]in
 		}
 	}
 	return nil
+}
+
+// waitForMCPServerRunning waits for MCPServer to reach Running phase
+func waitForMCPServerRunning(mcpServerName string) {
+	Eventually(func(g Gomega) {
+		cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+			"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+		output, err := utils.Run(cmd)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(output).To(Equal("Running"))
+	}, 2*time.Minute, 5*time.Second).Should(Succeed())
+}
+
+// getDeploymentField gets a specific field from a deployment using jsonpath
+func getDeploymentField(deploymentName, jsonPath string) string {
+	cmd := exec.Command("kubectl", "get", "deployment", deploymentName,
+		"-n", testNamespace, "-o", fmt.Sprintf("jsonpath={%s}", jsonPath))
+	output, err := utils.Run(cmd)
+	Expect(err).NotTo(HaveOccurred())
+	return output
 }
