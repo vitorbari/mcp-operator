@@ -74,13 +74,13 @@ func (c *SSEClient) Connect(ctx context.Context) error {
 	logger.Info("SSE connection established", "status", resp.StatusCode, "content-type", resp.Header.Get("Content-Type"))
 
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return fmt.Errorf("SSE endpoint returned status %d", resp.StatusCode)
 	}
 
 	contentType := resp.Header.Get("Content-Type")
 	if !strings.Contains(contentType, "text/event-stream") {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return fmt.Errorf("SSE endpoint returned wrong content type: %s", contentType)
 	}
 
@@ -90,7 +90,7 @@ func (c *SSEClient) Connect(ctx context.Context) error {
 	logger.Info("Reading SSE endpoint event")
 	messagesPath, err := c.readEndpointEvent(ctx)
 	if err != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		logger.Error(err, "Failed to read endpoint event")
 		return fmt.Errorf("failed to read endpoint event: %w", err)
 	}
@@ -109,7 +109,7 @@ func (c *SSEClient) Connect(ctx context.Context) error {
 // readEndpointEvent reads SSE stream until it finds the endpoint event
 func (c *SSEClient) readEndpointEvent(ctx context.Context) (string, error) {
 	scanner := bufio.NewScanner(c.sseReader)
-	timeout := time.After(5 * time.Second)
+	timeout := time.After(1 * time.Second)
 
 	var currentEvent string
 	var currentData strings.Builder
@@ -206,7 +206,9 @@ func (c *SSEClient) Initialize(ctx context.Context) (*mcp.InitializeResult, erro
 		logger.Error(err, "SSE initialize POST failed")
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	logger.Info("SSE initialize POST completed", "status", resp.StatusCode)
 
@@ -223,14 +225,18 @@ func (c *SSEClient) Initialize(ctx context.Context) (*mcp.InitializeResult, erro
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	logger.Info("SSE initialize successful", "serverName", response.ServerInfo.Name, "protocolVersion", response.ProtocolVersion)
+	logger.Info(
+		"SSE initialize successful",
+		"serverName", response.ServerInfo.Name,
+		"protocolVersion", response.ProtocolVersion,
+	)
 	return response, nil
 }
 
 // readInitializeResponse reads the SSE stream to find the initialize response
 func (c *SSEClient) readInitializeResponse(ctx context.Context) (*mcp.InitializeResult, error) {
 	scanner := bufio.NewScanner(c.sseReader)
-	timeout := time.After(10 * time.Second)
+	timeout := time.After(2 * time.Second)
 
 	var currentData strings.Builder
 

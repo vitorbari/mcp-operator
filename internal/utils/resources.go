@@ -337,13 +337,13 @@ func UpdateService(
 		!reflect.DeepEqual(found.Spec.Ports, service.Spec.Ports) ||
 		!reflect.DeepEqual(found.Spec.Selector, service.Spec.Selector) ||
 		found.Spec.SessionAffinity != service.Spec.SessionAffinity ||
-		!reflect.DeepEqual(found.ObjectMeta.Annotations, service.ObjectMeta.Annotations) {
+		!reflect.DeepEqual(found.Annotations, service.Annotations) {
 		found.Spec.Type = service.Spec.Type
 		found.Spec.Ports = service.Spec.Ports
 		found.Spec.Selector = service.Spec.Selector
 		found.Spec.SessionAffinity = service.Spec.SessionAffinity
 		found.Spec.SessionAffinityConfig = service.Spec.SessionAffinityConfig
-		found.ObjectMeta.Annotations = service.ObjectMeta.Annotations
+		found.Annotations = service.Annotations
 		return k8sClient.Update(ctx, found)
 	}
 

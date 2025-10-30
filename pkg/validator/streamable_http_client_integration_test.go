@@ -45,7 +45,9 @@ func TestStreamableHTTPClientInitialize(t *testing.T) {
 	defer cancel()
 
 	client := NewStreamableHTTPClient(endpoint, 30*time.Second)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	// Test initialize request
 	result, err := client.Initialize(ctx)
@@ -81,7 +83,9 @@ func TestStreamableHTTPClientMultipleRequests(t *testing.T) {
 	defer cancel()
 
 	client := NewStreamableHTTPClient(endpoint, 60*time.Second)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	// Send multiple initialize requests to test request ID handling
 	for i := 0; i < 3; i++ {
@@ -112,7 +116,9 @@ func TestStreamableHTTPClientListTools(t *testing.T) {
 	defer cancel()
 
 	client := NewStreamableHTTPClient(endpoint, 30*time.Second)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	// Initialize first
 	initResult, err := client.Initialize(ctx)
@@ -148,7 +154,9 @@ func TestStreamableHTTPClientListResources(t *testing.T) {
 	defer cancel()
 
 	client := NewStreamableHTTPClient(endpoint, 30*time.Second)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	// Initialize first
 	initResult, err := client.Initialize(ctx)
@@ -184,7 +192,9 @@ func TestStreamableHTTPClientListPrompts(t *testing.T) {
 	defer cancel()
 
 	client := NewStreamableHTTPClient(endpoint, 30*time.Second)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	// Initialize first
 	initResult, err := client.Initialize(ctx)
@@ -221,7 +231,9 @@ func TestStreamableHTTPClientTimeout(t *testing.T) {
 	defer cancel()
 
 	client := NewStreamableHTTPClient(endpoint, 1*time.Millisecond)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	// This should timeout quickly
 	_, err := client.Initialize(ctx)
@@ -242,7 +254,9 @@ func TestStreamableHTTPClientInvalidEndpoint(t *testing.T) {
 	defer cancel()
 
 	client := NewStreamableHTTPClient(invalidEndpoint, 2*time.Second)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	// This should fail with connection error
 	_, err := client.Initialize(ctx)
@@ -260,7 +274,9 @@ func TestStreamableHTTPClientPing(t *testing.T) {
 	defer cancel()
 
 	client := NewStreamableHTTPClient(endpoint, 30*time.Second)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	// Test Ping convenience method
 	err := client.Ping(ctx)
@@ -278,7 +294,9 @@ func TestStreamableHTTPClientProtocolVersions(t *testing.T) {
 	defer cancel()
 
 	client := NewStreamableHTTPClient(endpoint, 30*time.Second)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	result, err := client.Initialize(ctx)
 	if err != nil {
@@ -321,6 +339,6 @@ func BenchmarkStreamableHTTPClientInitialize(b *testing.B) {
 			b.Fatalf("Failed to initialize: %v", err)
 		}
 
-		client.Close()
+		_ = client.Close()
 	}
 }

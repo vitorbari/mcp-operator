@@ -148,7 +148,9 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 	if err != nil {
 		return fmt.Errorf("HTTP request failed: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() {
+		_ = httpResp.Body.Close()
+	}()
 
 	// Check HTTP status code
 	if httpResp.StatusCode != http.StatusOK {

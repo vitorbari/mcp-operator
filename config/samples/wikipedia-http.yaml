@@ -13,6 +13,7 @@ spec:
   # SSE transport for Wikipedia MCP server
   transport:
     type: "http"
+    protocol: "sse"  # Explicitly specify SSE protocol
     config:
       http:
         port: 8080

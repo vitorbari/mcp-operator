@@ -365,7 +365,9 @@ func TestTimeoutDialer(t *testing.T) {
 		// This might fail in some network environments, but the dialer should be valid
 		t.Logf("Dial failed (may be expected in restricted network): %v", err)
 	} else {
-		defer conn.Close()
+		defer func() {
+			_ = conn.Close()
+		}()
 		if conn == nil {
 			t.Error("Expected non-nil connection")
 		}

@@ -1280,10 +1280,10 @@ spec:
 				// Debug: Print validation status if not compliant
 				if compliant, ok := validation["compliant"].(bool); ok && !compliant {
 					if issues, ok := validation["issues"].([]interface{}); ok && len(issues) > 0 {
-						fmt.Fprintf(GinkgoWriter, "Validation issues: %+v\n", issues)
+						_, _ = fmt.Fprintf(GinkgoWriter, "Validation issues: %+v\n", issues)
 					}
 					if message, ok := validation["message"].(string); ok {
-						fmt.Fprintf(GinkgoWriter, "Validation message: %s\n", message)
+						_, _ = fmt.Fprintf(GinkgoWriter, "Validation message: %s\n", message)
 					}
 				}
 
@@ -1306,7 +1306,7 @@ spec:
 			By("verifying capabilities are discovered")
 			capabilities, ok := validation["capabilities"].([]interface{})
 			Expect(ok).To(BeTrue())
-			Expect(len(capabilities)).To(BeNumerically(">", 0), "Should have at least one capability")
+			Expect(capabilities).ToNot(BeEmpty(), "Should have at least one capability")
 
 			By("verifying lastValidated timestamp is set")
 			lastValidated, ok := validation["lastValidated"].(string)

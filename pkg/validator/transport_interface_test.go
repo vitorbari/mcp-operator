@@ -66,7 +66,9 @@ func TestTransportFactory_CreateTransport(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CreateTransport returned unexpected error: %v", err)
 			}
-			defer transport.Close()
+			defer func() {
+				_ = transport.Close()
+			}()
 
 			if transport.Name() != tt.wantName {
 				t.Errorf("Transport.Name() = %v, want %v", transport.Name(), tt.wantName)
@@ -117,7 +119,9 @@ func TestStreamableHTTPTransport_Interface(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create transport: %v", err)
 	}
-	defer transport.Close()
+	defer func() {
+		_ = transport.Close()
+	}()
 
 	// Test Name()
 	if transport.Name() != TransportStreamableHTTP {
@@ -153,7 +157,9 @@ func TestSSETransport_Interface(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create transport: %v", err)
 	}
-	defer transport.Close()
+	defer func() {
+		_ = transport.Close()
+	}()
 
 	// Test Name()
 	if transport.Name() != TransportSSE {

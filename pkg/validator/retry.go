@@ -224,7 +224,7 @@ func (r *RetryableValidator) isRetryable(err error, result *ValidationResult) bo
 	if result != nil && len(result.Issues) > 0 {
 		for _, issue := range result.Issues {
 			// Retry on transport detection failures
-			if issue.Code == "TRANSPORT_DETECTION_FAILED" ||
+			if issue.Code == IssueCodeTransportDetectionFailed ||
 				issue.Code == "TRANSPORT_CREATION_FAILED" ||
 				issue.Code == "SSE_CONNECTION_FAILED" {
 				return true

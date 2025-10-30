@@ -37,6 +37,12 @@ const (
 
 	// TransportUnknown indicates transport could not be detected
 	TransportUnknown TransportType = "unknown"
+
+	// DefaultMCPPath is the default path for MCP Streamable HTTP endpoints
+	DefaultMCPPath = "/mcp"
+
+	// DefaultSSEPath is the default path for SSE endpoints
+	DefaultSSEPath = "/sse"
 )
 
 // TransportDetector detects which MCP transport protocol a server supports
@@ -46,9 +52,16 @@ type TransportDetector struct {
 
 // NewTransportDetector creates a new transport detector
 func NewTransportDetector(timeout time.Duration) *TransportDetector {
+	// Use a much shorter timeout for detection probes
+	// Detection should be fast - if a server doesn't respond quickly, try next transport
+	detectionTimeout := 2 * time.Second
+	if timeout < detectionTimeout {
+		detectionTimeout = timeout
+	}
+
 	return &TransportDetector{
 		httpClient: &http.Client{
-			Timeout: timeout,
+			Timeout: detectionTimeout,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse // Don't follow redirects
 			},
@@ -58,10 +71,13 @@ func NewTransportDetector(timeout time.Duration) *TransportDetector {
 
 // DetectTransport attempts to detect which transport protocol the server supports
 // It tries Streamable HTTP first (preferred), then falls back to SSE
-func (d *TransportDetector) DetectTransport(ctx context.Context, baseURL, configuredPath string) (TransportType, string, error) {
+func (d *TransportDetector) DetectTransport(
+	ctx context.Context,
+	baseURL, configuredPath string,
+) (TransportType, string, error) {
 	// Determine paths to try
-	streamablePath := "/mcp"
-	ssePath := "/sse"
+	streamablePath := DefaultMCPPath
+	ssePath := DefaultSSEPath
 
 	// If a path is configured, use it for detection
 	if configuredPath != "" {
@@ -124,7 +140,9 @@ func (d *TransportDetector) tryStreamableHTTP(ctx context.Context, endpoint stri
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	// Check if endpoint accepts POST requests
 	// Should NOT return 404 (Not Found) or 405 (Method Not Allowed)
@@ -167,7 +185,9 @@ func (d *TransportDetector) trySSE(ctx context.Context, endpoint string) bool {
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	// Check if endpoint returns SSE
 	// Should return 200 OK and content-type should be text/event-stream

@@ -132,7 +132,13 @@ func (c *StreamableHTTPClient) call(ctx context.Context, method string, params a
 }
 
 // callWithResponse sends a JSON-RPC 2.0 request with an optional response header callback
-func (c *StreamableHTTPClient) callWithResponse(ctx context.Context, method string, params any, result any, headerCallback func(http.Header)) error {
+func (c *StreamableHTTPClient) callWithResponse(
+	ctx context.Context,
+	method string,
+	params any,
+	result any,
+	headerCallback func(http.Header),
+) error {
 	// Generate request ID
 	requestID := int(c.requestID.Add(1))
 
@@ -170,7 +176,9 @@ func (c *StreamableHTTPClient) callWithResponse(ctx context.Context, method stri
 	if err != nil {
 		return fmt.Errorf("HTTP request failed: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() {
+		_ = httpResp.Body.Close()
+	}()
 
 	// Call header callback if provided
 	if headerCallback != nil {

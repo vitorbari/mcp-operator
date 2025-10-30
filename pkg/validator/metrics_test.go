@@ -303,7 +303,7 @@ func TestRetryableValidator_RecordsRetriesOnFailure(t *testing.T) {
 
 	// Perform validation (will fail and retry)
 	ctx := context.Background()
-	retryable.Validate(ctx, ValidationOptions{})
+	_, _ = retryable.Validate(ctx, ValidationOptions{})
 
 	// Check that retry metrics were recorded
 	retries := mockRecorder.GetRetries()

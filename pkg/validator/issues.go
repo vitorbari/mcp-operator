@@ -21,6 +21,11 @@ import (
 	"strings"
 )
 
+// Issue codes
+const (
+	IssueCodeTransportDetectionFailed = "TRANSPORT_DETECTION_FAILED"
+)
+
 // EnhancedValidationIssue extends ValidationIssue with actionable suggestions
 // This provides developers with concrete steps to resolve validation problems
 type EnhancedValidationIssue struct {

@@ -9,8 +9,9 @@ The MCP Validator provides comprehensive validation of MCP servers, supporting *
 ## Features
 
 ### Core Validation
-- ✅ **Transport Auto-Detection** - Automatically detects and prefers Streamable HTTP over SSE
+- ✅ **Transport Auto-Detection** - Automatically detects and prefers Streamable HTTP over SSE with **2-second** fast-fail detection
 - ✅ **Protocol Version Support** - Supports MCP versions 2024-11-05, 2025-03-26, and 2025-06-18
+- ✅ **Explicit Transport Selection** - Optionally specify `streamable-http` or `sse` to skip auto-detection
 - ✅ **Capability Discovery** - Identifies tools, resources, prompts, and logging capabilities
 - ✅ **Comprehensive Testing** - Tests capability endpoints (tools/list, resources/list, prompts/list)
 - ✅ **Transport Interface** - Pluggable transport system for extensibility

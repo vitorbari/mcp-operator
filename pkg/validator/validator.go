@@ -208,16 +208,17 @@ func newWarningIssue(code, message string) ValidationIssue {
 // Additional configuration can be provided via functional options
 //
 // Example usage:
-//   // Simple case with defaults
-//   validator := NewValidator("http://localhost:8080")
 //
-//   // With custom timeout
-//   validator := NewValidator("http://localhost:8080", WithTimeout(60*time.Second))
+//	// Simple case with defaults
+//	validator := NewValidator("http://localhost:8080")
 //
-//   // With custom HTTP client for connection pooling
-//   validator := NewValidator("http://localhost:8080", WithHTTPClient(myClient))
+//	// With custom timeout
+//	validator := NewValidator("http://localhost:8080", WithTimeout(60*time.Second))
+//
+//	// With custom HTTP client for connection pooling
+//	validator := NewValidator("http://localhost:8080", WithHTTPClient(myClient))
 func NewValidator(baseURL string, opts ...Option) *Validator {
-	defaultTimeout := 30 * time.Second
+	defaultTimeout := 5 * time.Second
 
 	// Create HTTP client with connection pooling and sensible defaults
 	httpClient := &http.Client{
@@ -315,10 +316,11 @@ func (v *Validator) Validate(ctx context.Context, opts ValidationOptions) (*Vali
 		path := opts.ConfiguredPath
 		if path == "" {
 			// Use default paths if none configured
-			if transportType == TransportStreamableHTTP {
-				path = "/mcp"
-			} else if transportType == TransportSSE {
-				path = "/sse"
+			switch transportType {
+			case TransportStreamableHTTP:
+				path = DefaultMCPPath
+			case TransportSSE:
+				path = DefaultSSEPath
 			}
 		}
 		endpoint = strings.TrimRight(v.baseURL, "/") + path
@@ -331,7 +333,7 @@ func (v *Validator) Validate(ctx context.Context, opts ValidationOptions) (*Vali
 		if err != nil {
 			result.Success = false
 			result.Issues = append(result.Issues, newErrorIssue(
-				"TRANSPORT_DETECTION_FAILED",
+				IssueCodeTransportDetectionFailed,
 				fmt.Sprintf("Failed to detect transport: %v", err),
 			))
 			result.Duration = time.Since(startTime)
@@ -361,7 +363,9 @@ func (v *Validator) Validate(ctx context.Context, opts ValidationOptions) (*Vali
 		v.recordValidationMetrics(result)
 		return result, nil
 	}
-	defer transport.Close()
+	defer func() {
+		_ = transport.Close()
+	}()
 
 	// Step 3: Validate using the transport
 	validationErr := v.validateWithTransport(ctx, transport, opts, result)
@@ -405,7 +409,12 @@ func (v *Validator) Validate(ctx context.Context, opts ValidationOptions) (*Vali
 
 // validateWithTransport performs validation using the Transport interface
 // This method works with any transport implementation (HTTP, SSE, stdio, etc.)
-func (v *Validator) validateWithTransport(ctx context.Context, transport Transport, opts ValidationOptions, result *ValidationResult) error {
+func (v *Validator) validateWithTransport(
+	ctx context.Context,
+	transport Transport,
+	opts ValidationOptions,
+	result *ValidationResult,
+) error {
 	// Step 1: Initialize transport
 	initResult, err := transport.Initialize(ctx)
 	if err != nil {
@@ -517,7 +526,12 @@ func discoverCapabilities(caps mcp.ServerCapabilities) []string {
 }
 
 // testCapabilityEndpoints tests that advertised capabilities actually work
-func testCapabilityEndpoints(ctx context.Context, client *StreamableHTTPClient, caps mcp.ServerCapabilities, result *ValidationResult) {
+func testCapabilityEndpoints(
+	ctx context.Context,
+	client *StreamableHTTPClient,
+	caps mcp.ServerCapabilities,
+	result *ValidationResult,
+) {
 	// Test tools/list if tools capability is advertised
 	if caps.Tools != nil {
 		if _, err := client.ListTools(ctx); err != nil {
@@ -619,11 +633,6 @@ func isAuthError(err error) bool {
 		strings.Contains(errMsg, "403") ||
 		strings.Contains(errMsg, "Unauthorized") ||
 		strings.Contains(errMsg, "Forbidden")
-}
-
-// isAuthStatusCode checks if an HTTP status code indicates authentication is required
-func isAuthStatusCode(statusCode int) bool {
-	return statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden
 }
 
 // extractAuthMethod attempts to extract the authentication method from error or headers

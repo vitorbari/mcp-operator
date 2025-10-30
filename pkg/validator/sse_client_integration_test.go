@@ -45,7 +45,9 @@ func TestSSEClientConnect(t *testing.T) {
 	defer cancel()
 
 	client := NewSSEClient(endpoint, 30*time.Second)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	// Test connection establishment
 	err := client.Connect(ctx)
@@ -69,7 +71,9 @@ func TestSSEClientInitialize(t *testing.T) {
 	defer cancel()
 
 	client := NewSSEClient(endpoint, 30*time.Second)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	// Connect first
 	err := client.Connect(ctx)
@@ -111,7 +115,9 @@ func TestSSEClientEndpointDiscovery(t *testing.T) {
 	defer cancel()
 
 	client := NewSSEClient(endpoint, 30*time.Second)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	// Connect and verify endpoint discovery
 	err := client.Connect(ctx)
@@ -139,7 +145,9 @@ func TestSSEClientMultipleRequests(t *testing.T) {
 	defer cancel()
 
 	client := NewSSEClient(endpoint, 60*time.Second)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	// Connect
 	err := client.Connect(ctx)
@@ -177,7 +185,9 @@ func TestSSEClientTimeout(t *testing.T) {
 	defer cancel()
 
 	client := NewSSEClient(endpoint, 1*time.Millisecond)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	// This should timeout quickly
 	err := client.Connect(ctx)
@@ -198,7 +208,9 @@ func TestSSEClientInvalidEndpoint(t *testing.T) {
 	defer cancel()
 
 	client := NewSSEClient(invalidEndpoint, 5*time.Second)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	// This should fail with connection error
 	err := client.Connect(ctx)
@@ -216,7 +228,9 @@ func TestSSEClientProtocolVersions(t *testing.T) {
 	defer cancel()
 
 	client := NewSSEClient(endpoint, 30*time.Second)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	// Connect and initialize
 	err := client.Connect(ctx)
@@ -271,6 +285,6 @@ func BenchmarkSSEClientInitialize(b *testing.B) {
 			b.Fatalf("Failed to initialize: %v", err)
 		}
 
-		client.Close()
+		_ = client.Close()
 	}
 }

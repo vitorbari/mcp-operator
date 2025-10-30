@@ -86,7 +86,11 @@ func NewTransportFactory(httpClient *http.Client) TransportFactory {
 }
 
 // CreateTransport creates a transport instance
-func (f *DefaultTransportFactory) CreateTransport(transportType TransportType, endpoint string, opts TransportOptions) (Transport, error) {
+func (f *DefaultTransportFactory) CreateTransport(
+	transportType TransportType,
+	endpoint string,
+	opts TransportOptions,
+) (Transport, error) {
 	// Use provided HTTP client or create one
 	client := opts.HTTPClient
 	if client == nil && f.httpClient != nil {

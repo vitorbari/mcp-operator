@@ -381,6 +381,16 @@ type MCPServerTransport struct {
 	// +optional
 	Type MCPTransportType `json:"type,omitempty"`
 
+	// Protocol specifies the MCP transport protocol to use
+	// Valid values:
+	// - "auto": Auto-detect protocol (prefers Streamable HTTP over SSE)
+	// - "streamable-http": Use Streamable HTTP transport (MCP 2025-03-26+)
+	// - "sse": Use Server-Sent Events transport (MCP 2024-11-05)
+	// +kubebuilder:validation:Enum=auto;streamable-http;sse
+	// +kubebuilder:default=auto
+	// +optional
+	Protocol MCPTransportProtocol `json:"protocol,omitempty"`
+
 	// Config contains transport-specific configuration
 	// +optional
 	Config *MCPTransportConfigDetails `json:"config,omitempty"`
@@ -393,6 +403,19 @@ type MCPTransportType string
 const (
 	// MCPTransportHTTP indicates HTTP transport (supports both SSE and standard HTTP)
 	MCPTransportHTTP MCPTransportType = "http"
+)
+
+// MCPTransportProtocol represents the MCP protocol variant
+// +kubebuilder:validation:Enum=auto;streamable-http;sse
+type MCPTransportProtocol string
+
+const (
+	// MCPProtocolAuto enables auto-detection (prefers Streamable HTTP over SSE)
+	MCPProtocolAuto MCPTransportProtocol = "auto"
+	// MCPProtocolStreamableHTTP uses Streamable HTTP transport (MCP 2025-03-26+)
+	MCPProtocolStreamableHTTP MCPTransportProtocol = "streamable-http"
+	// MCPProtocolSSE uses Server-Sent Events transport (MCP 2024-11-05)
+	MCPProtocolSSE MCPTransportProtocol = "sse"
 )
 
 // MCPTransportConfigDetails contains transport-specific configuration options
@@ -462,6 +485,16 @@ type ValidationSpec struct {
 	// +kubebuilder:default=true
 	// +optional
 	Enabled *bool `json:"enabled,omitempty"`
+
+	// TransportProtocol specifies which transport protocol to validate against
+	// If not specified, uses the protocol from spec.transport.protocol
+	// Valid values:
+	// - "auto": Auto-detect and validate all supported protocols
+	// - "streamable-http": Only validate Streamable HTTP protocol
+	// - "sse": Only validate SSE protocol
+	// +kubebuilder:validation:Enum=auto;streamable-http;sse
+	// +optional
+	TransportProtocol MCPTransportProtocol `json:"transportProtocol,omitempty"`
 
 	// StrictMode fails deployment if validation fails
 	// +kubebuilder:default=false

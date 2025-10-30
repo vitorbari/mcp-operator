@@ -3413,6 +3413,24 @@ spec:
                             type: boolean
                         type: object
                     type: object
+                  protocol:
+                    allOf:
+                    - enum:
+                      - auto
+                      - streamable-http
+                      - sse
+                    - enum:
+                      - auto
+                      - streamable-http
+                      - sse
+                    default: auto
+                    description: |-
+                      Protocol specifies the MCP transport protocol to use
+                      Valid values:
+                      - "auto": Auto-detect protocol (prefers Streamable HTTP over SSE)
+                      - "streamable-http": Use Streamable HTTP transport (MCP 2025-03-26+)
+                      - "sse": Use Server-Sent Events transport (MCP 2024-11-05)
+                    type: string
                   type:
                     allOf:
                     - enum:
@@ -3448,6 +3466,24 @@ spec:
                     default: false
                     description: StrictMode fails deployment if validation fails
                     type: boolean
+                  transportProtocol:
+                    allOf:
+                    - enum:
+                      - auto
+                      - streamable-http
+                      - sse
+                    - enum:
+                      - auto
+                      - streamable-http
+                      - sse
+                    description: |-
+                      TransportProtocol specifies which transport protocol to validate against
+                      If not specified, uses the protocol from spec.transport.protocol
+                      Valid values:
+                      - "auto": Auto-detect and validate all supported protocols
+                      - "streamable-http": Only validate Streamable HTTP protocol
+                      - "sse": Only validate SSE protocol
+                    type: string
                 type: object
             required:
             - image

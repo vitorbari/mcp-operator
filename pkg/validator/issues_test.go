@@ -462,7 +462,7 @@ func TestValidationResult_EnhanceIssuesWithCatalog(t *testing.T) {
 	}
 
 	// Verify that the method still works even though it ignores the custom catalog
-	if enhanced[0].Code != "TRANSPORT_DETECTION_FAILED" {
+	if enhanced[0].Code != IssueCodeTransportDetectionFailed {
 		t.Errorf("Expected code TRANSPORT_DETECTION_FAILED, got %s", enhanced[0].Code)
 	}
 
