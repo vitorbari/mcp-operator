@@ -91,9 +91,11 @@ spec:
   replicas: 1
   transport:
     type: http
+    protocol: sse  # Explicitly specify SSE protocol (or use 'auto' for auto-detection)
     config:
       http:
         port: 3001
+        path: "/sse"  # SSE endpoint path
         sessionManagement: true
   security:
     runAsUser: 1000

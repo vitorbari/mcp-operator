@@ -61,6 +61,27 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
+.PHONY: test-integration
+test-integration: ## Run integration tests (requires MCP_SSE_TEST_ENDPOINT or MCP_HTTP_TEST_ENDPOINT to be set).
+	@if [ -n "$(MCP_SSE_TEST_ENDPOINT)" ]; then \
+		echo "Running SSE integration tests against $(MCP_SSE_TEST_ENDPOINT)"; \
+		MCP_SSE_TEST_ENDPOINT=$(MCP_SSE_TEST_ENDPOINT) go test -v -run TestSSEClient ./pkg/validator/; \
+	fi
+	@if [ -n "$(MCP_HTTP_TEST_ENDPOINT)" ]; then \
+		echo "Running Streamable HTTP integration tests against $(MCP_HTTP_TEST_ENDPOINT)"; \
+		MCP_HTTP_TEST_ENDPOINT=$(MCP_HTTP_TEST_ENDPOINT) go test -v -run TestStreamableHTTPClient ./pkg/validator/; \
+	fi
+	@if [ -z "$(MCP_SSE_TEST_ENDPOINT)" ] && [ -z "$(MCP_HTTP_TEST_ENDPOINT)" ]; then \
+		echo "Skipping integration tests: neither MCP_SSE_TEST_ENDPOINT nor MCP_HTTP_TEST_ENDPOINT is set"; \
+		echo "To run SSE integration tests: make test-integration MCP_SSE_TEST_ENDPOINT=http://localhost:8080/sse"; \
+		echo "To run HTTP integration tests: make test-integration MCP_HTTP_TEST_ENDPOINT=http://localhost:3001/mcp"; \
+	fi
+
+.PHONY: test-integration-e2e
+test-integration-e2e: ## Run integration E2E tests with testcontainers (requires Docker).
+	@echo "Running integration E2E tests (requires Docker)..."
+	go test -tags integration -v ./pkg/validator/
+
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
 # CertManager is installed by default; skip with:

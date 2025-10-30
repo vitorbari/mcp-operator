@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	mcpv1 "github.com/vitorbari/mcp-operator/api/v1"
-	"github.com/vitorbari/mcp-operator/pkg/utils"
+	"github.com/vitorbari/mcp-operator/internal/utils"
 )
 
 // HTTPResourceManager manages resources for HTTP transport (MCP streamable HTTP)

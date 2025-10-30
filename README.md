@@ -238,7 +238,8 @@ The dashboard displays real-time metrics for all MCPServers including readiness,
 |-------|------|-------------|
 | `image` | string | **Required.** Container image for the MCP server |
 | `replicas` | int32 | Number of desired replicas (default: 1) |
-| `transport` | object | Transport configuration (HTTP or custom) |
+| `transport` | object | Transport configuration (HTTP or custom) with protocol specification |
+| `validation` | object | MCP protocol validation configuration |
 | `resources` | object | CPU and memory resource requirements |
 | `hpa` | object | Horizontal Pod Autoscaler configuration |
 | `security` | object | Pod security context settings |
@@ -263,23 +264,56 @@ The dashboard displays real-time metrics for all MCPServers including readiness,
 
 ## Transport Configuration
 
-**Default Behavior:** If no `transport` is specified, the operator defaults to HTTP transport with port 8080 and creates a ClusterIP Service automatically.
+**Default Behavior:** If no `transport` is specified, the operator defaults to HTTP transport with auto-detection of the MCP protocol (prefers Streamable HTTP over SSE), port 8080, and creates a ClusterIP Service automatically.
 
-### HTTP Transport
+### MCP Protocol Specification
+
+The operator supports explicit protocol specification or auto-detection:
 
 ```yaml
 transport:
-  type: http
+  type: http                        # Transport type: http or custom
+  protocol: auto                    # MCP protocol: auto, streamable-http, or sse (default: auto)
   config:
     http:
       port: 8080                    # HTTP port (default: 8080)
       path: "/mcp"                  # HTTP endpoint path (default: "/mcp")
-      sessionManagement: true       # Enable session affinity for SSE
+      sessionManagement: true       # Enable session affinity
 ```
 
-The HTTP transport supports both:
-- **SSE (Server-Sent Events)** - For real-time streaming (configured via container args: `--transport sse`)
-- **Standard HTTP** - For request/response patterns
+**Protocol Options:**
+- **`auto`** (default) - Auto-detect and prefer Streamable HTTP over SSE
+- **`streamable-http`** - Use Streamable HTTP transport (MCP 2025-03-26+)
+- **`sse`** - Use Server-Sent Events transport (MCP 2024-11-05)
+
+**Protocol Details:**
+- **Streamable HTTP** - Modern MCP protocol (2025-03-26+) that supports both JSON and SSE response formats
+- **SSE (Server-Sent Events)** - Legacy MCP protocol (2024-11-05) for real-time streaming
+
+### Example: Explicit Protocol Selection
+
+**Force Streamable HTTP:**
+```yaml
+transport:
+  type: http
+  protocol: streamable-http
+  config:
+    http:
+      port: 8080
+      path: "/mcp"
+      sessionManagement: true
+```
+
+**Force SSE (Legacy):**
+```yaml
+transport:
+  type: http
+  protocol: sse
+  config:
+    http:
+      port: 8080
+      path: "/sse"
+```
 
 ## Examples and Samples
 
