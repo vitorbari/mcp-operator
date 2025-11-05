@@ -268,6 +268,20 @@ func (c *IssueCatalog) registerDefaultIssues() {
 		DocumentationURL: "https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#authentication",
 		RelatedIssues:    []string{"AUTH_REQUIRED"},
 	}
+
+	c.issues[CodeProtocolMismatch] = IssueTemplate{
+		Code:        CodeProtocolMismatch,
+		Title:       "Protocol mismatch detected",
+		Description: "The configured protocol does not match the protocol detected from the server",
+		Suggestions: []string{
+			"Update spec.transport.protocol to match the detected protocol",
+			"Or set spec.transport.protocol to 'auto' for automatic detection",
+			"The server may have been updated to use a different protocol version",
+			"Check server configuration and documentation for the correct transport protocol",
+		},
+		DocumentationURL: "https://modelcontextprotocol.io/docs/concepts/transports",
+		RelatedIssues:    []string{CodeInvalidProtocolVersion, "TRANSPORT_DETECTION_FAILED"},
+	}
 }
 
 // Enhance takes a ValidationIssue and returns an EnhancedValidationIssue with suggestions

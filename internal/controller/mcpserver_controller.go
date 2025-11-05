@@ -19,7 +19,9 @@ package controller
 import (
 	"context"
 	"fmt"
+	"os"
 	"reflect"
+	"strconv"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -34,9 +36,11 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	mcpv1 "github.com/vitorbari/mcp-operator/api/v1"
 	"github.com/vitorbari/mcp-operator/internal/metrics"
@@ -69,8 +73,17 @@ const (
 	mcpServerFinalizer = "mcp.mcp-operator.io/finalizer"
 )
 
+var (
+	// Maximum validation attempts before giving up (configurable via MCP_MAX_VALIDATION_ATTEMPTS env var)
+	maxValidationAttempts = getEnvAsInt32("MCP_MAX_VALIDATION_ATTEMPTS", 5)
+	// Maximum attempts for permanent errors (configurable via MCP_MAX_PERMANENT_ERROR_ATTEMPTS env var)
+	maxPermanentErrorAttempts = getEnvAsInt32("MCP_MAX_PERMANENT_ERROR_ATTEMPTS", 2)
+)
+
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
+//
+//nolint:gocyclo // Main reconciliation loop naturally has complexity; further extraction would harm readability
 func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx).WithValues("mcpserver", req.NamespacedName)
 	startTime := time.Now()
@@ -114,6 +127,128 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if err := r.Get(ctx, types.NamespacedName{Name: mcpServer.Name, Namespace: mcpServer.Namespace}, mcpServer); err != nil {
 			return ctrl.Result{}, err
 		}
+	}
+
+	// Check for recovery scenario: spec changed after validation failure
+	// This allows users to fix their configuration and retry
+	if r.shouldResetValidationForRecovery(mcpServer) {
+		log.Info("Spec changed after validation failure, resetting for recovery",
+			"currentGeneration", mcpServer.Generation,
+			"validatedGeneration", mcpServer.Status.Validation.ValidatedGeneration,
+			"previousPhase", mcpServer.Status.Phase)
+
+		// Reset validation state for fresh start
+		mcpServer.Status.Validation.State = mcpv1.ValidationStatePending
+		mcpServer.Status.Validation.Attempts = 0
+		mcpServer.Status.Validation.Issues = nil
+		mcpServer.Status.Validation.LastAttemptTime = nil
+
+		// Reset phase to allow deployment recreation
+		mcpServer.Status.Phase = mcpv1.MCPServerPhaseCreating
+		mcpServer.Status.Message = "Retrying deployment after configuration fix"
+
+		// Clear Degraded condition
+		now := metav1.Now()
+		degradedCondition := mcpv1.MCPServerCondition{
+			Type:               mcpv1.MCPServerConditionDegraded,
+			Status:             corev1.ConditionFalse,
+			LastTransitionTime: now,
+			Reason:             "RecoveryAttempt",
+			Message:            "Retrying after configuration change",
+		}
+		r.setCondition(mcpServer, degradedCondition)
+
+		r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "ValidationRecovery",
+			"Configuration changed after validation failure, retrying deployment")
+
+		if err := r.updateStatus(ctx, mcpServer); err != nil {
+			log.Error(err, "Failed to update status for validation recovery")
+			metrics.RecordReconcileMetrics("mcpserver", time.Since(startTime).Seconds(), "error")
+			return ctrl.Result{}, err
+		}
+	}
+
+	// Check if validation has failed terminally in strict mode
+	// If so, skip resource reconciliation and maintain ValidationFailed phase
+	if r.isInTerminalValidationFailure(mcpServer) {
+		log.Info("Validation failed terminally in strict mode, skipping resource reconciliation",
+			"phase", mcpServer.Status.Phase,
+			"attempts", mcpServer.Status.Validation.Attempts,
+			"state", mcpServer.Status.Validation.State)
+
+		// Track if status needs updating
+		needsStatusUpdate := false
+
+		// Ensure phase is set to ValidationFailed
+		if mcpServer.Status.Phase != mcpv1.MCPServerPhaseValidationFailed {
+			mcpServer.Status.Phase = mcpv1.MCPServerPhaseValidationFailed
+			mcpServer.Status.Message = fmt.Sprintf("Validation failed after %d attempts: %s",
+				mcpServer.Status.Validation.Attempts,
+				getValidationFailureReason(mcpServer.Status.Validation))
+			needsStatusUpdate = true
+		}
+
+		// Clear replica counts if they're not already zero (deployment is deleted)
+		if mcpServer.Status.Replicas != 0 || mcpServer.Status.ReadyReplicas != 0 || mcpServer.Status.AvailableReplicas != 0 {
+			mcpServer.Status.Replicas = 0
+			mcpServer.Status.ReadyReplicas = 0
+			mcpServer.Status.AvailableReplicas = 0
+			needsStatusUpdate = true
+
+			// Update conditions to reflect that deployment has been deleted
+			now := metav1.Now()
+
+			// Set Ready condition to False
+			readyCondition := mcpv1.MCPServerCondition{
+				Type:               mcpv1.MCPServerConditionReady,
+				Status:             corev1.ConditionFalse,
+				LastTransitionTime: now,
+				Reason:             "DeploymentDeleted",
+				Message:            "Deployment deleted after validation failure in strict mode",
+			}
+			r.setCondition(mcpServer, readyCondition)
+
+			// Set Available condition to False
+			availableCondition := mcpv1.MCPServerCondition{
+				Type:               mcpv1.MCPServerConditionAvailable,
+				Status:             corev1.ConditionFalse,
+				LastTransitionTime: now,
+				Reason:             "DeploymentDeleted",
+				Message:            "Deployment deleted after validation failure in strict mode",
+			}
+			r.setCondition(mcpServer, availableCondition)
+
+			// Set Progressing condition to False
+			progressingCondition := mcpv1.MCPServerCondition{
+				Type:               mcpv1.MCPServerConditionProgressing,
+				Status:             corev1.ConditionFalse,
+				LastTransitionTime: now,
+				Reason:             "DeploymentDeleted",
+				Message:            "Deployment deleted after validation failure in strict mode",
+			}
+			r.setCondition(mcpServer, progressingCondition)
+		}
+
+		// Update status if needed
+		if needsStatusUpdate {
+			if err := r.updateStatus(ctx, mcpServer); err != nil {
+				log.Error(err, "Failed to update status for terminal validation failure")
+				metrics.RecordReconcileMetrics("mcpserver", time.Since(startTime).Seconds(), "error")
+				return ctrl.Result{}, err
+			}
+		}
+
+		// Ensure deployment is deleted (idempotent)
+		if err := r.deleteDeploymentForValidationFailure(ctx, mcpServer); err != nil {
+			if !errors.IsNotFound(err) {
+				log.Error(err, "Failed to ensure deployment is deleted in terminal validation failure")
+			}
+		}
+
+		// Record metrics and return without requeue (terminal state)
+		metrics.RecordReconcileMetrics("mcpserver", time.Since(startTime).Seconds(), "success")
+		log.Info("MCPServer in terminal validation failure state, no further action until spec changes")
+		return ctrl.Result{}, nil
 	}
 
 	// Update status phase to Creating if it's empty
@@ -169,33 +304,24 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// Perform protocol validation if enabled and server is running
-	requeueAfter := time.Minute * 5
-	if r.shouldValidate(mcpServer) {
+	// Validation occurs on deployment and retries with backoff if it fails
+	// Strict mode enforcement (deployment deletion) is handled in updateValidationStatus
+	if r.shouldValidate(ctx, mcpServer) {
 		validationResult := r.validateServer(ctx, mcpServer)
 		if validationResult != nil {
-			// Update validation status
+			// Update validation status (this also handles strict mode enforcement)
 			if err := r.updateValidationStatus(ctx, mcpServer, validationResult); err != nil {
 				log.Error(err, "Failed to update validation status")
-			}
-
-			// Handle strict mode
-			if r.isStrictModeEnabled(mcpServer) && !validationResult.IsCompliant() {
-				log.Info("Validation failed in strict mode, marking as Failed")
-				mcpServer.Status.Phase = mcpv1.MCPServerPhaseFailed
-				mcpServer.Status.Message = "Protocol validation failed in strict mode"
-				r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "ValidationFailed",
-					"Protocol validation failed in strict mode")
-				if err := r.updateStatus(ctx, mcpServer); err != nil {
-					log.Error(err, "Failed to update status after validation failure")
-				}
-			}
-
-			// Schedule next validation if periodic checks enabled
-			if interval := r.getValidationInterval(mcpServer); interval > 0 {
-				requeueAfter = interval
+			} else {
+				// Update metrics after validation status is successfully updated
+				// This ensures validation-related gauges (compliant, capabilities, protocol_version) reflect the latest validation
+				metrics.UpdateMCPServerMetrics(mcpServer)
 			}
 		}
 	}
+
+	// Calculate retry interval for failed validations (returns 0 if validation succeeded)
+	requeueAfter := r.getValidationRetryInterval(mcpServer)
 
 	// Record reconciliation metrics
 	metrics.RecordReconcileMetrics("mcpserver", time.Since(startTime).Seconds(), "success")
@@ -206,7 +332,12 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "Reconciled", "Successfully reconciled MCPServer")
 	}
 
-	return ctrl.Result{RequeueAfter: requeueAfter}, nil
+	// Requeue if validation failed or hasn't been attempted yet
+	if requeueAfter > 0 {
+		return ctrl.Result{RequeueAfter: requeueAfter}, nil
+	}
+
+	return ctrl.Result{}, nil
 }
 
 // handleDeletion handles the deletion of MCPServer resources
@@ -827,8 +958,69 @@ func (r *MCPServerReconciler) setCondition(mcpServer *mcpv1.MCPServer, newCondit
 	mcpServer.Status.Conditions = append(mcpServer.Status.Conditions, newCondition)
 }
 
+// isInTerminalValidationFailure checks if the MCPServer is in a terminal validation failure state
+// where resource reconciliation should be blocked until the spec is changed
+func (r *MCPServerReconciler) isInTerminalValidationFailure(mcpServer *mcpv1.MCPServer) bool {
+	// No terminal failure if validation hasn't run
+	if mcpServer.Status.Validation == nil {
+		return false
+	}
+
+	// Not in terminal failure if strict mode is not enabled
+	if !r.isStrictModeEnabled(mcpServer) {
+		return false
+	}
+
+	// Check if validation state is Failed
+	if mcpServer.Status.Validation.State != mcpv1.ValidationStateFailed {
+		return false
+	}
+
+	// Check if we've reached max attempts (ensures we don't block prematurely)
+	if mcpServer.Status.Validation.Attempts < maxPermanentErrorAttempts {
+		// For permanent errors, need at least 2 attempts
+		// For transient errors, need at least 5 attempts
+		// If less than minimum permanent error attempts, not terminal yet
+		return false
+	}
+
+	// In terminal failure if:
+	// 1. Strict mode enabled
+	// 2. Validation state is Failed
+	// 3. Attempts >= threshold
+	return true
+}
+
+// shouldResetValidationForRecovery checks if we should reset validation state
+// to allow users to recover from validation failures by fixing their spec
+func (r *MCPServerReconciler) shouldResetValidationForRecovery(mcpServer *mcpv1.MCPServer) bool {
+	// No recovery needed if validation hasn't run yet
+	if mcpServer.Status.Validation == nil {
+		return false
+	}
+
+	// Check if generation changed (user edited spec)
+	if mcpServer.Status.Validation.ValidatedGeneration == mcpServer.Generation {
+		return false // No spec change
+	}
+
+	// Reset if validation failed (either phase or state indicates failure)
+	if mcpServer.Status.Phase == mcpv1.MCPServerPhaseValidationFailed ||
+		mcpServer.Status.Validation.State == mcpv1.ValidationStateFailed {
+		return true
+	}
+
+	// Also reset if currently in Degraded state (non-strict mode failure)
+	// This allows recovery from non-compliant state
+	if !mcpServer.Status.Validation.Compliant {
+		return true
+	}
+
+	return false
+}
+
 // shouldValidate determines if protocol validation should be performed
-func (r *MCPServerReconciler) shouldValidate(mcpServer *mcpv1.MCPServer) bool {
+func (r *MCPServerReconciler) shouldValidate(ctx context.Context, mcpServer *mcpv1.MCPServer) bool {
 	// Check if validation is enabled
 	if mcpServer.Spec.Validation == nil {
 		return false
@@ -844,21 +1036,156 @@ func (r *MCPServerReconciler) shouldValidate(mcpServer *mcpv1.MCPServer) bool {
 		return false
 	}
 
-	// If we haven't validated yet, validate on startup
+	// Don't validate until pods are ready (prevents false positives during startup)
+	if !r.arePodsReady(ctx, mcpServer) {
+		return false
+	}
+
+	// Validate if we haven't validated yet (first attempt)
 	if mcpServer.Status.Validation == nil {
 		return true
 	}
 
-	// If we have validated before, check if it's time for periodic validation
-	if mcpServer.Status.Validation != nil && mcpServer.Status.Validation.LastValidated != nil {
-		interval := r.getValidationInterval(mcpServer)
-		if interval > 0 {
-			timeSinceLastValidation := time.Since(mcpServer.Status.Validation.LastValidated.Time)
-			return timeSinceLastValidation >= interval
+	// Re-validate if spec changed (generation changed since last validation)
+	// This ensures validation runs after image updates, transport config changes, etc.
+	// Reset state to pending on spec changes
+	if mcpServer.Status.Validation.ValidatedGeneration != mcpServer.Generation {
+		return true
+	}
+
+	// Continue validation if in Validating state (retrying after transient error)
+	if mcpServer.Status.Validation.State == mcpv1.ValidationStateValidating {
+		return true
+	}
+
+	// Don't re-validate if validation passed (no periodic validation)
+	if mcpServer.Status.Validation.State == mcpv1.ValidationStatePassed {
+		return false
+	}
+
+	// Don't re-validate if validation failed permanently
+	if mcpServer.Status.Validation.State == mcpv1.ValidationStateFailed {
+		return false
+	}
+
+	// Default: don't validate
+	return false
+}
+
+// arePodsReady checks if the deployment has at least one ready replica
+// This prevents false positives during pod startup
+func (r *MCPServerReconciler) arePodsReady(ctx context.Context, mcpServer *mcpv1.MCPServer) bool {
+	log := logf.FromContext(ctx)
+
+	// Check if deployment exists and has ready replicas
+	deployment := &appsv1.Deployment{}
+	err := r.Get(ctx, client.ObjectKey{
+		Name:      mcpServer.Name,
+		Namespace: mcpServer.Namespace,
+	}, deployment)
+
+	if err != nil {
+		log.V(1).Info("Deployment not found, pods not ready", "error", err)
+		return false
+	}
+
+	// Check if we have at least one ready replica
+	if deployment.Status.ReadyReplicas < 1 {
+		log.V(1).Info("Waiting for pods to be ready before validation",
+			"readyReplicas", deployment.Status.ReadyReplicas,
+			"desiredReplicas", deployment.Status.Replicas)
+		return false
+	}
+
+	log.V(1).Info("Pods are ready for validation",
+		"readyReplicas", deployment.Status.ReadyReplicas)
+	return true
+}
+
+// isPermanentError classifies validation errors as permanent or transient
+// Permanent errors should trigger fast-fail behavior (after 2 attempts)
+// Transient errors should be retried with exponential backoff
+func (r *MCPServerReconciler) isPermanentError(result *validator.ValidationResult, hasMismatch bool) bool {
+	// Protocol mismatch is always a permanent configuration error
+	if hasMismatch {
+		return true
+	}
+
+	// Check for permanent error codes in validation issues
+	for _, issue := range result.Issues {
+		switch issue.Code {
+		case validator.CodeProtocolMismatch:
+			// Protocol mismatch - user needs to fix configuration
+			return true
+		case validator.CodeAuthRequired:
+			// Auth required - user needs to provide credentials
+			return true
+		case validator.CodeInvalidProtocolVersion:
+			// Invalid protocol version - server incompatibility
+			return true
+		case validator.CodeMissingServerInfo:
+			// Missing server info after successful connection - protocol issue
+			if result.Success {
+				return true
+			}
 		}
 	}
 
+	// If validation succeeded but IsCompliant is false due to missing capabilities,
+	// this is a permanent error (server doesn't support required features)
+	if !result.Success && result.ProtocolVersion != "" && len(result.Capabilities) > 0 {
+		// Server responded successfully but doesn't meet requirements
+		for _, issue := range result.Issues {
+			if issue.Code == validator.CodeMissingCapability {
+				return true
+			}
+		}
+	}
+
+	// All other errors are considered transient (connection issues, timeouts, etc.)
 	return false
+}
+
+// deleteDeploymentForValidationFailure deletes the deployment when validation fails in strict mode
+func (r *MCPServerReconciler) deleteDeploymentForValidationFailure(ctx context.Context, mcpServer *mcpv1.MCPServer) error {
+	log := logf.FromContext(ctx)
+
+	deployment := &appsv1.Deployment{}
+	err := r.Get(ctx, client.ObjectKey{
+		Name:      mcpServer.Name,
+		Namespace: mcpServer.Namespace,
+	}, deployment)
+
+	if err != nil {
+		if errors.IsNotFound(err) {
+			log.V(1).Info("Deployment already deleted")
+			return nil // Already deleted
+		}
+		return err
+	}
+
+	log.Info("Deleting deployment due to validation failure in strict mode",
+		"deployment", deployment.Name,
+		"attempts", mcpServer.Status.Validation.Attempts)
+
+	return r.Delete(ctx, deployment)
+}
+
+// getValidationFailureReason returns a human-readable reason for validation failure
+func getValidationFailureReason(validation *mcpv1.ValidationStatus) string {
+	if validation == nil || len(validation.Issues) == 0 {
+		return "Unknown validation failure"
+	}
+
+	// Return first error-level issue
+	for _, issue := range validation.Issues {
+		if issue.Level == validator.LevelError {
+			return issue.Message
+		}
+	}
+
+	// If no errors, return first issue of any level
+	return validation.Issues[0].Message
 }
 
 // validateServer performs MCP protocol validation on the server
@@ -872,11 +1199,8 @@ func (r *MCPServerReconciler) validateServer(ctx context.Context, mcpServer *mcp
 		return nil
 	}
 
-	// Create validator with appropriate timeout
+	// Create validator with a fixed timeout
 	timeout := 30 * time.Second
-	if interval := r.getValidationInterval(mcpServer); interval > 0 && interval < timeout {
-		timeout = interval / 2 // Use half the interval as timeout
-	}
 	v := validator.NewValidatorWithTimeout(endpoint, timeout)
 
 	// Prepare validation options
@@ -890,6 +1214,16 @@ func (r *MCPServerReconciler) validateServer(ctx context.Context, mcpServer *mcp
 		mcpServer.Spec.Transport.Config.HTTP != nil &&
 		mcpServer.Spec.Transport.Config.HTTP.Path != "" {
 		opts.ConfiguredPath = mcpServer.Spec.Transport.Config.HTTP.Path
+	}
+
+	// Add configured protocol if specified (for protocol mismatch detection)
+	// When protocol is not "auto", we still use auto-detection but can compare results
+	// Note: We always use auto-detection to discover what the server actually supports,
+	// then compare with the configured protocol to detect mismatches
+	if mcpServer.Spec.Transport != nil && mcpServer.Spec.Transport.Protocol != "" {
+		// Don't pass the protocol to the validator - let it auto-detect
+		// We'll compare the detected protocol with the configured one in checkProtocolMismatch
+		// This approach allows us to detect what the server actually implements
 	}
 
 	// Add required capabilities if specified
@@ -949,17 +1283,72 @@ func (r *MCPServerReconciler) updateValidationStatus(ctx context.Context, mcpSer
 
 	now := metav1.Now()
 
-	// Convert validator result to CRD status
-	validationStatus := &mcpv1.ValidationStatus{
-		ProtocolVersion: result.ProtocolVersion,
-		Capabilities:    result.Capabilities,
-		Compliant:       result.IsCompliant(),
-		LastValidated:   &now,
-		TransportUsed:   string(result.DetectedTransport),
-		Issues:          make([]mcpv1.ValidationIssue, 0, len(result.Issues)),
+	// Check for protocol mismatch and preserve any mismatch issues
+	hasMismatch := r.checkProtocolMismatch(ctx, mcpServer, result)
+	var mismatchIssues []mcpv1.ValidationIssue
+	if hasMismatch && mcpServer.Status.Validation != nil {
+		// Preserve PROTOCOL_MISMATCH issues added by checkProtocolMismatch
+		for _, issue := range mcpServer.Status.Validation.Issues {
+			if issue.Code == validator.CodeProtocolMismatch {
+				mismatchIssues = append(mismatchIssues, issue)
+			}
+		}
 	}
 
-	// Convert issues
+	// Track validation attempts
+	attempts := int32(1)
+	if mcpServer.Status.Validation != nil {
+		attempts = mcpServer.Status.Validation.Attempts + 1
+	}
+
+	// Determine validation state based on result and error classification
+	var state mcpv1.ValidationState
+	isCompliant := result.IsCompliant() && !hasMismatch
+
+	if isCompliant {
+		// Validation succeeded
+		state = mcpv1.ValidationStatePassed
+	} else {
+		// Validation failed - determine if it's permanent or transient
+		if r.isPermanentError(result, hasMismatch) {
+			// Permanent error detected - fail fast
+			if attempts >= maxPermanentErrorAttempts {
+				// After maxPermanentErrorAttempts with permanent error, mark as Failed
+				state = mcpv1.ValidationStateFailed
+			} else {
+				// First attempt with permanent error - give one more chance
+				state = mcpv1.ValidationStateValidating
+			}
+		} else {
+			// Transient error - keep trying with backoff up to maxValidationAttempts
+			if attempts >= maxValidationAttempts {
+				// After maxValidationAttempts even for transient errors, give up
+				state = mcpv1.ValidationStateFailed
+			} else {
+				state = mcpv1.ValidationStateValidating
+			}
+		}
+	}
+
+	// Convert validator result to CRD status
+	validationStatus := &mcpv1.ValidationStatus{
+		State:               state,
+		Attempts:            attempts,
+		LastAttemptTime:     &now,
+		ProtocolVersion:     result.ProtocolVersion,
+		Capabilities:        result.Capabilities,
+		Compliant:           isCompliant,
+		LastValidated:       &now,
+		TransportUsed:       string(result.DetectedTransport),
+		RequiresAuth:        result.RequiresAuth,
+		ValidatedGeneration: mcpServer.Generation,
+		Issues:              make([]mcpv1.ValidationIssue, 0, len(result.Issues)+len(mismatchIssues)),
+	}
+
+	// Add protocol mismatch issues first (these were added by checkProtocolMismatch)
+	validationStatus.Issues = append(validationStatus.Issues, mismatchIssues...)
+
+	// Convert issues from validation result
 	for _, issue := range result.Issues {
 		validationStatus.Issues = append(validationStatus.Issues, mcpv1.ValidationIssue{
 			Level:   issue.Level,
@@ -989,23 +1378,260 @@ func (r *MCPServerReconciler) updateValidationStatus(ctx context.Context, mcpSer
 	}
 	mcpServer.Status.Transport.SessionSupport = sessionSupport
 
+	// Update conditions based on validation result
+	r.updateValidationConditions(mcpServer, result, hasMismatch)
+
 	// Update status with retry logic
 	if err := r.updateStatus(ctx, mcpServer); err != nil {
 		log.Error(err, "Failed to update validation status")
 		return err
 	}
 
-	// Emit event based on validation result
-	if result.IsCompliant() {
+	// Emit events based on validation state and attempts
+	switch state {
+	case mcpv1.ValidationStatePassed:
+		authStatus := "no auth"
+		if result.RequiresAuth {
+			authStatus = "requires auth"
+		}
 		r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "ValidationPassed",
-			fmt.Sprintf("MCP protocol validation succeeded (transport: %s)", result.DetectedTransport))
-	} else {
+			fmt.Sprintf("MCP protocol validation succeeded (transport: %s, %s)", result.DetectedTransport, authStatus))
+	case mcpv1.ValidationStateValidating:
+		// Validation is still in progress (transient error or first permanent error attempt)
+		isPermanent := r.isPermanentError(result, hasMismatch)
+		errorType := "transient"
+		maxAttempts := maxValidationAttempts
+		if isPermanent {
+			errorType = "configuration"
+			maxAttempts = maxPermanentErrorAttempts
+		}
+		firstErrorMsg := getValidationFailureReason(validationStatus)
+		r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "ValidationRetry",
+			fmt.Sprintf("Validation failed (attempt %d/%d, %s error), will retry: %s",
+				attempts, maxAttempts, errorType, firstErrorMsg))
+	case mcpv1.ValidationStateFailed:
+		// Validation failed permanently
+		isPermanent := r.isPermanentError(result, hasMismatch)
+		maxAttempts := maxValidationAttempts
+		if isPermanent {
+			maxAttempts = maxPermanentErrorAttempts
+		}
+		firstErrorMsg := getValidationFailureReason(validationStatus)
 		r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "ValidationFailed",
-			fmt.Sprintf("MCP protocol validation failed (transport: %s): %s",
-				result.DetectedTransport, result.ErrorMessages()))
+			fmt.Sprintf("Validation failed after %d/%d attempts: %s",
+				attempts, maxAttempts, firstErrorMsg))
+	}
+
+	// Handle strict mode enforcement for failed validations
+	if r.isStrictModeEnabled(mcpServer) && state == mcpv1.ValidationStateFailed {
+		// Determine appropriate threshold based on error type
+		isPermanent := r.isPermanentError(result, hasMismatch)
+		minAttempts := maxPermanentErrorAttempts
+		if !isPermanent {
+			minAttempts = maxValidationAttempts
+		}
+
+		if attempts >= minAttempts {
+			log.Info("Strict mode: deleting deployment after validation failure",
+				"attempts", attempts,
+				"minAttempts", minAttempts,
+				"isPermanentError", isPermanent,
+				"reason", getValidationFailureReason(validationStatus))
+
+			// Delete the deployment
+			if err := r.deleteDeploymentForValidationFailure(ctx, mcpServer); err != nil {
+				log.Error(err, "Failed to delete deployment in strict mode")
+				// Don't return error - we want to update status even if delete fails
+			} else {
+				// Clear replica counts since deployment is deleted
+				mcpServer.Status.Replicas = 0
+				mcpServer.Status.ReadyReplicas = 0
+				mcpServer.Status.AvailableReplicas = 0
+
+				// Update phase to ValidationFailed
+				mcpServer.Status.Phase = mcpv1.MCPServerPhaseValidationFailed
+				mcpServer.Status.Message = fmt.Sprintf("Deployment deleted after %d validation attempts: %s",
+					attempts, getValidationFailureReason(validationStatus))
+
+				// Update conditions to reflect that deployment has been deleted
+				now := metav1.Now()
+
+				// Set Ready condition to False
+				readyCondition := mcpv1.MCPServerCondition{
+					Type:               mcpv1.MCPServerConditionReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now,
+					Reason:             "DeploymentDeleted",
+					Message:            "Deployment deleted after validation failure in strict mode",
+				}
+				r.setCondition(mcpServer, readyCondition)
+
+				// Set Available condition to False
+				availableCondition := mcpv1.MCPServerCondition{
+					Type:               mcpv1.MCPServerConditionAvailable,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now,
+					Reason:             "DeploymentDeleted",
+					Message:            "Deployment deleted after validation failure in strict mode",
+				}
+				r.setCondition(mcpServer, availableCondition)
+
+				// Set Progressing condition to False
+				progressingCondition := mcpv1.MCPServerCondition{
+					Type:               mcpv1.MCPServerConditionProgressing,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now,
+					Reason:             "DeploymentDeleted",
+					Message:            "Deployment deleted after validation failure in strict mode",
+				}
+				r.setCondition(mcpServer, progressingCondition)
+
+				// The Degraded condition is already set by updateValidationConditions() at line 1304
+
+				// Update status again with new phase, replica counts, and conditions
+				if err := r.updateStatus(ctx, mcpServer); err != nil {
+					log.Error(err, "Failed to update status after deployment deletion")
+					return err
+				}
+
+				r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "DeploymentDeleted",
+					fmt.Sprintf("Deleted deployment after %d validation attempts in strict mode: %s",
+						attempts, getValidationFailureReason(validationStatus)))
+			}
+		}
 	}
 
 	return nil
+}
+
+// checkProtocolMismatch detects if the configured protocol doesn't match the detected protocol
+// Returns true if there's a mismatch, false otherwise
+func (r *MCPServerReconciler) checkProtocolMismatch(ctx context.Context, mcpServer *mcpv1.MCPServer, result *validator.ValidationResult) bool {
+	log := logf.FromContext(ctx)
+
+	// No mismatch possible if protocol is auto (auto-detection by definition can't mismatch)
+	if mcpServer.Spec.Transport == nil || mcpServer.Spec.Transport.Protocol == "" || mcpServer.Spec.Transport.Protocol == mcpv1.MCPProtocolAuto {
+		return false
+	}
+
+	// No mismatch if detection failed (unknown protocol)
+	if result.DetectedTransport == "" || result.DetectedTransport == validator.TransportUnknown {
+		return false
+	}
+
+	// Get configured protocol
+	configuredProtocol := mcpServer.Spec.Transport.Protocol
+	detectedProtocol := string(result.DetectedTransport)
+
+	// Map configured protocol to expected detected transport
+	var expectedTransport string
+	switch configuredProtocol {
+	case mcpv1.MCPProtocolStreamableHTTP:
+		expectedTransport = string(validator.TransportStreamableHTTP)
+	case mcpv1.MCPProtocolSSE:
+		expectedTransport = string(validator.TransportSSE)
+	default:
+		// Unknown configured protocol, no mismatch detection
+		return false
+	}
+
+	// Check for mismatch
+	if detectedProtocol != expectedTransport {
+		log.Info("Protocol mismatch detected",
+			"configured", configuredProtocol,
+			"detected", detectedProtocol,
+			"expected", expectedTransport)
+
+		// Add mismatch issue to validation status
+		mismatchIssue := mcpv1.ValidationIssue{
+			Level: validator.LevelError,
+			Message: fmt.Sprintf("Protocol mismatch: configured '%s' but server uses '%s'. "+
+				"Update spec.transport.protocol to '%s' or use 'auto' for automatic detection.",
+				configuredProtocol, detectedProtocol, detectedProtocol),
+			Code: validator.CodeProtocolMismatch,
+		}
+
+		// Add to issues if not already present
+		if mcpServer.Status.Validation == nil {
+			mcpServer.Status.Validation = &mcpv1.ValidationStatus{
+				Issues: []mcpv1.ValidationIssue{mismatchIssue},
+			}
+		} else {
+			// Check if mismatch issue already exists
+			found := false
+			for _, issue := range mcpServer.Status.Validation.Issues {
+				if issue.Code == validator.CodeProtocolMismatch {
+					found = true
+					break
+				}
+			}
+			if !found {
+				mcpServer.Status.Validation.Issues = append(mcpServer.Status.Validation.Issues, mismatchIssue)
+			}
+		}
+
+		// Emit warning event
+		r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "ProtocolMismatch",
+			fmt.Sprintf("Protocol mismatch: configured '%s' but detected '%s'. Update spec.transport.protocol to match or use 'auto'.",
+				configuredProtocol, detectedProtocol))
+
+		return true
+	}
+
+	return false
+}
+
+// updateValidationConditions updates conditions based on validation results and protocol mismatch
+func (r *MCPServerReconciler) updateValidationConditions(mcpServer *mcpv1.MCPServer, result *validator.ValidationResult, hasMismatch bool) {
+	now := metav1.Now()
+
+	// In strict mode with mismatch or validation failure, set Degraded condition
+	if hasMismatch || !result.IsCompliant() {
+		if r.isStrictModeEnabled(mcpServer) {
+			// Strict mode: mark as Failed phase (current behavior)
+			mcpServer.Status.Phase = mcpv1.MCPServerPhaseFailed
+			mcpServer.Status.Message = "Protocol validation failed in strict mode"
+
+			// Set Degraded condition
+			degradedCondition := mcpv1.MCPServerCondition{
+				Type:               mcpv1.MCPServerConditionDegraded,
+				Status:             corev1.ConditionTrue,
+				LastTransitionTime: now,
+				Reason:             "ValidationFailedStrict",
+				Message:            "MCP protocol validation failed in strict mode",
+			}
+			r.setCondition(mcpServer, degradedCondition)
+		} else {
+			// Non-strict mode: set Degraded condition but keep Running phase
+			var reason, message string
+			if hasMismatch {
+				reason = "ProtocolMismatch"
+				message = "Configured protocol does not match detected protocol"
+			} else {
+				reason = "ValidationFailed"
+				message = "MCP protocol validation failed"
+			}
+
+			degradedCondition := mcpv1.MCPServerCondition{
+				Type:               mcpv1.MCPServerConditionDegraded,
+				Status:             corev1.ConditionTrue,
+				LastTransitionTime: now,
+				Reason:             reason,
+				Message:            message,
+			}
+			r.setCondition(mcpServer, degradedCondition)
+		}
+	} else {
+		// Validation passed and no mismatch - clear Degraded condition
+		degradedCondition := mcpv1.MCPServerCondition{
+			Type:               mcpv1.MCPServerConditionDegraded,
+			Status:             corev1.ConditionFalse,
+			LastTransitionTime: now,
+			Reason:             "ValidationPassed",
+			Message:            "MCP protocol validation succeeded",
+		}
+		r.setCondition(mcpServer, degradedCondition)
+	}
 }
 
 // isStrictModeEnabled checks if strict mode validation is enabled
@@ -1019,31 +1645,63 @@ func (r *MCPServerReconciler) isStrictModeEnabled(mcpServer *mcpv1.MCPServer) bo
 	return *mcpServer.Spec.Validation.StrictMode
 }
 
-// getValidationInterval returns the validation check interval
-func (r *MCPServerReconciler) getValidationInterval(mcpServer *mcpv1.MCPServer) time.Duration {
-	if mcpServer.Spec.Validation == nil {
-		return time.Minute * 5 // Default 5 minutes
+// getValidationRetryInterval calculates retry interval for failed validations using progressive backoff
+// Returns 0 if validation should not be retried (terminal states: Passed or Failed)
+func (r *MCPServerReconciler) getValidationRetryInterval(mcpServer *mcpv1.MCPServer) time.Duration {
+	// If validation passed, don't retry (no periodic validation)
+	if mcpServer.Status.Validation != nil &&
+		mcpServer.Status.Validation.State == mcpv1.ValidationStatePassed {
+		return 0
 	}
 
-	intervalStr := mcpServer.Spec.Validation.HealthCheckInterval
-	if intervalStr == "" {
-		return time.Minute * 5 // Default 5 minutes
+	// If validation failed permanently, don't retry
+	// This happens when attempts >= maxValidationAttempts (5 for transient, 2 for permanent errors)
+	if mcpServer.Status.Validation != nil &&
+		mcpServer.Status.Validation.State == mcpv1.ValidationStateFailed {
+		return 0
 	}
 
-	// Parse the duration string
-	duration, err := time.ParseDuration(intervalStr)
-	if err != nil {
-		// If parsing fails, return default
-		return time.Minute * 5
+	// For validating state (transient errors or first permanent error attempt), use progressive backoff
+	// Note: updateValidationStatus() enforces max attempts and transitions to Failed state
+	if mcpServer.Status.Validation == nil {
+		// First validation attempt - retry quickly (pods might still be starting)
+		return 30 * time.Second
 	}
 
-	return duration
+	attempts := mcpServer.Status.Validation.Attempts
+
+	// Progressive backoff based on attempt count:
+	// - Attempt 1-2: retry in 30 seconds (initial validation, might be starting up)
+	// - Attempt 3-4: retry in 1 minute (transient issues)
+	// - Attempt 5+: retry in 2 minutes (persistent transient issues, will stop at maxValidationAttempts)
+	// Note: Max attempts enforcement happens in updateValidationStatus(), not here
+	switch {
+	case attempts <= 2:
+		return 30 * time.Second
+	case attempts <= 4:
+		return 1 * time.Minute
+	default:
+		// For remaining attempts up to maxValidationAttempts
+		return 2 * time.Minute
+	}
+}
+
+// getEnvAsInt32 retrieves an environment variable as int32 with a default value
+func getEnvAsInt32(key string, defaultValue int32) int32 {
+	if val := os.Getenv(key); val != "" {
+		if parsed, err := strconv.ParseInt(val, 10, 32); err == nil {
+			return int32(parsed)
+		}
+	}
+	return defaultValue
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *MCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&mcpv1.MCPServer{}).
+		// Filter out status-only updates to prevent reconciliation loops
+		// Only reconcile when spec changes (generation increment) or owned resources change
+		For(&mcpv1.MCPServer{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ServiceAccount{}).

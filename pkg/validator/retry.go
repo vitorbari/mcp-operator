@@ -89,7 +89,7 @@ func NewRetryableValidator(validator *Validator, config RetryConfig) *RetryableV
 	return &RetryableValidator{
 		validator:       validator,
 		config:          config,
-		metricsRecorder: NewMetricsRecorder(),
+		metricsRecorder: NewMetricsRecorder(true), // Enabled by default
 	}
 }
 

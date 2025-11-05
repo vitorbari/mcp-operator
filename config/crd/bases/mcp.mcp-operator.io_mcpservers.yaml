@@ -24,9 +24,12 @@ spec:
     - jsonPath: .status.readyReplicas
       name: Ready
       type: integer
-    - jsonPath: .status.transportType
-      name: Transport
+    - jsonPath: .status.validation.transportUsed
+      name: Protocol
       type: string
+    - jsonPath: .status.validation.requiresAuth
+      name: Auth
+      type: boolean
     - jsonPath: .status.validation.compliant
       name: Compliant
       type: boolean
@@ -3450,11 +3453,6 @@ spec:
                     description: Enabled indicates if protocol validation should be
                       performed
                     type: boolean
-                  healthCheckInterval:
-                    default: 5m
-                    description: HealthCheckInterval specifies interval for periodic
-                      validation checks
-                    type: string
                   requiredCapabilities:
                     description: |-
                       RequiredCapabilities specifies capabilities that must be present
@@ -3557,6 +3555,7 @@ spec:
                 - Scaling
                 - Updating
                 - Failed
+                - ValidationFailed
                 - Terminating
                 type: string
               readyReplicas:
@@ -3601,6 +3600,10 @@ spec:
               validation:
                 description: Validation represents the MCP protocol validation status
                 properties:
+                  attempts:
+                    description: Attempts is the number of validation attempts made
+                    format: int32
+                    type: integer
                   capabilities:
                     description: Capabilities lists the capabilities discovered from
                       the server
@@ -3637,19 +3640,47 @@ spec:
                       - message
                       type: object
                     type: array
+                  lastAttemptTime:
+                    description: LastAttemptTime is the timestamp of the last validation
+                      attempt
+                    format: date-time
+                    type: string
                   lastValidated:
-                    description: LastValidated is the timestamp of the last validation
-                      check
+                    description: LastValidated is the timestamp of the last successful
+                      validation
                     format: date-time
                     type: string
                   protocolVersion:
                     description: ProtocolVersion is the detected MCP protocol version
+                    type: string
+                  requiresAuth:
+                    description: RequiresAuth indicates if the server requires authentication
+                    type: boolean
+                  state:
+                    allOf:
+                    - enum:
+                      - Pending
+                      - Validating
+                      - Passed
+                      - Failed
+                    - enum:
+                      - Pending
+                      - Validating
+                      - Passed
+                      - Failed
+                    description: State represents the current validation state
                     type: string
                   transportUsed:
                     description: |-
                       TransportUsed indicates which transport protocol was used for validation
                       Valid values: "streamable-http", "sse"
                     type: string
+                  validatedGeneration:
+                    description: |-
+                      ValidatedGeneration is the generation of the MCPServer that was validated
+                      Used to detect when spec changes require re-validation
+                    format: int64
+                    type: integer
                 type: object
             type: object
         required:

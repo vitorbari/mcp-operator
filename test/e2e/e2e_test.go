@@ -84,6 +84,21 @@ var _ = Describe("Manager", Ordered, func() {
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
 
+		By("configuring controller with reduced retry counts for E2E tests")
+		patchJSON := `{"spec":{"template":{"spec":{"containers":[{"name":"manager",` +
+			`"env":[{"name":"MCP_MAX_VALIDATION_ATTEMPTS","value":"3"},` +
+			`{"name":"MCP_MAX_PERMANENT_ERROR_ATTEMPTS","value":"2"}]}]}}}}`
+		cmd = exec.Command("kubectl", "patch", "deployment", "mcp-operator-controller-manager",
+			"-n", operatorNamespace, "--type=strategic", "-p", patchJSON)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to patch controller deployment with retry config")
+
+		By("waiting for controller to restart with new config")
+		cmd = exec.Command("kubectl", "rollout", "status", "deployment/mcp-operator-controller-manager",
+			"-n", operatorNamespace, "--timeout=2m")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to wait for controller restart")
+
 		By("deploying monitoring resources")
 		// Apply monitoring resources since Prometheus Operator is installed in BeforeSuite
 		cmd = exec.Command("kubectl", "apply", "-f", "./dist/monitoring.yaml")
@@ -1169,7 +1184,7 @@ spec:
 	})
 
 	Context("MCP Protocol Validation Tests", func() {
-		It("should automatically validate a compliant MCP server", func() {
+		It("should validate compliant MCP server and record metrics/events", func() {
 			mcpServerName := "test-validation-compliant"
 			mcpServerYAML := fmt.Sprintf(`
 apiVersion: mcp.mcp-operator.io/v1
@@ -1179,18 +1194,17 @@ metadata:
   namespace: %s
 spec:
   image: tzolov/mcp-everything-server:v3
-  command: ["node", "dist/index.js"]
+  command: ["node", "dist/index.js", "sse"]
   replicas: 1
   transport:
     type: http
     config:
       http:
         port: 3001
-        path: "/mcp"
+        path: "/sse"
         sessionManagement: true
   validation:
     enabled: true
-    healthCheckInterval: "5m"
   security:
     runAsUser: 1000
     runAsGroup: 1000
@@ -1277,78 +1291,42 @@ spec:
 			Expect(ok).To(BeTrue())
 			Expect(lastValidated).NotTo(BeEmpty())
 
-			By("cleaning up")
-			cmd := exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
-				"-n", testNamespace, "--timeout=120s")
-			_, _ = utils.Run(cmd)
-		})
-
-		It("should show validation status in kubectl get output", func() {
-			mcpServerName := "test-validation-kubectl-output"
-			mcpServerYAML := fmt.Sprintf(`
-apiVersion: mcp.mcp-operator.io/v1
-kind: MCPServer
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  image: tzolov/mcp-everything-server:v3
-  command: ["node", "dist/index.js"]
-  replicas: 1
-  transport:
-    type: http
-    config:
-      http:
-        port: 3001
-        path: "/mcp"
-  validation:
-    enabled: true
-  security:
-    runAsUser: 1000
-    runAsGroup: 1000
-    runAsNonRoot: true
-    allowPrivilegeEscalation: false
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "128Mi"
-    limits:
-      cpu: "500m"
-      memory: "512Mi"
-`, mcpServerName, testNamespace)
-
-			By("creating MCP server")
-			err := applyMCPServerYAML(mcpServerYAML)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("waiting for validation to complete")
-			Eventually(func(g Gomega) {
-				result, err := getMCPServerStatus(mcpServerName)
-				g.Expect(err).NotTo(HaveOccurred())
-
-				status, ok := result["status"].(map[string]interface{})
-				g.Expect(ok).To(BeTrue())
-
-				validation, ok := status["validation"].(map[string]interface{})
-				g.Expect(ok).To(BeTrue())
-
-				_, hasCompliant := validation["compliant"]
-				g.Expect(hasCompliant).To(BeTrue())
-			}, 3*time.Minute, 5*time.Second).Should(Succeed())
-
-			By("verifying Compliant column is accessible via JSONPath")
+			By("verifying validation status is accessible via JSONPath")
 			cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
 				"-n", testNamespace, "-o", "jsonpath={.status.validation.compliant}")
 			output, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(Equal("true"))
 
-			By("verifying Capabilities column is accessible via JSONPath")
+			By("verifying capabilities are accessible via JSONPath")
 			cmd = exec.Command("kubectl", "get", "mcpserver", mcpServerName,
 				"-n", testNamespace, "-o", "jsonpath={.status.validation.capabilities}")
 			output, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).NotTo(BeEmpty())
+
+			By("verifying validation metrics are present in Prometheus")
+			// Wait for metrics to be recorded and available in Prometheus
+			// Metrics may take a moment to appear after validation completes
+			// Use fetchFreshMetrics() to get current metrics instead of cached ones
+			Eventually(func(g Gomega) {
+				metricsOutput := fetchFreshMetrics()
+				g.Expect(metricsOutput).To(ContainSubstring("mcpserver_validation_compliant"),
+					"Should have validation compliant metric")
+				g.Expect(metricsOutput).To(ContainSubstring("mcpserver_validation_duration_seconds"),
+					"Should have validation duration metric")
+				g.Expect(metricsOutput).To(ContainSubstring("mcpserver_validation_total"),
+					"Should have validation total metric")
+				g.Expect(metricsOutput).To(ContainSubstring("mcpserver_capabilities"),
+					"Should have capabilities metric")
+				g.Expect(metricsOutput).To(ContainSubstring("mcpserver_protocol_version"),
+					"Should have protocol version metric")
+			}, 2*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("verifying ValidationPassed event is emitted")
+			Eventually(func(g Gomega) {
+				waitForEvent(g, mcpServerName, "ValidationPassed", "Should have ValidationPassed event")
+			}, 1*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("cleaning up")
 			cmd = exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
@@ -1365,7 +1343,8 @@ metadata:
   name: %s
   namespace: %s
 spec:
-  image: nginxinc/nginx-unprivileged:latest
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "sse"]
   replicas: 1
   transport:
     type: http
@@ -1387,22 +1366,14 @@ spec:
 			err := applyMCPServerYAML(mcpServerYAML)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("waiting for server to initially reach Running phase")
+			By("waiting for validation to fail and phase to become ValidationFailed " +
+				"due to strict mode (3 attempts in E2E ~1.5min)")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
 					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Running"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
-
-			By("waiting for validation to fail and phase to become Failed")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
-					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Failed"))
+				g.Expect(output).To(Equal("ValidationFailed"))
 			}, 3*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("verifying validation status shows non-compliant")
@@ -1430,6 +1401,7 @@ spec:
 
 		It("should not fail deployment when strict mode is disabled and validation fails", func() {
 			mcpServerName := "test-validation-non-strict"
+			// Wrong port: 8080
 			mcpServerYAML := fmt.Sprintf(`
 apiVersion: mcp.mcp-operator.io/v1
 kind: MCPServer
@@ -1437,14 +1409,15 @@ metadata:
   name: %s
   namespace: %s
 spec:
-  image: nginxinc/nginx-unprivileged:latest
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "sse"]
   replicas: 1
   transport:
     type: http
     config:
       http:
         port: 8080
-        path: "/mcp"
+        path: "/sse"
   validation:
     enabled: true
     strictMode: false
@@ -1468,7 +1441,7 @@ spec:
 				g.Expect(output).To(Equal("Running"))
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
-			By("waiting for validation to run")
+			By("waiting for validation to complete (3 attempts in E2E)")
 			Eventually(func(g Gomega) {
 				result, err := getMCPServerStatus(mcpServerName)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -1476,9 +1449,14 @@ spec:
 				status, ok := result["status"].(map[string]interface{})
 				g.Expect(ok).To(BeTrue())
 
-				_, hasValidation := status["validation"]
-				g.Expect(hasValidation).To(BeTrue())
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+				validation, hasValidation := status["validation"].(map[string]interface{})
+				g.Expect(hasValidation).To(BeTrue(), "Validation status should exist")
+
+				// Wait for validation to reach Failed state
+				state, ok := validation["state"].(string)
+				g.Expect(ok).To(BeTrue())
+				g.Expect(state).To(Equal("Failed"))
+			}, 3*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("verifying server remains in Running phase despite failed validation")
 			cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
@@ -1515,14 +1493,14 @@ metadata:
   namespace: %s
 spec:
   image: tzolov/mcp-everything-server:v3
-  command: ["node", "dist/index.js"]
+  command: ["node", "dist/index.js", "sse"]
   replicas: 1
   transport:
     type: http
     config:
       http:
         port: 3001
-        path: "/mcp"
+        path: "/sse"
   validation:
     enabled: true
     requiredCapabilities:
@@ -1585,9 +1563,10 @@ spec:
 			_, _ = utils.Run(cmd)
 		})
 
-		It("should record validation metrics in Prometheus", func() {
-			mcpServerName := "test-validation-metrics"
-			mcpServerYAML := fmt.Sprintf(`
+		Context("Protocol Mismatch Detection", func() {
+			It("should detect protocol mismatch with strictMode: false and keep running", func() {
+				mcpServerName := "test-protocol-mismatch-nonstrict"
+				mcpServerYAML := fmt.Sprintf(`
 apiVersion: mcp.mcp-operator.io/v1
 kind: MCPServer
 metadata:
@@ -1595,16 +1574,19 @@ metadata:
   namespace: %s
 spec:
   image: tzolov/mcp-everything-server:v3
-  command: ["node", "dist/index.js"]
+  command: ["node", "dist/index.js", "sse"]
   replicas: 1
   transport:
     type: http
+    protocol: streamable-http
     config:
       http:
         port: 3001
-        path: "/mcp"
+        path: "/sse"
+        sessionManagement: true
   validation:
     enabled: true
+    strictMode: false
   security:
     runAsUser: 1000
     runAsGroup: 1000
@@ -1619,128 +1601,590 @@ spec:
       memory: "512Mi"
 `, mcpServerName, testNamespace)
 
-			By("creating MCP server")
-			err := applyMCPServerYAML(mcpServerYAML)
-			Expect(err).NotTo(HaveOccurred())
+				By("creating MCP server with protocol mismatch")
+				err := applyMCPServerYAML(mcpServerYAML)
+				Expect(err).NotTo(HaveOccurred())
 
-			By("waiting for validation to complete")
-			Eventually(func(g Gomega) {
+				By("waiting for deployment to be created")
+				Eventually(func() error {
+					cmd := exec.Command("kubectl", "get", "deployment", mcpServerName, "-n", testNamespace)
+					_, err := utils.Run(cmd)
+					return err
+				}, 1*time.Minute, 2*time.Second).Should(Succeed())
+
+				By("waiting for pods to be ready")
+				Eventually(func(g Gomega) {
+					result, err := getMCPServerStatus(mcpServerName)
+					g.Expect(err).NotTo(HaveOccurred())
+
+					status, ok := result["status"].(map[string]interface{})
+					g.Expect(ok).To(BeTrue())
+
+					readyReplicas, ok := status["readyReplicas"].(float64)
+					if ok {
+						g.Expect(readyReplicas).To(BeNumerically(">", 0))
+					}
+				}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("waiting for validation to detect mismatch")
+				Eventually(func(g Gomega) {
+					result, err := getMCPServerStatus(mcpServerName)
+					g.Expect(err).NotTo(HaveOccurred())
+
+					status, ok := result["status"].(map[string]interface{})
+					g.Expect(ok).To(BeTrue())
+
+					validation, ok := status["validation"].(map[string]interface{})
+					g.Expect(ok).To(BeTrue(), "Validation status should exist")
+
+					state, ok := validation["state"].(string)
+					g.Expect(ok).To(BeTrue())
+					g.Expect(state).To(Equal("Failed"))
+				}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("verifying phase is Running despite validation failure")
+				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).To(Equal("Running"))
+
+				By("verifying validation status shows non-compliant")
 				result, err := getMCPServerStatus(mcpServerName)
-				g.Expect(err).NotTo(HaveOccurred())
+				Expect(err).NotTo(HaveOccurred())
 
-				status, ok := result["status"].(map[string]interface{})
-				g.Expect(ok).To(BeTrue())
-
-				_, hasValidation := status["validation"]
-				g.Expect(hasValidation).To(BeTrue())
-			}, 3*time.Minute, 5*time.Second).Should(Succeed())
-
-			By("verifying validation metrics are present")
-			metricsOutput := getMetricsOutput()
-
-			Expect(metricsOutput).To(ContainSubstring("mcpserver_validation_compliant"),
-				"Should have validation compliant metric")
-			Expect(metricsOutput).To(ContainSubstring("mcpserver_validation_duration_seconds"),
-				"Should have validation duration metric")
-			Expect(metricsOutput).To(ContainSubstring("mcpserver_validation_total"),
-				"Should have validation total metric")
-			Expect(metricsOutput).To(ContainSubstring("mcpserver_capabilities"),
-				"Should have capabilities metric")
-			Expect(metricsOutput).To(ContainSubstring("mcpserver_protocol_version"),
-				"Should have protocol version metric")
-
-			By("cleaning up")
-			cmd := exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
-				"-n", testNamespace, "--timeout=120s")
-			_, _ = utils.Run(cmd)
-		})
-
-		It("should emit Kubernetes events for validation results", func() {
-			mcpServerName := "test-validation-events"
-			mcpServerYAML := fmt.Sprintf(`
-apiVersion: mcp.mcp-operator.io/v1
-kind: MCPServer
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  image: tzolov/mcp-everything-server:v3
-  command: ["node", "dist/index.js"]
-  replicas: 1
-  transport:
-    type: http
-    config:
-      http:
-        port: 3001
-        path: "/mcp"
-  validation:
-    enabled: true
-  security:
-    runAsUser: 1000
-    runAsGroup: 1000
-    runAsNonRoot: true
-    allowPrivilegeEscalation: false
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "128Mi"
-    limits:
-      cpu: "500m"
-      memory: "512Mi"
-`, mcpServerName, testNamespace)
-
-			By("creating MCP server")
-			err := applyMCPServerYAML(mcpServerYAML)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("waiting for validation to complete")
-			Eventually(func(g Gomega) {
-				result, err := getMCPServerStatus(mcpServerName)
-				g.Expect(err).NotTo(HaveOccurred())
-
-				status, ok := result["status"].(map[string]interface{})
-				g.Expect(ok).To(BeTrue())
-
-				validation, ok := status["validation"].(map[string]interface{})
-				g.Expect(ok).To(BeTrue())
+				status := result["status"].(map[string]interface{})
+				validation := status["validation"].(map[string]interface{})
 
 				compliant, ok := validation["compliant"].(bool)
-				g.Expect(ok).To(BeTrue())
-				g.Expect(compliant).To(BeTrue())
-			}, 3*time.Minute, 5*time.Second).Should(Succeed())
+				Expect(ok).To(BeTrue())
+				Expect(compliant).To(BeFalse())
 
-			By("verifying ValidationPassed event is emitted")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "events",
-					"-n", testNamespace,
-					"--field-selector", fmt.Sprintf("involvedObject.name=%s", mcpServerName),
-					"-o", "json")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
+				By("verifying protocol mismatch issue is recorded")
+				issues, ok := validation["issues"].([]interface{})
+				Expect(ok).To(BeTrue())
+				Expect(issues).NotTo(BeEmpty())
 
-				var events map[string]interface{}
-				err = json.Unmarshal([]byte(output), &events)
-				g.Expect(err).NotTo(HaveOccurred())
+				foundMismatch := false
+				for _, issue := range issues {
+					issueMap := issue.(map[string]interface{})
+					if code, ok := issueMap["code"].(string); ok && code == "PROTOCOL_MISMATCH" {
+						foundMismatch = true
+						Expect(issueMap["level"]).To(Equal("error"))
+						message, ok := issueMap["message"].(string)
+						Expect(ok).To(BeTrue())
+						Expect(message).To(ContainSubstring("streamable-http"))
+						Expect(message).To(ContainSubstring("sse"))
+					}
+				}
+				Expect(foundMismatch).To(BeTrue(), "Should have PROTOCOL_MISMATCH issue")
 
-				items, ok := events["items"].([]interface{})
-				g.Expect(ok).To(BeTrue())
+				By("verifying detected protocol")
+				transport, ok := status["transport"].(map[string]interface{})
+				Expect(ok).To(BeTrue())
+				detectedProtocol, ok := transport["detectedProtocol"].(string)
+				Expect(ok).To(BeTrue())
+				Expect(detectedProtocol).To(Equal("sse"))
 
-				foundValidationEvent := false
-				for _, item := range items {
-					event := item.(map[string]interface{})
-					reason, ok := event["reason"].(string)
-					if ok && reason == "ValidationPassed" {
-						foundValidationEvent = true
+				By("verifying deployment still exists in non-strict mode")
+				cmd = exec.Command("kubectl", "get", "deployment", mcpServerName, "-n", testNamespace)
+				_, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred(), "Deployment should exist in non-strict mode")
+
+				By("verifying pods still running")
+				readyReplicas, ok := status["readyReplicas"].(float64)
+				Expect(ok).To(BeTrue())
+				Expect(readyReplicas).To(BeNumerically(">", 0))
+
+				By("cleaning up")
+				cmd = exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
+					"-n", testNamespace, "--timeout=120s")
+				_, _ = utils.Run(cmd)
+			})
+
+			It("should delete deployment with protocol mismatch when strictMode: true", func() {
+				mcpServerName := "test-protocol-mismatch-strict"
+				mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "sse"]
+  replicas: 1
+  transport:
+    type: http
+    protocol: streamable-http
+    config:
+      http:
+        port: 3001
+        path: "/sse"
+        sessionManagement: true
+  validation:
+    enabled: true
+    strictMode: true
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+`, mcpServerName, testNamespace)
+
+				By("creating MCP server with protocol mismatch and strict mode")
+				err := applyMCPServerYAML(mcpServerYAML)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("waiting for validation to fail and phase to become ValidationFailed")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+						"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(output).To(Equal("ValidationFailed"))
+				}, 5*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("verifying validation status shows non-compliant")
+				result, err := getMCPServerStatus(mcpServerName)
+				Expect(err).NotTo(HaveOccurred())
+
+				status := result["status"].(map[string]interface{})
+				validation, ok := status["validation"].(map[string]interface{})
+				Expect(ok).To(BeTrue())
+
+				compliant, ok := validation["compliant"].(bool)
+				Expect(ok).To(BeTrue())
+				Expect(compliant).To(BeFalse())
+
+				state, ok := validation["state"].(string)
+				Expect(ok).To(BeTrue())
+				Expect(state).To(Equal("Failed"))
+
+				By("verifying status message indicates protocol mismatch")
+				message, ok := status["message"].(string)
+				Expect(ok).To(BeTrue())
+				Expect(message).To(Or(
+					ContainSubstring("Protocol mismatch"),
+					ContainSubstring("protocol mismatch"),
+				))
+
+				By("verifying deployment was deleted in strict mode")
+				Eventually(func() bool {
+					cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
+						"-n", testNamespace, "-o", "jsonpath={.spec.replicas}")
+					output, err := utils.Run(cmd)
+					// Deployment deleted or scaled to 0
+					return err != nil || output == "0"
+				}, 1*time.Minute, 2*time.Second).Should(BeTrue(), "Deployment should be deleted or scaled to 0 in strict mode")
+
+				By("verifying status replica counts are zero after deployment deletion")
+				result, err = getMCPServerStatus(mcpServerName)
+				Expect(err).NotTo(HaveOccurred())
+				status = result["status"].(map[string]interface{})
+
+				// Replica fields have omitempty tags, so 0 values may be omitted from JSON
+				// If omitted, the value is semantically 0
+				replicas := float64(0)
+				if val, ok := status["replicas"].(float64); ok {
+					replicas = val
+				}
+				Expect(replicas).To(Equal(float64(0)), "Status replicas should be 0 after deployment deletion")
+
+				readyReplicas := float64(0)
+				if val, ok := status["readyReplicas"].(float64); ok {
+					readyReplicas = val
+				}
+				Expect(readyReplicas).To(Equal(float64(0)), "Status readyReplicas should be 0 after deployment deletion")
+
+				availableReplicas := float64(0)
+				if val, ok := status["availableReplicas"].(float64); ok {
+					availableReplicas = val
+				}
+				Expect(availableReplicas).To(Equal(float64(0)), "Status availableReplicas should be 0 after deployment deletion")
+
+				By("verifying conditions reflect deployment deletion")
+				conditions, ok := status["conditions"].([]interface{})
+				Expect(ok).To(BeTrue())
+
+				// Check Ready condition is False
+				var readyCondition map[string]interface{}
+				for _, cond := range conditions {
+					condMap := cond.(map[string]interface{})
+					if condMap["type"].(string) == "Ready" {
+						readyCondition = condMap
 						break
 					}
 				}
-				g.Expect(foundValidationEvent).To(BeTrue(), "Should have ValidationPassed event")
-			}, 1*time.Minute, 5*time.Second).Should(Succeed())
+				Expect(readyCondition).NotTo(BeNil(), "Ready condition should exist")
+				Expect(readyCondition["status"]).To(Equal("False"), "Ready condition should be False")
+				Expect(readyCondition["reason"]).To(Equal("DeploymentDeleted"))
 
-			By("cleaning up")
-			cmd := exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
-				"-n", testNamespace, "--timeout=120s")
-			_, _ = utils.Run(cmd)
+				// Check Available condition is False
+				var availableCondition map[string]interface{}
+				for _, cond := range conditions {
+					condMap := cond.(map[string]interface{})
+					if condMap["type"].(string) == "Available" {
+						availableCondition = condMap
+						break
+					}
+				}
+				Expect(availableCondition).NotTo(BeNil(), "Available condition should exist")
+				Expect(availableCondition["status"]).To(Equal("False"), "Available condition should be False")
+				Expect(availableCondition["reason"]).To(Equal("DeploymentDeleted"))
+
+				// Check Progressing condition is False
+				var progressingCondition map[string]interface{}
+				for _, cond := range conditions {
+					condMap := cond.(map[string]interface{})
+					if condMap["type"].(string) == "Progressing" {
+						progressingCondition = condMap
+						break
+					}
+				}
+				Expect(progressingCondition).NotTo(BeNil(), "Progressing condition should exist")
+				Expect(progressingCondition["status"]).To(Equal("False"), "Progressing condition should be False")
+				Expect(progressingCondition["reason"]).To(Equal("DeploymentDeleted"))
+
+				// Check Degraded condition is True
+				var degradedCondition map[string]interface{}
+				for _, cond := range conditions {
+					condMap := cond.(map[string]interface{})
+					if condMap["type"].(string) == "Degraded" {
+						degradedCondition = condMap
+						break
+					}
+				}
+				Expect(degradedCondition).NotTo(BeNil(), "Degraded condition should exist")
+				Expect(degradedCondition["status"]).To(Equal("True"), "Degraded condition should be True")
+
+				By("verifying validation attempts")
+				validation, ok = status["validation"].(map[string]interface{})
+				Expect(ok).To(BeTrue())
+				attempts, ok := validation["attempts"].(float64)
+				Expect(ok).To(BeTrue())
+				Expect(attempts).To(BeNumerically(">=", 2))
+
+				By("verifying DeploymentDeleted event was emitted")
+				Eventually(func(g Gomega) {
+					waitForEvent(g, mcpServerName, "DeploymentDeleted", "Should have DeploymentDeleted event")
+				}, 1*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("cleaning up")
+				cmd := exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
+					"-n", testNamespace, "--timeout=120s")
+				_, _ = utils.Run(cmd)
+			})
+		})
+
+		Context("Recovery from Validation Failure", func() {
+			It("should revalidate and become compliant after fixing protocol mismatch", func() {
+				mcpServerName := "test-fix-protocol"
+				mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "sse"]
+  replicas: 1
+  transport:
+    type: http
+    protocol: streamable-http
+    config:
+      http:
+        port: 3001
+        path: "/sse"
+        sessionManagement: true
+  validation:
+    enabled: true
+    strictMode: false
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+`, mcpServerName, testNamespace)
+
+				By("creating MCP server with wrong protocol")
+				err := applyMCPServerYAML(mcpServerYAML)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("waiting for validation to fail")
+				Eventually(func(g Gomega) {
+					result, err := getMCPServerStatus(mcpServerName)
+					g.Expect(err).NotTo(HaveOccurred())
+
+					status, ok := result["status"].(map[string]interface{})
+					g.Expect(ok).To(BeTrue())
+
+					validation, ok := status["validation"].(map[string]interface{})
+					g.Expect(ok).To(BeTrue())
+
+					state, ok := validation["state"].(string)
+					g.Expect(ok).To(BeTrue())
+					g.Expect(state).To(Equal("Failed"))
+				}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("capturing initial generation")
+				result, err := getMCPServerStatus(mcpServerName)
+				Expect(err).NotTo(HaveOccurred())
+				metadata := result["metadata"].(map[string]interface{})
+				initialGeneration := metadata["generation"].(float64)
+
+				By("fixing the protocol by updating the spec")
+				mcpServerYAMLFixed := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "sse"]
+  replicas: 1
+  transport:
+    type: http
+    protocol: sse
+    config:
+      http:
+        port: 3001
+        path: "/sse"
+        sessionManagement: true
+  validation:
+    enabled: true
+    strictMode: false
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+`, mcpServerName, testNamespace)
+
+				err = applyMCPServerYAML(mcpServerYAMLFixed)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("verifying generation was incremented")
+				Eventually(func(g Gomega) {
+					result, err := getMCPServerStatus(mcpServerName)
+					g.Expect(err).NotTo(HaveOccurred())
+
+					metadata := result["metadata"].(map[string]interface{})
+					currentGeneration := metadata["generation"].(float64)
+					g.Expect(currentGeneration).To(BeNumerically(">", initialGeneration))
+				}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+				By("waiting for validation to reset and become compliant")
+				Eventually(func(g Gomega) {
+					result, err := getMCPServerStatus(mcpServerName)
+					g.Expect(err).NotTo(HaveOccurred())
+
+					status, ok := result["status"].(map[string]interface{})
+					g.Expect(ok).To(BeTrue())
+
+					phase, ok := status["phase"].(string)
+					g.Expect(ok).To(BeTrue())
+					g.Expect(phase).To(Equal("Running"))
+
+					validation, ok := status["validation"].(map[string]interface{})
+					g.Expect(ok).To(BeTrue())
+
+					compliant, ok := validation["compliant"].(bool)
+					g.Expect(ok).To(BeTrue())
+					g.Expect(compliant).To(BeTrue())
+				}, 4*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("verifying validation state is Passed")
+				result, err = getMCPServerStatus(mcpServerName)
+				Expect(err).NotTo(HaveOccurred())
+
+				status := result["status"].(map[string]interface{})
+				validation := status["validation"].(map[string]interface{})
+
+				state, ok := validation["state"].(string)
+				Expect(ok).To(BeTrue())
+				Expect(state).To(Equal("Passed"))
+
+				By("verifying no validation issues")
+				issues, ok := validation["issues"].([]interface{})
+				if ok {
+					Expect(issues).To(BeEmpty())
+				}
+
+				By("verifying validation was re-attempted after fix")
+				// After spec change (generation increment), validation attempts reset to 0
+				// and then increment with each new validation attempt on the updated spec
+				currentAttempts := validation["attempts"].(float64)
+				Expect(currentAttempts).To(BeNumerically(">=", 1), "Should have attempted validation at least once after fix")
+
+				By("verifying detected protocol matches spec")
+				transport := status["transport"].(map[string]interface{})
+				detectedProtocol, ok := transport["detectedProtocol"].(string)
+				Expect(ok).To(BeTrue())
+				Expect(detectedProtocol).To(Equal("sse"))
+
+				By("verifying ValidationRecovery event was emitted")
+				Eventually(func(g Gomega) {
+					waitForEvent(g, mcpServerName, "ValidationRecovery", "Should have ValidationRecovery event")
+				}, 1*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("cleaning up")
+				cmd := exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
+					"-n", testNamespace, "--timeout=120s")
+				_, _ = utils.Run(cmd)
+			})
+
+			It("should recover by switching to auto-detection", func() {
+				mcpServerName := "test-fix-auto-detection"
+				mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "sse"]
+  replicas: 1
+  transport:
+    type: http
+    protocol: streamable-http
+    config:
+      http:
+        port: 3001
+        path: "/sse"
+        sessionManagement: true
+  validation:
+    enabled: true
+    strictMode: false
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+`, mcpServerName, testNamespace)
+
+				By("creating MCP server with wrong protocol")
+				err := applyMCPServerYAML(mcpServerYAML)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("waiting for validation to fail")
+				Eventually(func(g Gomega) {
+					result, err := getMCPServerStatus(mcpServerName)
+					g.Expect(err).NotTo(HaveOccurred())
+
+					status, ok := result["status"].(map[string]interface{})
+					g.Expect(ok).To(BeTrue())
+
+					validation, ok := status["validation"].(map[string]interface{})
+					g.Expect(ok).To(BeTrue())
+
+					compliant, ok := validation["compliant"].(bool)
+					g.Expect(ok).To(BeTrue())
+					g.Expect(compliant).To(BeFalse())
+				}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("switching to auto protocol detection")
+				mcpServerYAMLAuto := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "sse"]
+  replicas: 1
+  transport:
+    type: http
+    protocol: auto
+    config:
+      http:
+        port: 3001
+        path: "/sse"
+        sessionManagement: true
+  validation:
+    enabled: true
+    strictMode: false
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+`, mcpServerName, testNamespace)
+
+				err = applyMCPServerYAML(mcpServerYAMLAuto)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("waiting for validation to become compliant")
+				Eventually(func(g Gomega) {
+					result, err := getMCPServerStatus(mcpServerName)
+					g.Expect(err).NotTo(HaveOccurred())
+
+					status, ok := result["status"].(map[string]interface{})
+					g.Expect(ok).To(BeTrue())
+
+					validation, ok := status["validation"].(map[string]interface{})
+					g.Expect(ok).To(BeTrue())
+
+					compliant, ok := validation["compliant"].(bool)
+					g.Expect(ok).To(BeTrue())
+					g.Expect(compliant).To(BeTrue())
+
+					state, ok := validation["state"].(string)
+					g.Expect(ok).To(BeTrue())
+					g.Expect(state).To(Equal("Passed"))
+				}, 4*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("verifying server is running")
+				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).To(Equal("Running"))
+
+				By("cleaning up")
+				cmd = exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
+					"-n", testNamespace, "--timeout=120s")
+				_, _ = utils.Run(cmd)
+			})
 		})
 	})
 })
@@ -1793,6 +2237,72 @@ func getMetricsOutput() string {
 	metricsOutput, err := utils.Run(cmd)
 	Expect(err).NotTo(HaveOccurred(), "Failed to retrieve logs from curl pod")
 	Expect(metricsOutput).To(ContainSubstring("< HTTP/1.1 200 OK"))
+	return metricsOutput
+}
+
+// fetchFreshMetrics creates a temporary pod to fetch current metrics.
+// This is useful when you need fresh metrics after an operation (like validation).
+// Unlike getMetricsOutput(), this creates a new pod each time to ensure fresh data.
+func fetchFreshMetrics() string {
+	// Generate unique pod name
+	podName := fmt.Sprintf("metrics-fetch-%d", time.Now().Unix())
+
+	// Get token for authentication
+	token, err := serviceAccountToken()
+	Expect(err).NotTo(HaveOccurred(), "Failed to get service account token")
+
+	By(fmt.Sprintf("creating temporary pod %s to fetch fresh metrics", podName))
+	cmd := exec.Command("kubectl", "run", podName, "--restart=Never",
+		"--namespace", operatorNamespace,
+		"--image=curlimages/curl:latest",
+		"--overrides",
+		fmt.Sprintf(`{
+			"spec": {
+				"containers": [{
+					"name": "curl",
+					"image": "curlimages/curl:latest",
+					"command": ["/bin/sh", "-c"],
+					"args": ["curl -v -k -H 'Authorization: Bearer %s' https://%s.%s.svc.cluster.local:8443/metrics"],
+					"securityContext": {
+						"readOnlyRootFilesystem": true,
+						"allowPrivilegeEscalation": false,
+						"capabilities": {
+							"drop": ["ALL"]
+						},
+						"runAsNonRoot": true,
+						"runAsUser": 1000,
+						"seccompProfile": {
+							"type": "RuntimeDefault"
+						}
+					}
+				}],
+				"serviceAccountName": "%s"
+			}
+		}`, token, metricsServiceName, operatorNamespace, serviceAccountName))
+	_, err = utils.Run(cmd)
+	Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("Failed to create %s pod", podName))
+
+	By(fmt.Sprintf("waiting for %s pod to complete", podName))
+	Eventually(func(g Gomega) {
+		cmd := exec.Command("kubectl", "get", "pods", podName,
+			"-o", "jsonpath={.status.phase}",
+			"-n", operatorNamespace)
+		output, err := utils.Run(cmd)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(output).To(Equal("Succeeded"), "curl pod in wrong status")
+	}, 1*time.Minute, 2*time.Second).Should(Succeed())
+
+	By(fmt.Sprintf("getting metrics from %s logs", podName))
+	cmd = exec.Command("kubectl", "logs", podName, "-n", operatorNamespace)
+	metricsOutput, err := utils.Run(cmd)
+	Expect(err).NotTo(HaveOccurred(), "Failed to retrieve logs from metrics fetch pod")
+	Expect(metricsOutput).To(ContainSubstring("< HTTP/1.1 200 OK"))
+
+	// Clean up the temporary pod
+	By(fmt.Sprintf("deleting temporary pod %s", podName))
+	cmd = exec.Command("kubectl", "delete", "pod", podName, "-n", operatorNamespace, "--wait=false")
+	_, _ = utils.Run(cmd) // Ignore errors on cleanup
+
 	return metricsOutput
 }
 
@@ -1865,6 +2375,34 @@ func findCondition(status map[string]interface{}, condType string) map[string]in
 		}
 	}
 	return nil
+}
+
+// waitForEvent waits for a specific event reason to appear for an MCPServer
+func waitForEvent(g Gomega, mcpServerName, eventReason, errorMsg string) {
+	cmd := exec.Command("kubectl", "get", "events",
+		"-n", testNamespace,
+		"--field-selector", fmt.Sprintf("involvedObject.name=%s", mcpServerName),
+		"-o", "json")
+	output, err := utils.Run(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	var events map[string]interface{}
+	err = json.Unmarshal([]byte(output), &events)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	items, ok := events["items"].([]interface{})
+	g.Expect(ok).To(BeTrue())
+
+	foundEvent := false
+	for _, item := range items {
+		event := item.(map[string]interface{})
+		reason, ok := event["reason"].(string)
+		if ok && reason == eventReason {
+			foundEvent = true
+			break
+		}
+	}
+	g.Expect(foundEvent).To(BeTrue(), errorMsg)
 }
 
 // waitForMCPServerRunning waits for MCPServer to reach Running phase

@@ -236,11 +236,6 @@ spec:
       - "tools"
       - "resources"
 
-    # Interval for periodic validation checks (default: "5m")
-    # Valid time units: s, m, h
-    # When enabled=true, validation runs on startup and then at this interval
-    healthCheckInterval: "5m"
-
   # ============================================
   # Ingress Configuration
   # ============================================

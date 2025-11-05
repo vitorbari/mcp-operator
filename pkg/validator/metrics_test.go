@@ -132,7 +132,7 @@ func (m *MockMetricsRecorder) GetProtocolVersions() []string {
 }
 
 func TestNewMetricsRecorder(t *testing.T) {
-	recorder := NewMetricsRecorder()
+	recorder := NewMetricsRecorder(true)
 	if recorder == nil {
 		t.Fatal("NewMetricsRecorder returned nil")
 	}
@@ -318,7 +318,7 @@ func TestRetryableValidator_RecordsRetriesOnFailure(t *testing.T) {
 }
 
 func TestPrometheusMetricsRecorder_DoesNotPanic(t *testing.T) {
-	recorder := NewMetricsRecorder()
+	recorder := NewMetricsRecorder(true)
 
 	// These should not panic
 	recorder.RecordValidation("http", true, time.Second)

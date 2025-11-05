@@ -32,9 +32,12 @@ spec:
     - jsonPath: .status.readyReplicas
       name: Ready
       type: integer
-    - jsonPath: .status.transportType
-      name: Transport
+    - jsonPath: .status.validation.transportUsed
+      name: Protocol
       type: string
+    - jsonPath: .status.validation.requiresAuth
+      name: Auth
+      type: boolean
     - jsonPath: .status.validation.compliant
       name: Compliant
       type: boolean
@@ -3421,6 +3424,24 @@ spec:
                             type: boolean
                         type: object
                     type: object
+                  protocol:
+                    allOf:
+                    - enum:
+                      - auto
+                      - streamable-http
+                      - sse
+                    - enum:
+                      - auto
+                      - streamable-http
+                      - sse
+                    default: auto
+                    description: |-
+                      Protocol specifies the MCP transport protocol to use
+                      Valid values:
+                      - "auto": Auto-detect protocol (prefers Streamable HTTP over SSE)
+                      - "streamable-http": Use Streamable HTTP transport (MCP 2025-03-26+)
+                      - "sse": Use Server-Sent Events transport (MCP 2024-11-05)
+                    type: string
                   type:
                     allOf:
                     - enum:
@@ -3440,11 +3461,6 @@ spec:
                     description: Enabled indicates if protocol validation should be
                       performed
                     type: boolean
-                  healthCheckInterval:
-                    default: 5m
-                    description: HealthCheckInterval specifies interval for periodic
-                      validation checks
-                    type: string
                   requiredCapabilities:
                     description: |-
                       RequiredCapabilities specifies capabilities that must be present
@@ -3456,10 +3472,24 @@ spec:
                     default: false
                     description: StrictMode fails deployment if validation fails
                     type: boolean
-                  testOnStartup:
-                    default: true
-                    description: TestOnStartup validates the server on startup
-                    type: boolean
+                  transportProtocol:
+                    allOf:
+                    - enum:
+                      - auto
+                      - streamable-http
+                      - sse
+                    - enum:
+                      - auto
+                      - streamable-http
+                      - sse
+                    description: |-
+                      TransportProtocol specifies which transport protocol to validate against
+                      If not specified, uses the protocol from spec.transport.protocol
+                      Valid values:
+                      - "auto": Auto-detect and validate all supported protocols
+                      - "streamable-http": Only validate Streamable HTTP protocol
+                      - "sse": Only validate SSE protocol
+                    type: string
                 type: object
             required:
             - image
@@ -3533,6 +3563,7 @@ spec:
                 - Scaling
                 - Updating
                 - Failed
+                - ValidationFailed
                 - Terminating
                 type: string
               readyReplicas:
@@ -3577,6 +3608,10 @@ spec:
               validation:
                 description: Validation represents the MCP protocol validation status
                 properties:
+                  attempts:
+                    description: Attempts is the number of validation attempts made
+                    format: int32
+                    type: integer
                   capabilities:
                     description: Capabilities lists the capabilities discovered from
                       the server
@@ -3613,19 +3648,47 @@ spec:
                       - message
                       type: object
                     type: array
+                  lastAttemptTime:
+                    description: LastAttemptTime is the timestamp of the last validation
+                      attempt
+                    format: date-time
+                    type: string
                   lastValidated:
-                    description: LastValidated is the timestamp of the last validation
-                      check
+                    description: LastValidated is the timestamp of the last successful
+                      validation
                     format: date-time
                     type: string
                   protocolVersion:
                     description: ProtocolVersion is the detected MCP protocol version
+                    type: string
+                  requiresAuth:
+                    description: RequiresAuth indicates if the server requires authentication
+                    type: boolean
+                  state:
+                    allOf:
+                    - enum:
+                      - Pending
+                      - Validating
+                      - Passed
+                      - Failed
+                    - enum:
+                      - Pending
+                      - Validating
+                      - Passed
+                      - Failed
+                    description: State represents the current validation state
                     type: string
                   transportUsed:
                     description: |-
                       TransportUsed indicates which transport protocol was used for validation
                       Valid values: "streamable-http", "sse"
                     type: string
+                  validatedGeneration:
+                    description: |-
+                      ValidatedGeneration is the generation of the MCPServer that was validated
+                      Used to detect when spec changes require re-validation
+                    format: int64
+                    type: integer
                 type: object
             type: object
         required:
@@ -3989,7 +4052,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/vitorbari/mcp-operator:v0.1.0-alpha.6
+        image: ghcr.io/vitorbari/mcp-operator:latest
         livenessProbe:
           httpGet:
             path: /healthz

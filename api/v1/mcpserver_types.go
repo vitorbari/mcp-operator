@@ -246,7 +246,7 @@ type MCPServerStatus struct {
 }
 
 // MCPServerPhase represents the current phase of an MCP server deployment
-// +kubebuilder:validation:Enum=Pending;Creating;Running;Scaling;Updating;Failed;Terminating
+// +kubebuilder:validation:Enum=Pending;Creating;Running;Scaling;Updating;Failed;ValidationFailed;Terminating
 type MCPServerPhase string
 
 const (
@@ -262,6 +262,8 @@ const (
 	MCPServerPhaseUpdating MCPServerPhase = "Updating"
 	// MCPServerPhaseFailed indicates the MCP server deployment failed
 	MCPServerPhaseFailed MCPServerPhase = "Failed"
+	// MCPServerPhaseValidationFailed indicates validation failed in strict mode
+	MCPServerPhaseValidationFailed MCPServerPhase = "ValidationFailed"
 	// MCPServerPhaseTerminating indicates the MCP server is being terminated
 	MCPServerPhaseTerminating MCPServerPhase = "Terminating"
 )
@@ -479,7 +481,22 @@ type MCPServerIngress struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
-// ValidationSpec defines MCP protocol validation configuration
+// ValidationState represents the current state of validation
+// +kubebuilder:validation:Enum=Pending;Validating;Passed;Failed
+type ValidationState string
+
+const (
+	// ValidationStatePending indicates validation has not started yet
+	ValidationStatePending ValidationState = "Pending"
+	// ValidationStateValidating indicates validation is in progress
+	ValidationStateValidating ValidationState = "Validating"
+	// ValidationStatePassed indicates validation succeeded
+	ValidationStatePassed ValidationState = "Passed"
+	// ValidationStateFailed indicates validation failed
+	ValidationStateFailed ValidationState = "Failed"
+)
+
+// ValidationSpec defines MCP protocol validation configuration; validation occurs on deployment (create/update), not periodically
 type ValidationSpec struct {
 	// Enabled indicates if protocol validation should be performed
 	// +kubebuilder:default=true
@@ -505,15 +522,23 @@ type ValidationSpec struct {
 	// Valid values: "tools", "resources", "prompts"
 	// +optional
 	RequiredCapabilities []string `json:"requiredCapabilities,omitempty"`
-
-	// HealthCheckInterval specifies interval for periodic validation checks
-	// +kubebuilder:default="5m"
-	// +optional
-	HealthCheckInterval string `json:"healthCheckInterval,omitempty"`
 }
 
 // ValidationStatus represents the MCP protocol validation status
 type ValidationStatus struct {
+	// State represents the current validation state
+	// +kubebuilder:validation:Enum=Pending;Validating;Passed;Failed
+	// +optional
+	State ValidationState `json:"state,omitempty"`
+
+	// Attempts is the number of validation attempts made
+	// +optional
+	Attempts int32 `json:"attempts,omitempty"`
+
+	// LastAttemptTime is the timestamp of the last validation attempt
+	// +optional
+	LastAttemptTime *metav1.Time `json:"lastAttemptTime,omitempty"`
+
 	// ProtocolVersion is the detected MCP protocol version
 	// +optional
 	ProtocolVersion string `json:"protocolVersion,omitempty"`
@@ -526,7 +551,7 @@ type ValidationStatus struct {
 	// +optional
 	Compliant bool `json:"compliant"`
 
-	// LastValidated is the timestamp of the last validation check
+	// LastValidated is the timestamp of the last successful validation
 	// +optional
 	LastValidated *metav1.Time `json:"lastValidated,omitempty"`
 
@@ -538,6 +563,15 @@ type ValidationStatus struct {
 	// Valid values: "streamable-http", "sse"
 	// +optional
 	TransportUsed string `json:"transportUsed,omitempty"`
+
+	// RequiresAuth indicates if the server requires authentication
+	// +optional
+	RequiresAuth bool `json:"requiresAuth"`
+
+	// ValidatedGeneration is the generation of the MCPServer that was validated
+	// Used to detect when spec changes require re-validation
+	// +optional
+	ValidatedGeneration int64 `json:"validatedGeneration,omitempty"`
 }
 
 // TransportStatus represents the detected transport protocol information
@@ -580,7 +614,8 @@ type ValidationIssue struct {
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Replicas",type=integer,JSONPath=`.status.replicas`
 // +kubebuilder:printcolumn:name="Ready",type=integer,JSONPath=`.status.readyReplicas`
-// +kubebuilder:printcolumn:name="Transport",type=string,JSONPath=`.status.transportType`
+// +kubebuilder:printcolumn:name="Protocol",type=string,JSONPath=`.status.validation.transportUsed`
+// +kubebuilder:printcolumn:name="Auth",type=boolean,JSONPath=`.status.validation.requiresAuth`
 // +kubebuilder:printcolumn:name="Compliant",type=boolean,JSONPath=`.status.validation.compliant`
 // +kubebuilder:printcolumn:name="Capabilities",type=string,JSONPath=`.status.validation.capabilities`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`

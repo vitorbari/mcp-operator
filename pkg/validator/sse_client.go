@@ -55,7 +55,7 @@ func NewSSEClient(sseEndpoint string, timeout time.Duration) *SSEClient {
 // Connect establishes SSE connection and discovers the messages endpoint
 func (c *SSEClient) Connect(ctx context.Context) error {
 	logger := log.FromContext(ctx)
-	logger.Info("Connecting to SSE endpoint", "endpoint", c.sseEndpoint)
+	logger.V(1).Info("Connecting to SSE endpoint", "endpoint", c.sseEndpoint)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", c.sseEndpoint, nil)
 	if err != nil {
@@ -71,7 +71,9 @@ func (c *SSEClient) Connect(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to SSE endpoint: %w", err)
 	}
 
-	logger.Info("SSE connection established", "status", resp.StatusCode, "content-type", resp.Header.Get("Content-Type"))
+	logger.V(1).Info("SSE connection established",
+		"status", resp.StatusCode,
+		"content-type", resp.Header.Get("Content-Type"))
 
 	if resp.StatusCode != http.StatusOK {
 		_ = resp.Body.Close()
@@ -87,7 +89,7 @@ func (c *SSEClient) Connect(ctx context.Context) error {
 	c.sseReader = resp.Body
 
 	// Read the endpoint event to get messages URL
-	logger.Info("Reading SSE endpoint event")
+	logger.V(1).Info("Reading SSE endpoint event")
 	messagesPath, err := c.readEndpointEvent(ctx)
 	if err != nil {
 		_ = resp.Body.Close()
@@ -102,7 +104,7 @@ func (c *SSEClient) Connect(ctx context.Context) error {
 		baseURL = baseURL[:idx]
 	}
 	c.messagesURL = baseURL + messagesPath
-	logger.Info("SSE messages URL constructed", "messagesURL", c.messagesURL)
+	logger.V(1).Info("SSE messages URL constructed", "messagesURL", c.messagesURL)
 	return nil
 }
 
@@ -132,7 +134,7 @@ func (c *SSEClient) readEndpointEvent(ctx context.Context) (string, error) {
 				if currentEvent == "endpoint" {
 					// The endpoint data is just a plain string (the URI path), not JSON
 					uri := strings.TrimSpace(currentData.String())
-					logger.Info("Found SSE endpoint URI", "uri", uri)
+					logger.V(1).Info("Found SSE endpoint URI", "uri", uri)
 					if uri != "" {
 						eventChan <- uri
 						return
@@ -170,7 +172,7 @@ func (c *SSEClient) Initialize(ctx context.Context) (*mcp.InitializeResult, erro
 		return nil, fmt.Errorf("not connected: call Connect() first")
 	}
 
-	logger.Info("Sending SSE initialize request", "messagesURL", c.messagesURL)
+	logger.V(1).Info("Sending SSE initialize request", "messagesURL", c.messagesURL)
 
 	// Build initialize request
 	request := map[string]interface{}{
@@ -210,7 +212,7 @@ func (c *SSEClient) Initialize(ctx context.Context) (*mcp.InitializeResult, erro
 		_ = resp.Body.Close()
 	}()
 
-	logger.Info("SSE initialize POST completed", "status", resp.StatusCode)
+	logger.V(1).Info("SSE initialize POST completed", "status", resp.StatusCode)
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		body, _ := io.ReadAll(resp.Body)
@@ -218,7 +220,7 @@ func (c *SSEClient) Initialize(ctx context.Context) (*mcp.InitializeResult, erro
 	}
 
 	// Read response from SSE stream
-	logger.Info("Reading initialize response from SSE stream")
+	logger.V(1).Info("Reading initialize response from SSE stream")
 	response, err := c.readInitializeResponse(ctx)
 	if err != nil {
 		logger.Error(err, "Failed to read SSE initialize response")

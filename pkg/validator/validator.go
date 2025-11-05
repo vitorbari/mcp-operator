@@ -137,6 +137,7 @@ const (
 	CodePromptsListFailed      = "PROMPTS_LIST_FAILED"
 	CodeAuthRequired           = "AUTH_REQUIRED"
 	CodeAuthOnInitialize       = "AUTH_ON_INITIALIZE"
+	CodeProtocolMismatch       = "PROTOCOL_MISMATCH"
 )
 
 // Option configures a Validator during creation
@@ -172,6 +173,19 @@ func WithHTTPClient(client *http.Client) Option {
 func WithMetricsRecorder(m MetricsRecorder) Option {
 	return func(v *Validator) {
 		v.metricsRecorder = m
+	}
+}
+
+// WithMetricsEnabled enables or disables Prometheus metrics collection
+// When disabled, the validator will use a no-op recorder that doesn't collect metrics
+// When enabled (default), metrics are collected and must be registered via RegisterMetrics()
+func WithMetricsEnabled(enabled bool) Option {
+	return func(v *Validator) {
+		if enabled {
+			v.metricsRecorder = NewMetricsRecorder(true)
+		} else {
+			v.metricsRecorder = NewNoOpMetricsRecorder()
+		}
 	}
 }
 
@@ -238,7 +252,7 @@ func NewValidator(baseURL string, opts ...Option) *Validator {
 		detector:         NewTransportDetector(defaultTimeout),
 		transportFactory: NewTransportFactory(httpClient),
 		versionDetector:  NewProtocolVersionDetector(),
-		metricsRecorder:  NewMetricsRecorder(),
+		metricsRecorder:  NewMetricsRecorder(true), // Enabled by default
 	}
 
 	// Apply functional options

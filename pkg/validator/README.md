@@ -1,38 +1,22 @@
 # MCP Validator
 
-A production-ready Go package for validating Model Context Protocol (MCP) servers with advanced features including retry logic, metrics, and connection pooling.
+A Go package for validating Model Context Protocol (MCP) servers with support for both Streamable HTTP and SSE transports.
 
 ## Overview
 
-The MCP Validator provides comprehensive validation of MCP servers, supporting **Streamable HTTP** (2025-03-26, 2025-06-18) and **SSE** (2024-11-05) transport protocols. It can be used independently of the mcp-operator or integrated into any Go application.
+The MCP Validator validates MCP server implementations against the official protocol specification. It supports **Streamable HTTP** (2025-03-26, 2025-06-18) and **SSE** (2024-11-05) transports with automatic protocol detection.
+
+This package can be used standalone or integrated into the mcp-operator Kubernetes controller.
 
 ## Features
 
-### Core Validation
-- ✅ **Transport Auto-Detection** - Automatically detects and prefers Streamable HTTP over SSE with **2-second** fast-fail detection
-- ✅ **Protocol Version Support** - Supports MCP versions 2024-11-05, 2025-03-26, and 2025-06-18
-- ✅ **Explicit Transport Selection** - Optionally specify `streamable-http` or `sse` to skip auto-detection
-- ✅ **Capability Discovery** - Identifies tools, resources, prompts, and logging capabilities
-- ✅ **Comprehensive Testing** - Tests capability endpoints (tools/list, resources/list, prompts/list)
-- ✅ **Transport Interface** - Pluggable transport system for extensibility
-
-### Reliability
-- ✅ **Retry Logic** - Automatic retry with exponential backoff for transient failures
-- ✅ **Enhanced Error Messages** - Actionable suggestions for fixing issues with 12 issue templates
-- ✅ **Timeout Management** - Granular timeout controls (detection, connection, request, TLS)
-- ✅ **Strict Mode** - Optional strict validation mode for production use
-
-### Performance
-- ✅ **HTTP Client Reuse** - Connection pooling for 50-90% reduction in connection overhead
-- ✅ **Keep-Alive Support** - HTTP/1.1 persistent connections enabled by default
-- ✅ **Configurable Pools** - Control max connections, idle connections, and timeouts
-- ✅ **Optimized for Concurrency** - High-volume configuration preset available
-
-### Observability
-- ✅ **Prometheus Metrics** - 6 built-in metrics for monitoring validation operations
-- ✅ **Protocol Version Tracking** - Track version distribution across servers
-- ✅ **Error Metrics** - Monitor error types and frequencies
-- ✅ **Retry Metrics** - Measure retry behavior and tune configuration
+- **Transport Auto-Detection** - Automatically detects and prefers Streamable HTTP over SSE
+- **Protocol Version Support** - MCP versions 2024-11-05, 2025-03-26, and 2025-06-18
+- **Capability Discovery** - Identifies tools, resources, prompts, and logging capabilities
+- **Retry Logic** - Automatic retry with exponential backoff for transient failures
+- **Connection Pooling** - HTTP client reuse for improved performance
+- **Prometheus Metrics** - Built-in metrics for monitoring validation operations
+- **Enhanced Error Messages** - Actionable suggestions for fixing validation issues
 
 ## Installation
 
@@ -56,7 +40,7 @@ import (
 )
 
 func main() {
-    // Create validator for your MCP server
+    // Create validator
     v := validator.NewValidator("http://localhost:3001")
 
     // Run validation
@@ -75,32 +59,12 @@ func main() {
         fmt.Printf("❌ Validation failed:\n")
         for _, issue := range result.Issues {
             fmt.Printf("  [%s] %s\n", issue.Level, issue.Message)
+            if len(issue.Suggestions) > 0 {
+                fmt.Printf("    Suggestion: %s\n", issue.Suggestions[0])
+            }
         }
     }
 }
-```
-
-### Advanced Configuration
-
-```go
-// Use functional options for custom configuration
-v := validator.NewValidator(
-    "http://localhost:3001",
-    validator.WithTimeout(60*time.Second),
-    validator.WithHTTPClient(customHTTPClient),
-)
-
-result, err := v.Validate(context.Background(), validator.ValidationOptions{})
-
-// Or use comprehensive configuration
-config := validator.ValidatorConfig{
-    BaseURL: "http://localhost:3001",
-    Timeouts: validator.DefaultTimeoutConfig(),
-    HTTPClient: validator.DefaultHTTPClientConfig(),
-}
-
-v := validator.NewValidatorWithConfig(config)
-result, err := v.Validate(context.Background(), validator.ValidationOptions{})
 ```
 
 ### With Retry Logic
@@ -114,35 +78,7 @@ retryable := validator.NewRetryableValidatorWithDefaults(v)
 result, err := retryable.Validate(context.Background(), validator.ValidationOptions{})
 ```
 
-### Enhanced Error Messages
-
-```go
-result, _ := v.Validate(context.Background(), validator.ValidationOptions{})
-
-if !result.Success {
-    // Issues automatically include actionable suggestions
-    for _, issue := range result.Issues {
-        fmt.Printf("\n[%s] %s: %s\n", issue.Level, issue.Code, issue.Message)
-
-        if len(issue.Suggestions) > 0 {
-            fmt.Println("Suggestions:")
-            for i, suggestion := range issue.Suggestions {
-                fmt.Printf("  %d. %s\n", i+1, suggestion)
-            }
-        }
-
-        if issue.DocumentationURL != "" {
-            fmt.Printf("\nDocumentation: %s\n", issue.DocumentationURL)
-        }
-    }
-
-    // Or use EnhanceIssues() for backward compatibility
-    enhanced := result.EnhanceIssues()
-    // ... use enhanced issues
-}
-```
-
-### Fluent API
+### Fluent Configuration
 
 ```go
 // Chain configuration options
@@ -150,44 +86,141 @@ opts := validator.ValidationOptions{}.
     WithStrictMode().
     WithRequiredCapabilities("tools", "resources").
     WithTransport(validator.TransportStreamableHTTP).
-    WithPath("/mcp").
-    WithTimeouts(validator.FastTimeoutConfig())
+    WithPath("/mcp")
 
 result, err := v.Validate(context.Background(), opts)
 ```
 
-## Configuration Presets
+## Prometheus Metrics
 
-### Timeout Configurations
+### For Kubernetes Operators
 
 ```go
-// Default timeouts (30s overall, balanced)
-config := validator.DefaultTimeoutConfig()
+import (
+    ctrl "sigs.k8s.io/controller-runtime"
+    "github.com/vitorbari/mcp-operator/pkg/validator"
+)
 
-// Fast timeouts (10s overall, fail-fast)
-config := validator.FastTimeoutConfig()
+func main() {
+    // Setup manager
+    mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+        // ... options
+    })
 
-// Slow timeouts (120s overall, patient)
-config := validator.SlowTimeoutConfig()
+    // Register validator metrics
+    if err := validator.RegisterMetrics(validator.MetricsConfig{
+        Register: true,
+        Registry: nil, // Uses controller-runtime metrics.Registry
+    }); err != nil {
+        panic(err)
+    }
+
+    // Create validator (metrics enabled by default)
+    v := validator.NewValidator("http://mcp-server:8080")
+
+    // Metrics exposed alongside controller-runtime metrics
+}
 ```
 
-### HTTP Client Configurations
+### For Standalone Applications
 
 ```go
-// Default (100 idle connections, good for most cases)
-clientConfig := validator.DefaultHTTPClientConfig()
+import (
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/prometheus/client_golang/prometheus/promhttp"
+    "github.com/vitorbari/mcp-operator/pkg/validator"
+)
 
-// High-volume (200 idle connections, for concurrent validation)
-clientConfig := validator.HighVolumeHTTPClientConfig()
+func main() {
+    // Create registry
+    registry := prometheus.NewRegistry()
+
+    // Register validator metrics
+    if err := validator.RegisterMetrics(validator.MetricsConfig{
+        Register: true,
+        Registry: registry,
+    }); err != nil {
+        panic(err)
+    }
+
+    // Create validator
+    v := validator.NewValidator("http://localhost:8080")
+
+    // Expose metrics
+    http.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
+    go http.ListenAndServe(":9090", nil)
+
+    // Perform validations
+    result, _ := v.Validate(context.Background(), validator.ValidationOptions{})
+}
 ```
 
-## Advanced Usage
-
-### Custom Retry Configuration
+### Disabling Metrics
 
 ```go
-v := validator.NewValidator("http://localhost:3001")
+// Disable during creation
+v := validator.NewValidator(
+    "http://localhost:8080",
+    validator.WithMetricsEnabled(false),
+)
 
+// Or use NoOp recorder
+v := validator.NewValidator("http://localhost:8080")
+v.SetMetricsRecorder(validator.NewNoOpMetricsRecorder())
+```
+
+### Available Metrics
+
+- **`mcp_validator_duration_seconds`** (Histogram) - Validation duration by transport and success
+- **`mcp_validator_validations_total`** (Counter) - Total validation count by transport and result
+- **`mcp_validator_detection_attempts_total`** (Counter) - Transport detection attempts
+- **`mcp_validator_retries`** (Histogram) - Retry attempts per validation
+- **`mcp_validator_errors_total`** (Counter) - Errors by code and transport
+- **`mcp_validator_protocol_versions_total`** (Counter) - Protocol version distribution
+
+## Configuration
+
+### Timeout Presets
+
+```go
+validator.DefaultTimeoutConfig()  // 30s overall, balanced
+validator.FastTimeoutConfig()     // 10s overall, fail-fast
+validator.SlowTimeoutConfig()     // 120s overall, patient
+```
+
+### HTTP Client Presets
+
+```go
+validator.DefaultHTTPClientConfig()     // 100 idle connections
+validator.HighVolumeHTTPClientConfig()  // 200 idle connections, high concurrency
+```
+
+### Custom Configuration
+
+```go
+config := validator.ValidatorConfig{
+    BaseURL: "http://localhost:3001",
+    Timeouts: validator.TimeoutConfig{
+        Overall:      60 * time.Second,
+        Detection:    5 * time.Second,
+        Connection:   10 * time.Second,
+        Request:      20 * time.Second,
+        TLSHandshake: 10 * time.Second,
+    },
+    HTTPClient: validator.HTTPClientConfig{
+        MaxIdleConns:        200,
+        MaxIdleConnsPerHost: 20,
+        IdleConnTimeout:     120 * time.Second,
+        DisableKeepAlives:   false,
+    },
+}
+
+v := validator.NewValidatorWithConfig(config)
+```
+
+### Retry Configuration
+
+```go
 retryConfig := validator.RetryConfig{
     MaxAttempts:  5,
     InitialDelay: 1 * time.Second,
@@ -201,228 +234,9 @@ retryConfig := validator.RetryConfig{
 }
 
 retryable := validator.NewRetryableValidator(v, retryConfig)
-result, err := retryable.Validate(context.Background(), validator.ValidationOptions{})
-```
-
-### Custom HTTP Client
-
-```go
-config := validator.ValidatorConfig{
-    BaseURL: "http://localhost:3001",
-    HTTPClient: validator.HTTPClientConfig{
-        MaxIdleConns:        200,
-        MaxIdleConnsPerHost: 20,
-        IdleConnTimeout:     120 * time.Second,
-        DisableKeepAlives:   false,
-    },
-}
-
-v := validator.NewValidatorWithConfig(config)
-```
-
-### Custom Metrics Recorder
-
-```go
-// Use NoOp recorder for testing
-v := validator.NewValidator("http://localhost:3001")
-v.SetMetricsRecorder(validator.NewNoOpMetricsRecorder())
-
-// Or implement custom MetricsRecorder interface
-type CustomRecorder struct{}
-func (r *CustomRecorder) RecordValidation(...) {}
-// ... implement other methods
-
-v.SetMetricsRecorder(&CustomRecorder{})
-```
-
-## API Reference
-
-### Types
-
-#### Validator
-
-```go
-// Create a new validator with optional configuration
-func NewValidator(baseURL string, opts ...Option) *Validator
-func NewValidatorWithTimeout(baseURL string, timeout time.Duration) *Validator
-func NewValidatorWithConfig(config ValidatorConfig) *Validator
-
-// Functional options for NewValidator
-func WithTimeout(d time.Duration) Option
-func WithFactory(f TransportFactory) Option
-func WithHTTPClient(client *http.Client) Option
-func WithMetricsRecorder(m MetricsRecorder) Option
-
-// Validate an MCP server
-func (v *Validator) Validate(ctx context.Context, opts ValidationOptions) (*ValidationResult, error)
-
-// Configure metrics
-func (v *Validator) SetMetricsRecorder(recorder MetricsRecorder)
-```
-
-#### RetryableValidator
-
-```go
-// Create with retry support
-func NewRetryableValidator(validator *Validator, config RetryConfig) *RetryableValidator
-func NewRetryableValidatorWithDefaults(validator *Validator) *RetryableValidator
-
-// Validate with automatic retry
-func (r *RetryableValidator) Validate(ctx context.Context, opts ValidationOptions) (*ValidationResult, error)
-
-// Get configuration
-func (r *RetryableValidator) GetConfig() RetryConfig
-func (r *RetryableValidator) GetValidator() *Validator
-```
-
-#### ValidationOptions
-
-```go
-type ValidationOptions struct {
-    RequiredCapabilities []string      // Capabilities that must be present
-    Timeout              time.Duration // Timeout for validation operations
-    StrictMode           bool          // Requires all checks to pass
-    ConfiguredPath       string        // Path to test (e.g., "/mcp" or "/sse")
-    Transport            TransportType // Transport to use (skips auto-detection if set)
-}
-
-// Fluent API methods
-func (opts ValidationOptions) WithTimeouts(timeouts TimeoutConfig) ValidationOptions
-func (opts ValidationOptions) WithStrictMode() ValidationOptions
-func (opts ValidationOptions) WithRequiredCapabilities(capabilities ...string) ValidationOptions
-func (opts ValidationOptions) WithTransport(transport TransportType) ValidationOptions
-func (opts ValidationOptions) WithPath(path string) ValidationOptions
-```
-
-#### ValidationIssue
-
-```go
-type ValidationIssue struct {
-    Level            string   // Severity: "error", "warning", "info"
-    Message          string   // Human-readable description
-    Code             string   // Machine-readable issue code
-    Suggestions      []string // Actionable steps (auto-populated)
-    DocumentationURL string   // More information (auto-populated)
-    RelatedIssues    []string // Related issue codes (auto-populated)
-}
-```
-
-Issues are automatically enhanced with suggestions during validation. No separate enhancement step needed!
-
-#### ValidationResult
-
-```go
-type ValidationResult struct {
-    Success           bool              // Overall validation result
-    ProtocolVersion   string            // Detected MCP protocol version
-    Capabilities      []string          // Discovered capabilities
-    ServerInfo        *ServerInfo       // Server implementation details
-    Issues            []ValidationIssue // Validation problems (pre-enhanced with suggestions)
-    Duration          time.Duration     // Validation duration
-    DetectedTransport TransportType     // Transport protocol used
-    Endpoint          string            // Full URL that was validated
-}
-
-// Convenience methods
-func (r *ValidationResult) IsCompliant() bool
-func (r *ValidationResult) HasErrors() bool
-func (r *ValidationResult) ErrorMessages() []string
-func (r *ValidationResult) EnhanceIssues() []EnhancedValidationIssue // For backward compatibility
-func (r *ValidationResult) EnhanceIssuesWithCatalog(catalog *IssueCatalog) []EnhancedValidationIssue
-```
-
-#### ValidatorConfig
-
-```go
-type ValidatorConfig struct {
-    BaseURL          string
-    Timeouts         TimeoutConfig
-    HTTPClient       HTTPClientConfig
-    MetricsRecorder  MetricsRecorder
-    TransportFactory TransportFactory
-}
-
-func DefaultValidatorConfig(baseURL string) ValidatorConfig
-```
-
-#### TimeoutConfig
-
-```go
-type TimeoutConfig struct {
-    Overall      time.Duration // Overall validation timeout
-    Detection    time.Duration // Transport detection timeout
-    Connection   time.Duration // TCP connection timeout
-    Request      time.Duration // HTTP request timeout
-    TLSHandshake time.Duration // TLS handshake timeout
-}
-
-func DefaultTimeoutConfig() TimeoutConfig
-func FastTimeoutConfig() TimeoutConfig
-func SlowTimeoutConfig() TimeoutConfig
-```
-
-#### RetryConfig
-
-```go
-type RetryConfig struct {
-    MaxAttempts     int
-    InitialDelay    time.Duration
-    MaxDelay        time.Duration
-    Multiplier      float64
-    RetryableErrors []string
-}
-
-func DefaultRetryConfig() RetryConfig
-func NoRetryConfig() RetryConfig
-```
-
-## Prometheus Metrics
-
-The validator exposes the following Prometheus metrics via controller-runtime:
-
-### `mcp_validator_duration_seconds` (Histogram)
-Labels: `transport`, `success`
-Tracks validation operation duration.
-
-### `mcp_validator_validations_total` (Counter)
-Labels: `transport`, `result`
-Total count of validation operations.
-
-### `mcp_validator_detection_attempts_total` (Counter)
-Labels: `transport`, `success`
-Count of transport auto-detection attempts.
-
-### `mcp_validator_retries` (Histogram)
-Labels: `transport`
-Number of retry attempts per validation.
-
-### `mcp_validator_errors_total` (Counter)
-Labels: `error_code`, `transport`
-Count of validation errors by type.
-
-### `mcp_validator_protocol_versions_total` (Counter)
-Labels: `version`
-Track protocol version distribution.
-
-### Example PromQL Queries
-
-```promql
-# Average validation duration by transport
-rate(mcp_validator_duration_seconds_sum[5m]) / rate(mcp_validator_duration_seconds_count[5m])
-
-# Validation failure rate
-rate(mcp_validator_validations_total{result="false"}[5m]) / rate(mcp_validator_validations_total[5m])
-
-# Validations per minute
-rate(mcp_validator_validations_total[1m]) * 60
-
-# Most common errors
-topk(5, sum by (error_code) (rate(mcp_validator_errors_total[5m])))
 ```
 
 ## Testing
-
-The validator comes with comprehensive test suites:
 
 ### Unit Tests
 
@@ -432,50 +246,45 @@ go test ./pkg/validator/
 
 ### Integration Tests
 
-Test against real MCP servers:
-
 ```bash
-# Start an MCP server
+# Start MCP server
 docker run -d -p 3001:3001 tzolov/mcp-everything-server:v3
 
-# Run SSE integration tests
+# Test SSE
 export MCP_SSE_TEST_ENDPOINT=http://localhost:3001/sse
 go test -v -run TestSSEClient ./pkg/validator/
 
-# Run HTTP integration tests
+# Test Streamable HTTP
 export MCP_HTTP_TEST_ENDPOINT=http://localhost:3001/mcp
 go test -v -run TestStreamableHTTPClient ./pkg/validator/
 ```
 
-### Integration Tests (End-to-End)
-
-End-to-end tests against actual MCP server implementations using testcontainers:
+### End-to-End Tests
 
 ```bash
-# Run integration tests with the 'integration' build tag
+# Run with integration tag
 go test -tags integration -v -run TestRealWorld ./pkg/validator/
 ```
 
 ## Examples
 
-### Example 1: Production-Ready Validation with Retry
+### Production Validation with Retry
 
 ```go
 func validateServer(serverURL string) error {
-    // Create validator with functional options
+    // Create validator
     v := validator.NewValidator(
         serverURL,
         validator.WithTimeout(30*time.Second),
     )
 
-    // Wrap with retry logic
+    // Add retry logic
     retryable := validator.NewRetryableValidatorWithDefaults(v)
 
-    // Validate with strict mode and required capabilities
+    // Validate with strict mode
     opts := validator.ValidationOptions{}.
         WithStrictMode().
-        WithRequiredCapabilities("tools").
-        WithTimeouts(validator.DefaultTimeoutConfig())
+        WithRequiredCapabilities("tools")
 
     result, err := retryable.Validate(context.Background(), opts)
     if err != nil {
@@ -483,7 +292,6 @@ func validateServer(serverURL string) error {
     }
 
     if !result.Success {
-        // Issues already include actionable suggestions
         for _, issue := range result.Issues {
             log.Printf("[%s] %s", issue.Code, issue.Message)
             if len(issue.Suggestions) > 0 {
@@ -497,11 +305,10 @@ func validateServer(serverURL string) error {
 }
 ```
 
-### Example 2: High-Volume Concurrent Validation
+### Concurrent Validation
 
 ```go
 func validateMultipleServers(serverURLs []string) {
-    // Use high-volume configuration
     config := validator.ValidatorConfig{
         Timeouts:   validator.FastTimeoutConfig(),
         HTTPClient: validator.HighVolumeHTTPClientConfig(),
@@ -520,7 +327,7 @@ func validateMultipleServers(serverURLs []string) {
             if err != nil || !result.Success {
                 log.Printf("❌ %s failed validation", serverURL)
             } else {
-                log.Printf("✅ %s validated successfully", serverURL)
+                log.Printf("✅ %s validated", serverURL)
             }
         }(url)
     }
@@ -528,32 +335,86 @@ func validateMultipleServers(serverURLs []string) {
 }
 ```
 
-### Example 3: Monitoring with Metrics
+## API Reference
+
+### Core Types
 
 ```go
-// Metrics are automatically recorded to Prometheus
-// Access them via controller-runtime metrics endpoint
+// Create validator
+func NewValidator(baseURL string, opts ...Option) *Validator
+func NewValidatorWithTimeout(baseURL string, timeout time.Duration) *Validator
+func NewValidatorWithConfig(config ValidatorConfig) *Validator
 
-func setupMetrics() {
-    http.Handle("/metrics", promhttp.Handler())
-    go http.ListenAndServe(":8080", nil)
+// Validate MCP server
+func (v *Validator) Validate(ctx context.Context, opts ValidationOptions) (*ValidationResult, error)
+```
+
+### Options
+
+```go
+// Functional options
+func WithTimeout(d time.Duration) Option
+func WithHTTPClient(client *http.Client) Option
+func WithMetricsEnabled(enabled bool) Option
+```
+
+### Validation Options
+
+```go
+type ValidationOptions struct {
+    RequiredCapabilities []string
+    Timeout              time.Duration
+    StrictMode           bool
+    ConfiguredPath       string
+    Transport            TransportType
 }
 
-func main() {
-    setupMetrics()
+// Fluent methods
+func (opts ValidationOptions) WithStrictMode() ValidationOptions
+func (opts ValidationOptions) WithRequiredCapabilities(caps ...string) ValidationOptions
+func (opts ValidationOptions) WithTransport(t TransportType) ValidationOptions
+func (opts ValidationOptions) WithPath(path string) ValidationOptions
+```
 
-    // All validations automatically record metrics
-    v := validator.NewValidator("http://localhost:3001")
-    result, _ := v.Validate(context.Background(), validator.ValidationOptions{})
+### Validation Result
 
-    // Metrics are available at http://localhost:8080/metrics
+```go
+type ValidationResult struct {
+    Success           bool
+    ProtocolVersion   string
+    Capabilities      []string
+    ServerInfo        *ServerInfo
+    Issues            []ValidationIssue  // Pre-enhanced with suggestions
+    Duration          time.Duration
+    DetectedTransport TransportType
+    Endpoint          string
+}
+
+func (r *ValidationResult) IsCompliant() bool
+func (r *ValidationResult) HasErrors() bool
+func (r *ValidationResult) ErrorMessages() []string
+```
+
+### Validation Issues
+
+```go
+type ValidationIssue struct {
+    Level            string    // "error", "warning", "info"
+    Message          string    // Human-readable description
+    Code             string    // Machine-readable code
+    Suggestions      []string  // Actionable steps (auto-populated)
+    DocumentationURL string    // Reference link (auto-populated)
 }
 ```
 
 ## Protocol Support
 
-- **MCP 2024-11-05** - Legacy SSE-based transport ✅
-- **MCP 2025-03-26** - Streamable HTTP transport ✅
-- **MCP 2025-06-18** - Latest with OAuth 2.1 support ✅ (Preferred)
+- **MCP 2024-11-05** - SSE transport
+- **MCP 2025-03-26** - Streamable HTTP transport
+- **MCP 2025-06-18** - Latest with OAuth 2.1 (Preferred)
 
-The validator automatically detects and prefers the newer Streamable HTTP transport when both are available.
+The validator automatically detects and prefers Streamable HTTP when available.
+
+## License
+
+Apache License 2.0

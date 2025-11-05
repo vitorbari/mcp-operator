@@ -43,4 +43,3 @@ spec:
     strictMode: true
     requiredCapabilities:
       - "tools"
-    healthCheckInterval: "1m"

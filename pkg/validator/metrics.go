@@ -81,16 +81,47 @@ var (
 	)
 )
 
-func init() {
-	// Register metrics with controller-runtime metrics registry
-	metrics.Registry.MustRegister(
+// MetricsConfig controls metric registration for the validator
+type MetricsConfig struct {
+	// Register controls whether to register metrics with Prometheus
+	Register bool
+	// Registry is the Prometheus registry to use (defaults to controller-runtime metrics.Registry)
+	Registry prometheus.Registerer
+}
+
+// RegisterMetrics explicitly registers validator metrics with a Prometheus registry.
+// This must be called by applications that want validator metrics.
+// It's safe to call multiple times - already registered metrics are ignored.
+func RegisterMetrics(config MetricsConfig) error {
+	if !config.Register {
+		return nil
+	}
+
+	registry := config.Registry
+	if registry == nil {
+		// Default to controller-runtime metrics registry
+		registry = metrics.Registry
+	}
+
+	collectors := []prometheus.Collector{
 		validationDuration,
 		detectionAttempts,
 		validationRetries,
 		validationErrors,
 		protocolVersions,
 		validationTotal,
-	)
+	}
+
+	for _, collector := range collectors {
+		if err := registry.Register(collector); err != nil {
+			// If already registered, that's okay - ignore the error
+			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // MetricsRecorder handles recording validation metrics
@@ -104,15 +135,22 @@ type MetricsRecorder interface {
 }
 
 // PrometheusMetricsRecorder implements MetricsRecorder using Prometheus
-type PrometheusMetricsRecorder struct{}
+type PrometheusMetricsRecorder struct {
+	enabled bool
+}
 
 // NewMetricsRecorder creates a new metrics recorder
-func NewMetricsRecorder() MetricsRecorder {
-	return &PrometheusMetricsRecorder{}
+// If enabled is false, the recorder will be a no-op (no metrics recorded)
+func NewMetricsRecorder(enabled bool) MetricsRecorder {
+	return &PrometheusMetricsRecorder{enabled: enabled}
 }
 
 // RecordValidation records a validation operation
 func (r *PrometheusMetricsRecorder) RecordValidation(transport string, success bool, duration time.Duration) {
+	if !r.enabled {
+		return
+	}
+
 	successLabel := "false"
 	if success {
 		successLabel = "true"
@@ -124,6 +162,10 @@ func (r *PrometheusMetricsRecorder) RecordValidation(transport string, success b
 
 // RecordDetection records a transport detection attempt
 func (r *PrometheusMetricsRecorder) RecordDetection(transport string, success bool) {
+	if !r.enabled {
+		return
+	}
+
 	successLabel := "false"
 	if success {
 		successLabel = "true"
@@ -134,16 +176,28 @@ func (r *PrometheusMetricsRecorder) RecordDetection(transport string, success bo
 
 // RecordRetries records the number of retry attempts
 func (r *PrometheusMetricsRecorder) RecordRetries(transport string, retries int) {
+	if !r.enabled {
+		return
+	}
+
 	validationRetries.WithLabelValues(transport).Observe(float64(retries))
 }
 
 // RecordError records a validation error by type
 func (r *PrometheusMetricsRecorder) RecordError(errorCode string, transport string) {
+	if !r.enabled {
+		return
+	}
+
 	validationErrors.WithLabelValues(errorCode, transport).Inc()
 }
 
 // RecordProtocolVersion records a detected protocol version
 func (r *PrometheusMetricsRecorder) RecordProtocolVersion(version string) {
+	if !r.enabled {
+		return
+	}
+
 	protocolVersions.WithLabelValues(version).Inc()
 }
 
@@ -166,8 +220,8 @@ func (r *NoOpMetricsRecorder) RecordError(errorCode string, transport string) {}
 
 func (r *NoOpMetricsRecorder) RecordProtocolVersion(version string) {}
 
-// Global default metrics recorder
-var defaultMetricsRecorder MetricsRecorder = NewMetricsRecorder()
+// Global default metrics recorder (enabled by default for backward compatibility)
+var defaultMetricsRecorder MetricsRecorder = NewMetricsRecorder(true)
 
 // SetDefaultMetricsRecorder allows replacing the default recorder (useful for testing)
 func SetDefaultMetricsRecorder(recorder MetricsRecorder) {
