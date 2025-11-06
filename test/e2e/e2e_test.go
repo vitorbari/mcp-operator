@@ -114,11 +114,11 @@ var _ = Describe("Manager", Ordered, func() {
 		_, _ = utils.Run(cmd)
 
 		By("removing test namespace (and all MCPServer resources)")
-		cmd = exec.Command("kubectl", "delete", "ns", testNamespace)
+		cmd = exec.Command("kubectl", "delete", "ns", testNamespace, "--timeout=120s")
 		_, _ = utils.Run(cmd)
 
 		By("removing monitoring resources")
-		cmd = exec.Command("kubectl", "delete", "-f", "../../dist/monitoring.yaml", "--ignore-not-found")
+		cmd = exec.Command("kubectl", "delete", "-f", "../../dist/monitoring.yaml", "--ignore-not-found", "--timeout=60s")
 		_, _ = utils.Run(cmd)
 
 		By("undeploying the controller-manager")
@@ -130,7 +130,7 @@ var _ = Describe("Manager", Ordered, func() {
 		_, _ = utils.Run(cmd)
 
 		By("removing operator namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", operatorNamespace)
+		cmd = exec.Command("kubectl", "delete", "ns", operatorNamespace, "--timeout=120s")
 		_, _ = utils.Run(cmd)
 	})
 
