@@ -1,3 +1,25 @@
+# =============================================================================
+# IMPORTANT: This is a COMPREHENSIVE REFERENCE EXAMPLE
+# =============================================================================
+# This file showcases ALL available MCPServer features and configuration options.
+# It is designed as documentation and requires production-grade infrastructure:
+#
+# Prerequisites:
+#   - Metrics server (for HPA)
+#   - Ingress controller (nginx)
+#   - Cert-manager (for TLS)
+#   - Custom node labels (disk-type, workload-type)
+#   - External ConfigMaps and Secrets
+#   - Service accounts and RBAC configuration
+#
+# ⚠️  NOT SUITABLE FOR LOCAL TESTING ⚠️
+#
+# For local development and testing, use instead:
+#   - config/samples/mcp-basic-example.yaml (simple, production-ready)
+#   - config/samples/wikipedia-http.yaml (minimal SSE example)
+#
+# =============================================================================
+
 apiVersion: mcp.mcp-operator.io/v1
 kind: MCPServer
 metadata:
