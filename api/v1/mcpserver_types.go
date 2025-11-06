@@ -496,29 +496,47 @@ const (
 	ValidationStateFailed ValidationState = "Failed"
 )
 
-// ValidationSpec defines MCP protocol validation configuration; validation occurs on deployment (create/update), not periodically
+// ValidationSpec defines MCP protocol validation configuration.
+//
+// IMPORTANT: Validation is ENABLED BY DEFAULT even if this entire spec is omitted.
+// To disable validation, explicitly set enabled: false.
+//
+// Default behavior (when spec.validation is nil or empty):
+//   - Protocol auto-detection runs automatically
+//   - Authentication detection runs automatically
+//   - Capabilities are discovered from server
+//   - StrictMode is false (deployment continues even if validation fails)
+//   - Validation results populate status.validation fields
+//
+// Validation occurs on deployment (create/update), not periodically.
 type ValidationSpec struct {
-	// Enabled indicates if protocol validation should be performed
+	// Enabled indicates if protocol validation should be performed.
+	// Default: true (validation runs even when this spec is omitted)
+	// Set to false to explicitly disable all validation.
 	// +kubebuilder:default=true
 	// +optional
 	Enabled *bool `json:"enabled,omitempty"`
 
-	// TransportProtocol specifies which transport protocol to validate against
-	// If not specified, uses the protocol from spec.transport.protocol
+	// TransportProtocol specifies which transport protocol to validate against.
+	// If not specified, uses the protocol from spec.transport.protocol.
 	// Valid values:
-	// - "auto": Auto-detect and validate all supported protocols
+	// - "auto": Auto-detect and validate all supported protocols (default)
 	// - "streamable-http": Only validate Streamable HTTP protocol
 	// - "sse": Only validate SSE protocol
 	// +kubebuilder:validation:Enum=auto;streamable-http;sse
 	// +optional
 	TransportProtocol MCPTransportProtocol `json:"transportProtocol,omitempty"`
 
-	// StrictMode fails deployment if validation fails
+	// StrictMode fails deployment if validation fails.
+	// When false (default), deployment continues and validation issues are reported in status.
+	// When true, the MCPServer phase becomes "Failed" and deployment is scaled to 0 replicas.
+	// Default: false
 	// +kubebuilder:default=false
 	// +optional
 	StrictMode *bool `json:"strictMode,omitempty"`
 
-	// RequiredCapabilities specifies capabilities that must be present
+	// RequiredCapabilities specifies capabilities that must be present.
+	// If specified, validation fails if server doesn't advertise all required capabilities.
 	// Valid values: "tools", "resources", "prompts"
 	// +optional
 	RequiredCapabilities []string `json:"requiredCapabilities,omitempty"`

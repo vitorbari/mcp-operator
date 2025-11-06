@@ -1021,13 +1021,11 @@ func (r *MCPServerReconciler) shouldResetValidationForRecovery(mcpServer *mcpv1.
 
 // shouldValidate determines if protocol validation should be performed
 func (r *MCPServerReconciler) shouldValidate(ctx context.Context, mcpServer *mcpv1.MCPServer) bool {
-	// Check if validation is enabled
-	if mcpServer.Spec.Validation == nil {
-		return false
-	}
-
-	// Check if enabled is explicitly set to false
-	if mcpServer.Spec.Validation.Enabled != nil && !*mcpServer.Spec.Validation.Enabled {
+	// Validation is enabled by default
+	// Only skip if explicitly disabled with enabled: false
+	if mcpServer.Spec.Validation != nil &&
+		mcpServer.Spec.Validation.Enabled != nil &&
+		!*mcpServer.Spec.Validation.Enabled {
 		return false
 	}
 

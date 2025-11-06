@@ -320,17 +320,39 @@ transport:
 
 The MCP Operator includes built-in validation to ensure your MCP servers are protocol-compliant and correctly configured. This helps catch configuration errors early and ensures reliable MCP deployments.
 
+> **📘 Validation is ENABLED BY DEFAULT** - Even without a `validation:` section, the operator automatically detects protocol, authentication, and capabilities. See [detailed validation behavior documentation](docs/validation-behavior.md) for all configuration options.
+
 ### Features
 
+- **Enabled by Default**: Protocol validation runs automatically unless explicitly disabled
 - **Automatic Protocol Detection**: Validates transport endpoints (Streamable HTTP, SSE)
 - **Protocol Mismatch Detection**: Warns when configured protocol doesn't match actual server implementation
 - **Authentication Detection**: Identifies servers requiring authentication
+- **Capabilities Discovery**: Automatically discovers and reports server capabilities (tools, resources, prompts)
 - **Retry Logic**: Retries transient failures (up to 5 attempts) before marking as failed
 - **Strict Mode**: Optionally prevents non-compliant servers from running
 
-### Basic Validation
+### Quick Start - No Configuration Needed
 
-Enable validation to verify your MCP server responds correctly:
+The simplest MCP server gets automatic validation:
+
+```yaml
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: my-server
+spec:
+  image: "my-registry/mcp-server:v1"
+  # Validation runs automatically!
+  # - Protocol auto-detected
+  # - Auth auto-detected
+  # - Capabilities discovered
+  # Results appear in status.validation
+```
+
+### Explicit Validation Configuration
+
+You can configure validation behavior explicitly:
 
 ```yaml
 apiVersion: mcp.mcp-operator.io/v1
@@ -341,14 +363,25 @@ spec:
   image: "my-registry/mcp-server:v1"
   transport:
     type: http
-    protocol: auto
+    protocol: sse  # Expect SSE protocol
     config:
       http:
         port: 8080
-        path: "/mcp"
+        path: "/sse"
   validation:
-    enabled: true           # Enable protocol validation
+    enabled: true           # Explicit enable (default anyway)
     strictMode: false       # Allow non-compliant servers (default)
+    requiredCapabilities:   # Optional: require specific capabilities
+      - "tools"
+```
+
+### Disable Validation
+
+To skip validation entirely:
+
+```yaml
+validation:
+  enabled: false  # Only way to disable validation
 ```
 
 ### Strict Mode

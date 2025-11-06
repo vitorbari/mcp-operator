@@ -3450,19 +3450,26 @@ spec:
                 properties:
                   enabled:
                     default: true
-                    description: Enabled indicates if protocol validation should be
-                      performed
+                    description: |-
+                      Enabled indicates if protocol validation should be performed.
+                      Default: true (validation runs even when this spec is omitted)
+                      Set to false to explicitly disable all validation.
                     type: boolean
                   requiredCapabilities:
                     description: |-
-                      RequiredCapabilities specifies capabilities that must be present
+                      RequiredCapabilities specifies capabilities that must be present.
+                      If specified, validation fails if server doesn't advertise all required capabilities.
                       Valid values: "tools", "resources", "prompts"
                     items:
                       type: string
                     type: array
                   strictMode:
                     default: false
-                    description: StrictMode fails deployment if validation fails
+                    description: |-
+                      StrictMode fails deployment if validation fails.
+                      When false (default), deployment continues and validation issues are reported in status.
+                      When true, the MCPServer phase becomes "Failed" and deployment is scaled to 0 replicas.
+                      Default: false
                     type: boolean
                   transportProtocol:
                     allOf:
@@ -3475,10 +3482,10 @@ spec:
                       - streamable-http
                       - sse
                     description: |-
-                      TransportProtocol specifies which transport protocol to validate against
-                      If not specified, uses the protocol from spec.transport.protocol
+                      TransportProtocol specifies which transport protocol to validate against.
+                      If not specified, uses the protocol from spec.transport.protocol.
                       Valid values:
-                      - "auto": Auto-detect and validate all supported protocols
+                      - "auto": Auto-detect and validate all supported protocols (default)
                       - "streamable-http": Only validate Streamable HTTP protocol
                       - "sse": Only validate SSE protocol
                     type: string
