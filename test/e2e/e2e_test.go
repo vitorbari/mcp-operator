@@ -114,7 +114,8 @@ var _ = Describe("Manager", Ordered, func() {
 		_, _ = utils.Run(cmd)
 
 		By("removing test namespace (and all MCPServer resources)")
-		cmd = exec.Command("kubectl", "delete", "ns", testNamespace, "--timeout=120s")
+		// Use --wait=false to avoid hanging on finalizers during cleanup
+		cmd = exec.Command("kubectl", "delete", "ns", testNamespace, "--timeout=60s", "--wait=false")
 		_, _ = utils.Run(cmd)
 
 		By("removing monitoring resources")
@@ -130,7 +131,8 @@ var _ = Describe("Manager", Ordered, func() {
 		_, _ = utils.Run(cmd)
 
 		By("removing operator namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", operatorNamespace, "--timeout=120s")
+		// Use --wait=false to avoid hanging on finalizers during cleanup
+		cmd = exec.Command("kubectl", "delete", "ns", operatorNamespace, "--timeout=60s", "--wait=false")
 		_, _ = utils.Run(cmd)
 	})
 
