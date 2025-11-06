@@ -6,3 +6,6 @@ metadata:
 spec:
   image: "tzolov/mcp-everything-server:v3"
   command: ["node", "dist/index.js", "sse"]
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
