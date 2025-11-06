@@ -11,7 +11,7 @@
 >
 > **We welcome your feedback!** Please open issues for bugs, feature requests, or questions.
 
-A Kubernetes operator for managing Model Context Protocol (MCP) servers with features including HTTP/SSE transport, horizontal pod autoscaling, ingress support, and observability.
+A Kubernetes operator for managing Model Context Protocol (MCP) servers with features including HTTP/SSE transport, protocol validation, horizontal pod autoscaling, ingress support, and observability.
 
 ## Description
 
@@ -20,6 +20,7 @@ The MCP Operator simplifies deploying and managing MCP servers on Kubernetes. De
 **Key Features:**
 - **Declarative Management**: Define MCP servers using custom resources
 - **HTTP/SSE Transport**: Full support for HTTP and Server-Sent Events
+- **Protocol Validation**: Built-in compliance checking with optional strict mode
 - **Horizontal Pod Autoscaling**: CPU and memory-based autoscaling
 - **Pod Security**: Built-in Pod Security Standards compliance
 - **Ingress Support**: External access with session management
@@ -238,7 +239,7 @@ The dashboard displays real-time metrics for all MCPServers including readiness,
 |-------|------|-------------|
 | `image` | string | **Required.** Container image for the MCP server |
 | `replicas` | int32 | Number of desired replicas (default: 1) |
-| `transport` | object | Transport configuration (HTTP or custom) with protocol specification |
+| `transport` | object | Transport configuration with protocol specification |
 | `validation` | object | MCP protocol validation configuration |
 | `resources` | object | CPU and memory resource requirements |
 | `hpa` | object | Horizontal Pod Autoscaler configuration |
@@ -272,7 +273,7 @@ The operator supports explicit protocol specification or auto-detection:
 
 ```yaml
 transport:
-  type: http                        # Transport type: http or custom
+  type: http                        # Transport type
   protocol: auto                    # MCP protocol: auto, streamable-http, or sse (default: auto)
   config:
     http:
@@ -314,6 +315,194 @@ transport:
       port: 8080
       path: "/sse"
 ```
+
+## Protocol Validation
+
+The MCP Operator includes built-in validation to ensure your MCP servers are protocol-compliant and correctly configured. This helps catch configuration errors early and ensures reliable MCP deployments.
+
+### Features
+
+- **Automatic Protocol Detection**: Validates transport endpoints (Streamable HTTP, SSE)
+- **Protocol Mismatch Detection**: Warns when configured protocol doesn't match actual server implementation
+- **Authentication Detection**: Identifies servers requiring authentication
+- **Retry Logic**: Retries transient failures (up to 5 attempts) before marking as failed
+- **Strict Mode**: Optionally prevents non-compliant servers from running
+
+### Basic Validation
+
+Enable validation to verify your MCP server responds correctly:
+
+```yaml
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: validated-server
+spec:
+  image: "my-registry/mcp-server:v1"
+  transport:
+    type: http
+    protocol: auto
+    config:
+      http:
+        port: 8080
+        path: "/mcp"
+  validation:
+    enabled: true           # Enable protocol validation
+    strictMode: false       # Allow non-compliant servers (default)
+```
+
+### Strict Mode
+
+When strict mode is enabled, the operator will delete the deployment if validation fails after all retry attempts:
+
+```yaml
+validation:
+  enabled: true
+  strictMode: true          # Delete deployment if validation fails
+```
+
+**Strict Mode Behavior:**
+- Deployment is created and pods start normally
+- Operator validates MCP protocol compliance
+- If validation fails after 5 attempts (~4.5 minutes):
+  - Deployment is deleted
+  - Phase transitions to `ValidationFailed`
+  - No further retries until spec is updated
+- Update the spec to fix configuration and trigger revalidation
+
+### Validation Status
+
+Check validation results in the MCPServer status:
+
+```sh
+kubectl get mcpserver my-server -o jsonpath='{.status.validation}'
+```
+
+Example output:
+
+```json
+{
+  "state": "Compliant",
+  "compliant": true,
+  "attempts": 1,
+  "lastValidated": "2025-11-03T20:00:00Z",
+  "requiresAuth": false,
+  "protocol": "streamable-http",
+  "transport": {
+    "lastDetected": "2025-11-03T20:00:00Z"
+  }
+}
+```
+
+**Validation States:**
+- `Pending` - Initial state, validation not yet started
+- `Validating` - Actively validating the server
+- `Compliant` - Server is MCP protocol compliant
+- `Failed` - Validation failed (see issues for details)
+
+### Viewing Validation Issues
+
+If validation fails, check the status for detailed error information:
+
+```sh
+kubectl get mcpserver my-server -o jsonpath='{.status.validation.issues}'
+```
+
+Example issues:
+
+```json
+[
+  {
+    "code": "TRANSPORT_DETECTION_FAILED",
+    "level": "error",
+    "message": "Failed to detect transport: could not connect to http://my-server.default.svc.cluster.local:8080/mcp"
+  },
+  {
+    "code": "PROTOCOL_MISMATCH",
+    "level": "warning",
+    "message": "Protocol mismatch: configured streamable-http but detected sse"
+  }
+]
+```
+
+### Common Validation Scenarios
+
+**Scenario 1: Wrong Port Configuration**
+```yaml
+# Server listens on 3001, but configured as 8080
+transport:
+  config:
+    http:
+      port: 8080  # Wrong port!
+```
+Result: `TRANSPORT_DETECTION_FAILED` - Fix the port and validation will succeed on the next attempt.
+
+**Scenario 2: Protocol Mismatch**
+```yaml
+# Server implements SSE, but configured as streamable-http
+transport:
+  protocol: streamable-http  # Mismatch!
+```
+Result: `PROTOCOL_MISMATCH` warning - Server runs in non-strict mode, but update to `protocol: sse` for correct configuration.
+
+**Scenario 3: Authentication Required**
+```yaml
+# Server requires auth but no credentials provided
+validation:
+  enabled: true
+```
+Result: Validation detects `requiresAuth: true` - Add authentication configuration to your server setup.
+
+### Events and Monitoring
+
+Monitor validation progress through Kubernetes events:
+
+```sh
+kubectl get events --field-selector involvedObject.name=my-server
+```
+
+Example events:
+```
+Normal   ValidationStarted   Validation started for MCP server
+Warning  ValidationRetry     Validation failed (attempt 2/5), will retry
+Warning  ValidationFailed    Validation failed after 5/5 attempts
+Warning  DeploymentDeleted   Deleted deployment after 5 validation attempts in strict mode
+Normal   ValidationSuccess   MCP server passed protocol validation
+```
+
+### Best Practices
+
+1. **Enable Validation in Development**: Catch configuration errors early
+2. **Use Strict Mode in Production**: Ensure only compliant servers run
+3. **Monitor Validation Status**: Set up alerts for `ValidationFailed` phase
+4. **Update Specs to Retry**: Fix issues and update spec to trigger revalidation
+5. **Check Auth Requirements**: Validation will detect if authentication is needed
+
+### Advanced Configuration
+
+The validation retry behavior can be customized via environment variables on the controller deployment:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-operator-controller-manager
+spec:
+  template:
+    spec:
+      containers:
+      - name: manager
+        env:
+        - name: MCP_MAX_VALIDATION_ATTEMPTS
+          value: "5"  # Default: 5 attempts for transient errors
+        - name: MCP_MAX_PERMANENT_ERROR_ATTEMPTS
+          value: "2"  # Default: 2 attempts for permanent errors
+```
+
+**Use cases:**
+- **Testing environments**: Reduce retry counts (e.g., `"3"`) to speed up E2E tests
+- **Production with slow services**: Increase retry counts (e.g., `"10"`) for services with long startup times
+- **Fail-fast scenarios**: Lower both values to `"1"` for immediate failure detection
 
 ## Examples and Samples
 

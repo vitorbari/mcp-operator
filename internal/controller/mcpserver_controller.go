@@ -1216,16 +1216,6 @@ func (r *MCPServerReconciler) validateServer(ctx context.Context, mcpServer *mcp
 		opts.ConfiguredPath = mcpServer.Spec.Transport.Config.HTTP.Path
 	}
 
-	// Add configured protocol if specified (for protocol mismatch detection)
-	// When protocol is not "auto", we still use auto-detection but can compare results
-	// Note: We always use auto-detection to discover what the server actually supports,
-	// then compare with the configured protocol to detect mismatches
-	if mcpServer.Spec.Transport != nil && mcpServer.Spec.Transport.Protocol != "" {
-		// Don't pass the protocol to the validator - let it auto-detect
-		// We'll compare the detected protocol with the configured one in checkProtocolMismatch
-		// This approach allows us to detect what the server actually implements
-	}
-
 	// Add required capabilities if specified
 	if mcpServer.Spec.Validation != nil && len(mcpServer.Spec.Validation.RequiredCapabilities) > 0 {
 		opts.RequiredCapabilities = mcpServer.Spec.Validation.RequiredCapabilities
