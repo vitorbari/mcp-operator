@@ -119,17 +119,20 @@ var _ = Describe("Manager", Ordered, func() {
 		_, _ = utils.Run(cmd)
 
 		By("removing monitoring resources")
-		cmd = exec.Command("kubectl", "delete", "-f", "../../dist/monitoring.yaml", "--ignore-not-found", "--timeout=60s", "--wait=false")
+		cmd = exec.Command("kubectl", "delete", "-f", "../../dist/monitoring.yaml",
+			"--ignore-not-found", "--timeout=60s", "--wait=false")
 		_, _ = utils.Run(cmd)
 
 		By("undeploying the controller-manager")
 		// Use direct kubectl delete with timeout and --wait=false to avoid hanging on finalizers
-		cmd = exec.Command("kubectl", "delete", "-f", "../../dist/install.yaml", "--ignore-not-found", "--timeout=60s", "--wait=false")
+		cmd = exec.Command("kubectl", "delete", "-f", "../../dist/install.yaml",
+			"--ignore-not-found", "--timeout=60s", "--wait=false")
 		_, _ = utils.Run(cmd)
 
 		By("uninstalling CRDs")
 		// CRD deletion can also hang, add timeout and --wait=false
-		cmd = exec.Command("kubectl", "delete", "-f", "../../config/crd/bases", "--ignore-not-found", "--timeout=60s", "--wait=false")
+		cmd = exec.Command("kubectl", "delete", "-f", "../../config/crd/bases",
+			"--ignore-not-found", "--timeout=60s", "--wait=false")
 		_, _ = utils.Run(cmd)
 
 		By("removing operator namespace")
