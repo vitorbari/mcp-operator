@@ -93,6 +93,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -103,6 +104,10 @@ const (
 
 	// DefaultTimeout is the default timeout for HTTP requests
 	DefaultTimeout = 30 * time.Second
+
+	// HeaderSessionID is the HTTP header name for MCP session management
+	// Used in Streamable HTTP transport to maintain session state
+	HeaderSessionID = "Mcp-Session-Id"
 )
 
 // Client is an MCP protocol client
@@ -110,6 +115,7 @@ type Client struct {
 	endpoint   string
 	httpClient *http.Client
 	requestID  atomic.Int32
+	sessionID  string // MCP session ID for Streamable HTTP transport
 }
 
 // Option is a functional option for configuring the Client
@@ -154,7 +160,15 @@ func NewClient(endpoint string, opts ...Option) *Client {
 	return c
 }
 
-// Initialize sends an initialize request to the MCP server
+// Initialize sends an initialize request to the MCP server and sends the
+// initialized notification to complete the handshake.
+//
+// The MCP protocol requires a three-step initialization:
+// 1. Client sends initialize request
+// 2. Server responds with capabilities
+// 3. Client sends initialized notification
+//
+// This method handles all three steps automatically.
 func (c *Client) Initialize(ctx context.Context) (*InitializeResult, error) {
 	params := InitializeParams{
 		ProtocolVersion: DefaultProtocolVersion,
@@ -175,6 +189,12 @@ func (c *Client) Initialize(ctx context.Context) (*InitializeResult, error) {
 	var result InitializeResult
 	if err := c.call(ctx, "initialize", params, &result); err != nil {
 		return nil, fmt.Errorf("initialize failed: %w", err)
+	}
+
+	// Send initialized notification to complete the handshake
+	// This is a notification (no response expected)
+	if err := c.notify(ctx, "notifications/initialized"); err != nil {
+		return nil, fmt.Errorf("initialized notification failed: %w", err)
 	}
 
 	return &result, nil
@@ -210,6 +230,57 @@ func (c *Client) ListPrompts(ctx context.Context) (*ListPromptsResult, error) {
 	return &result, nil
 }
 
+// notify sends a JSON-RPC 2.0 notification (no response expected)
+func (c *Client) notify(ctx context.Context, method string) error {
+	// Build JSON-RPC notification (no ID field)
+	notification := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  method,
+	}
+
+	// Marshal notification to JSON
+	notificationBody, err := json.Marshal(notification)
+	if err != nil {
+		return fmt.Errorf("failed to marshal notification: %w", err)
+	}
+
+	// Create HTTP request
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.endpoint, bytes.NewReader(notificationBody))
+	if err != nil {
+		return fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json, text/event-stream")
+
+	// Include session ID if we have one
+	if c.sessionID != "" {
+		httpReq.Header.Set(HeaderSessionID, c.sessionID)
+	}
+
+	// Send HTTP request
+	httpResp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %w", err)
+	}
+	defer func() {
+		_ = httpResp.Body.Close()
+	}()
+
+	// For notifications, we accept 200 OK, 202 Accepted, or 204 No Content
+	if httpResp.StatusCode != http.StatusOK &&
+		httpResp.StatusCode != http.StatusAccepted &&
+		httpResp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(httpResp.Body)
+		return fmt.Errorf("HTTP error %d: %s", httpResp.StatusCode, string(body))
+	}
+
+	// Drain and close the response body
+	_, _ = io.Copy(io.Discard, httpResp.Body)
+
+	return nil
+}
+
 // call sends a JSON-RPC 2.0 request and decodes the response
 func (c *Client) call(ctx context.Context, method string, params any, result any) error {
 	// Generate request ID
@@ -236,6 +307,13 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
+	// Accept both JSON and SSE responses (required by MCP Streamable HTTP transport)
+	httpReq.Header.Set("Accept", "application/json, text/event-stream")
+
+	// Include session ID if we have one (for Streamable HTTP session management)
+	if c.sessionID != "" {
+		httpReq.Header.Set(HeaderSessionID, c.sessionID)
+	}
 
 	// Send HTTP request
 	httpResp, err := c.httpClient.Do(httpReq)
@@ -245,6 +323,11 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 	defer func() {
 		_ = httpResp.Body.Close()
 	}()
+
+	// Capture session ID from response if present (Streamable HTTP session management)
+	if sessionID := httpResp.Header.Get(HeaderSessionID); sessionID != "" {
+		c.sessionID = sessionID
+	}
 
 	// Check HTTP status code
 	if httpResp.StatusCode != http.StatusOK {
@@ -258,9 +341,24 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 		return fmt.Errorf("failed to read response: %w", err)
 	}
 
+	// Check if response is SSE format (Streamable HTTP transport)
+	contentType := httpResp.Header.Get("Content-Type")
+	var jsonData []byte
+
+	if contentType == "text/event-stream" {
+		// Parse SSE format: extract JSON from "data: " line
+		jsonData, err = parseSSEResponse(responseBody)
+		if err != nil {
+			return fmt.Errorf("failed to parse SSE response: %w", err)
+		}
+	} else {
+		// Plain JSON response
+		jsonData = responseBody
+	}
+
 	// Parse JSON-RPC response
 	var rpcResponse JSONRPCResponse
-	if err := json.Unmarshal(responseBody, &rpcResponse); err != nil {
+	if err := json.Unmarshal(jsonData, &rpcResponse); err != nil {
 		return fmt.Errorf("failed to parse JSON-RPC response: %w", err)
 	}
 
@@ -294,4 +392,23 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 func (c *Client) Ping(ctx context.Context) error {
 	_, err := c.Initialize(ctx)
 	return err
+}
+
+// parseSSEResponse extracts JSON-RPC data from Server-Sent Events format
+// SSE format example:
+//
+//	event: message
+//	id: abc123
+//	data: {"jsonrpc":"2.0","id":1,"result":{...}}
+func parseSSEResponse(body []byte) ([]byte, error) {
+	lines := strings.Split(string(body), "\n")
+
+	for _, line := range lines {
+		// Look for data line containing JSON-RPC response
+		if jsonData, found := strings.CutPrefix(line, "data: "); found {
+			return []byte(jsonData), nil
+		}
+	}
+
+	return nil, fmt.Errorf("no data line found in SSE response")
 }

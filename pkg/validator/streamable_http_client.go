@@ -52,7 +52,15 @@ func NewStreamableHTTPClient(endpoint string, timeout time.Duration) *Streamable
 	}
 }
 
-// Initialize sends an initialize request to the MCP server
+// Initialize sends an initialize request to the MCP server and sends the
+// initialized notification to complete the handshake.
+//
+// The MCP protocol requires a three-step initialization:
+// 1. Client sends initialize request
+// 2. Server responds with capabilities
+// 3. Client sends initialized notification
+//
+// This method handles all three steps automatically.
 func (c *StreamableHTTPClient) Initialize(ctx context.Context) (*mcp.InitializeResult, error) {
 	params := mcp.InitializeParams{
 		ProtocolVersion: mcp.DefaultProtocolVersion,
@@ -71,13 +79,16 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) (*mcp.InitializeR
 	var result mcp.InitializeResult
 	if err := c.callWithResponse(ctx, "initialize", params, &result, func(headers http.Header) {
 		// Capture session ID from initialize response
-		if sessionID := headers.Get("mcp-session-id"); sessionID != "" {
-			c.sessionID = sessionID
-		} else if sessionID := headers.Get("Mcp-Session-Id"); sessionID != "" {
+		if sessionID := headers.Get(mcp.HeaderSessionID); sessionID != "" {
 			c.sessionID = sessionID
 		}
 	}); err != nil {
 		return nil, fmt.Errorf("initialize failed: %w", err)
+	}
+
+	// Send initialized notification to complete the handshake
+	if err := c.notify(ctx, "notifications/initialized"); err != nil {
+		return nil, fmt.Errorf("initialized notification failed: %w", err)
 	}
 
 	return &result, nil
@@ -126,6 +137,57 @@ func (c *StreamableHTTPClient) Close() error {
 	return nil
 }
 
+// notify sends a JSON-RPC 2.0 notification (no response expected)
+func (c *StreamableHTTPClient) notify(ctx context.Context, method string) error {
+	// Build JSON-RPC notification (no ID field)
+	notification := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  method,
+	}
+
+	// Marshal notification to JSON
+	notificationBody, err := json.Marshal(notification)
+	if err != nil {
+		return fmt.Errorf("failed to marshal notification: %w", err)
+	}
+
+	// Create HTTP request
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.endpoint, bytes.NewReader(notificationBody))
+	if err != nil {
+		return fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json, text/event-stream")
+
+	// Include session ID if we have one
+	if c.sessionID != "" {
+		httpReq.Header.Set(mcp.HeaderSessionID, c.sessionID)
+	}
+
+	// Send HTTP request
+	httpResp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %w", err)
+	}
+	defer func() {
+		_ = httpResp.Body.Close()
+	}()
+
+	// For notifications, we accept 200 OK, 202 Accepted, or 204 No Content
+	if httpResp.StatusCode != http.StatusOK &&
+		httpResp.StatusCode != http.StatusAccepted &&
+		httpResp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(httpResp.Body)
+		return fmt.Errorf("HTTP error %d: %s", httpResp.StatusCode, string(body))
+	}
+
+	// Drain and close the response body
+	_, _ = io.Copy(io.Discard, httpResp.Body)
+
+	return nil
+}
+
 // call sends a JSON-RPC 2.0 request and decodes the response
 func (c *StreamableHTTPClient) call(ctx context.Context, method string, params any, result any) error {
 	return c.callWithResponse(ctx, method, params, result, nil)
@@ -168,7 +230,7 @@ func (c *StreamableHTTPClient) callWithResponse(
 
 	// Include session ID if we have one
 	if c.sessionID != "" {
-		httpReq.Header.Set("mcp-session-id", c.sessionID)
+		httpReq.Header.Set(mcp.HeaderSessionID, c.sessionID)
 	}
 
 	// Send HTTP request
@@ -254,9 +316,8 @@ func (c *StreamableHTTPClient) parseSSEResponse(body io.Reader) ([]byte, error) 
 		// data: {...}
 		//
 		// We only care about the data lines
-		if strings.HasPrefix(line, "data:") {
-			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-			dataBuilder.WriteString(data)
+		if data, found := strings.CutPrefix(line, "data:"); found {
+			dataBuilder.WriteString(strings.TrimSpace(data))
 		}
 	}
 

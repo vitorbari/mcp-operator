@@ -30,9 +30,41 @@ func mockMCPServer(
 	t *testing.T,
 	handler func(method string, params json.RawMessage) (interface{}, *RPCError),
 ) *httptest.Server {
+	return mockMCPServerWithNotifications(t, handler, nil)
+}
+
+// mockMCPServerWithNotifications creates a test HTTP server that handles both requests and notifications
+func mockMCPServerWithNotifications(
+	t *testing.T,
+	handler func(method string, params json.RawMessage) (interface{}, *RPCError),
+	notificationHandler func(method string),
+) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Parse as generic JSON to check if it has an ID (request) or not (notification)
+		var generic map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&generic); err != nil {
+			t.Logf("Failed to decode request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		method, _ := generic["method"].(string)
+
+		// Check if this is a notification (no ID field)
+		if _, hasID := generic["id"]; !hasID {
+			// This is a notification
+			if notificationHandler != nil {
+				notificationHandler(method)
+			}
+			// Notifications respond with 202 Accepted
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+
+		// This is a request - handle normally
 		var request JSONRPCRequest
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		genericBytes, _ := json.Marshal(generic)
+		if err := json.Unmarshal(genericBytes, &request); err != nil {
 			t.Logf("Failed to decode request: %v", err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
@@ -94,40 +126,51 @@ func TestNewClient_MultipleOptions(t *testing.T) {
 }
 
 func TestClient_Initialize(t *testing.T) {
-	server := mockMCPServer(t, func(method string, params json.RawMessage) (interface{}, *RPCError) {
-		if method != "initialize" {
-			return nil, &RPCError{Code: -32601, Message: "Method not found"}
-		}
+	initializedNotificationReceived := false
 
-		// Verify params
-		var initParams InitializeParams
-		if err := json.Unmarshal(params, &initParams); err != nil {
-			return nil, &RPCError{Code: -32602, Message: "Invalid params"}
-		}
+	server := mockMCPServerWithNotifications(
+		t,
+		func(method string, params json.RawMessage) (interface{}, *RPCError) {
+			if method != "initialize" {
+				return nil, &RPCError{Code: -32601, Message: "Method not found"}
+			}
 
-		if initParams.ProtocolVersion != DefaultProtocolVersion {
-			t.Errorf("Expected protocol version %s, got %s", DefaultProtocolVersion, initParams.ProtocolVersion)
-		}
+			// Verify params
+			var initParams InitializeParams
+			if err := json.Unmarshal(params, &initParams); err != nil {
+				return nil, &RPCError{Code: -32602, Message: "Invalid params"}
+			}
 
-		if initParams.ClientInfo.Name != "mcp-operator-validator" {
-			t.Errorf("Expected client name mcp-operator-validator, got %s", initParams.ClientInfo.Name)
-		}
+			if initParams.ProtocolVersion != DefaultProtocolVersion {
+				t.Errorf("Expected protocol version %s, got %s", DefaultProtocolVersion, initParams.ProtocolVersion)
+			}
 
-		return InitializeResult{
-			ProtocolVersion: DefaultProtocolVersion,
-			Capabilities: ServerCapabilities{
-				Tools: &ToolsCapability{},
-				Resources: &ResourcesCapability{
-					Subscribe: true,
+			if initParams.ClientInfo.Name != "mcp-operator-validator" {
+				t.Errorf("Expected client name mcp-operator-validator, got %s", initParams.ClientInfo.Name)
+			}
+
+			return InitializeResult{
+				ProtocolVersion: DefaultProtocolVersion,
+				Capabilities: ServerCapabilities{
+					Tools: &ToolsCapability{},
+					Resources: &ResourcesCapability{
+						Subscribe: true,
+					},
+					Prompts: &PromptsCapability{},
 				},
-				Prompts: &PromptsCapability{},
-			},
-			ServerInfo: Implementation{
-				Name:    "test-server",
-				Version: "1.0.0",
-			},
-		}, nil
-	})
+				ServerInfo: Implementation{
+					Name:    "test-server",
+					Version: "1.0.0",
+				},
+			}, nil
+		},
+		func(method string) {
+			// Notification handler
+			if method == "notifications/initialized" {
+				initializedNotificationReceived = true
+			}
+		},
+	)
 	defer server.Close()
 
 	client := NewClient(server.URL)
@@ -156,6 +199,11 @@ func TestClient_Initialize(t *testing.T) {
 
 	if !result.Capabilities.Resources.Subscribe {
 		t.Error("Expected resources.subscribe to be true")
+	}
+
+	// Verify that the initialized notification was sent
+	if !initializedNotificationReceived {
+		t.Error("Expected initialized notification to be sent after initialize")
 	}
 }
 
