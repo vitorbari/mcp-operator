@@ -14,6 +14,76 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package mcp provides a Go client library for the Model Context Protocol (MCP).
+//
+// The Model Context Protocol is a standardized protocol for AI models to interact
+// with external tools, resources, and data sources. This package implements a client
+// that can communicate with MCP servers using JSON-RPC 2.0 over HTTP.
+//
+// # Use Cases
+//
+// This library can be used for:
+//
+//   - Building MCP protocol validators and compliance checkers
+//   - Creating monitoring tools for MCP server deployments
+//   - Implementing MCP server testing frameworks
+//   - Developing debugging utilities for MCP implementations
+//   - Integrating MCP capabilities into custom applications
+//
+// # Features
+//
+//   - Protocol initialization and capability negotiation
+//   - Tool discovery and invocation
+//   - Resource listing and reading
+//   - Prompt discovery and execution
+//   - Automatic request ID management
+//   - Configurable timeouts
+//   - Full JSON-RPC 2.0 support
+//
+// # Basic Usage
+//
+// Creating a client and initializing a connection:
+//
+//	client := mcp.NewClient("http://localhost:8080/mcp")
+//	result, err := client.Initialize(context.Background())
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	fmt.Printf("Connected to: %s v%s\n", result.ServerInfo.Name, result.ServerInfo.Version)
+//
+// Creating a client with custom timeout:
+//
+//	client := mcp.NewClient("http://localhost:8080/mcp",
+//	    mcp.WithTimeout(60*time.Second))
+//
+// Listing available tools:
+//
+//	tools, err := client.ListTools(context.Background())
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	for _, tool := range tools.Tools {
+//	    fmt.Printf("Tool: %s - %s\n", tool.Name, tool.Description)
+//	}
+//
+// Calling a tool:
+//
+//	params := map[string]interface{}{
+//	    "query": "What is MCP?",
+//	}
+//	result, err := client.CallTool(context.Background(), "search", params)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	fmt.Printf("Result: %+v\n", result)
+//
+// # Protocol Support
+//
+// This client supports MCP protocol version 2024-11-05 and is compatible with
+// servers implementing the standard MCP specification.
+//
+// For more information about the Model Context Protocol, see:
+// https://spec.modelcontextprotocol.io/
 package mcp
 
 import (
@@ -42,24 +112,46 @@ type Client struct {
 	requestID  atomic.Int32
 }
 
-// NewClient creates a new MCP client for the given endpoint
-func NewClient(endpoint string) *Client {
-	return &Client{
+// Option is a functional option for configuring the Client
+type Option func(*Client)
+
+// WithTimeout sets a custom timeout for HTTP requests
+//
+// Example:
+//
+//	client := mcp.NewClient("http://localhost:8080/mcp",
+//	    mcp.WithTimeout(60*time.Second))
+func WithTimeout(timeout time.Duration) Option {
+	return func(c *Client) {
+		c.httpClient.Timeout = timeout
+	}
+}
+
+// NewClient creates a new MCP client for the given endpoint.
+//
+// By default, the client uses a 30-second timeout. This can be customized
+// using the WithTimeout option:
+//
+//	// Default timeout (30s)
+//	client := mcp.NewClient("http://localhost:8080/mcp")
+//
+//	// Custom timeout
+//	client := mcp.NewClient("http://localhost:8080/mcp",
+//	    mcp.WithTimeout(60*time.Second))
+func NewClient(endpoint string, opts ...Option) *Client {
+	c := &Client{
 		endpoint: endpoint,
 		httpClient: &http.Client{
 			Timeout: DefaultTimeout,
 		},
 	}
-}
 
-// NewClientWithTimeout creates a new MCP client with a custom timeout
-func NewClientWithTimeout(endpoint string, timeout time.Duration) *Client {
-	return &Client{
-		endpoint: endpoint,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+	// Apply functional options
+	for _, opt := range opts {
+		opt(c)
 	}
+
+	return c
 }
 
 // Initialize sends an initialize request to the MCP server
@@ -72,6 +164,8 @@ func (c *Client) Initialize(ctx context.Context) (*InitializeResult, error) {
 			},
 			Sampling: &SamplingCapability{},
 		},
+		// TODO: Make ClientInfo configurable via functional option (e.g., WithClientInfo)
+		// to allow users to specify custom client name and version
 		ClientInfo: Implementation{
 			Name:    "mcp-operator-validator",
 			Version: "0.1.0",

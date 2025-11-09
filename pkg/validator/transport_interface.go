@@ -22,7 +22,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/vitorbari/mcp-operator/internal/mcp"
+	"github.com/vitorbari/mcp-operator/pkg/mcp"
 )
 
 // Transport defines the interface for MCP transport implementations

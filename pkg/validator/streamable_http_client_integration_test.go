@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vitorbari/mcp-operator/internal/mcp"
+	"github.com/vitorbari/mcp-operator/pkg/mcp"
 )
 
 // Integration tests for Streamable HTTP client against real MCP servers

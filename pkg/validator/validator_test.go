@@ -24,7 +24,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vitorbari/mcp-operator/internal/mcp"
+	"github.com/vitorbari/mcp-operator/pkg/mcp"
 )
 
 // mockMCPServer creates a test server that responds to MCP requests

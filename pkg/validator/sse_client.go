@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vitorbari/mcp-operator/internal/mcp"
+	"github.com/vitorbari/mcp-operator/pkg/mcp"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 

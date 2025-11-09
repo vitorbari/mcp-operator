@@ -16,6 +16,24 @@ limitations under the License.
 
 package mcp
 
+// This file defines the data types for the Model Context Protocol (MCP).
+//
+// The types are organized into two main categories:
+//
+// 1. JSON-RPC 2.0 Types
+//    - JSONRPCRequest: Standard JSON-RPC request structure
+//    - JSONRPCResponse: Standard JSON-RPC response structure
+//    - RPCError: JSON-RPC error format
+//
+// 2. MCP Protocol Types
+//    - Initialization: Protocol negotiation and capability exchange
+//    - Tools: Executable functions provided by the server
+//    - Resources: Data sources (files, databases, APIs, etc.)
+//    - Prompts: Pre-configured prompt templates
+//
+// All types are designed to marshal/unmarshal cleanly to/from JSON and
+// follow the MCP specification for maximum compatibility.
+
 // JSON-RPC 2.0 types
 
 // JSONRPCRequest represents a JSON-RPC 2.0 request

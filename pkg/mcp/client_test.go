@@ -26,7 +26,10 @@ import (
 )
 
 // mockMCPServer creates a test HTTP server that responds to MCP protocol requests
-func mockMCPServer(t *testing.T, handler func(method string, params json.RawMessage) (interface{}, *RPCError)) *httptest.Server {
+func mockMCPServer(
+	t *testing.T,
+	handler func(method string, params json.RawMessage) (interface{}, *RPCError),
+) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request JSONRPCRequest
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -70,7 +73,21 @@ func TestNewClient(t *testing.T) {
 
 func TestNewClientWithTimeout(t *testing.T) {
 	timeout := 10 * time.Second
-	client := NewClientWithTimeout("http://example.com/mcp", timeout)
+	client := NewClient("http://example.com/mcp", WithTimeout(timeout))
+	if client.httpClient.Timeout != timeout {
+		t.Errorf("Expected timeout %v, got %v", timeout, client.httpClient.Timeout)
+	}
+}
+
+func TestNewClient_MultipleOptions(t *testing.T) {
+	timeout := 45 * time.Second
+	client := NewClient("http://example.com/mcp",
+		WithTimeout(timeout),
+	)
+
+	if client.endpoint != "http://example.com/mcp" {
+		t.Errorf("Expected endpoint http://example.com/mcp, got %s", client.endpoint)
+	}
 	if client.httpClient.Timeout != timeout {
 		t.Errorf("Expected timeout %v, got %v", timeout, client.httpClient.Timeout)
 	}
@@ -310,7 +327,7 @@ func TestClient_Timeout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClientWithTimeout(server.URL, 100*time.Millisecond)
+	client := NewClient(server.URL, WithTimeout(100*time.Millisecond))
 	ctx := context.Background()
 
 	_, err := client.Initialize(ctx)

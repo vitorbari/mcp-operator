@@ -24,7 +24,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 
-	"github.com/vitorbari/mcp-operator/internal/mcp"
+	"github.com/vitorbari/mcp-operator/pkg/mcp"
 )
 
 // ExampleClient demonstrates basic MCP client usage
