@@ -162,10 +162,25 @@ Context("When reconciling MCPServer with custom command and args", func() {
 
 ### Transport Configuration
 
-**HTTP Transport (MCP Streamable HTTP)**
+The operator supports MCP protocol specification with auto-detection or explicit selection:
+
+**Auto-Detection (Default)**
 ```yaml
 transport:
   type: "http"
+  protocol: "auto"  # Prefers Streamable HTTP over SSE (default)
+  config:
+    http:
+      port: 8080
+      path: "/mcp"
+      sessionManagement: true
+```
+
+**Explicit Streamable HTTP (MCP 2025-03-26+)**
+```yaml
+transport:
+  type: "http"
+  protocol: "streamable-http"
   config:
     http:
       port: 8080
@@ -174,6 +189,18 @@ transport:
       security:
         validateOrigin: true
         allowedOrigins: ["https://myapp.example.com"]
+```
+
+**Explicit SSE (MCP 2024-11-05)**
+```yaml
+transport:
+  type: "http"
+  protocol: "sse"
+  config:
+    http:
+      port: 8080
+      path: "/sse"
+      sessionManagement: true
 ```
 
 **Custom Transport**
@@ -188,6 +215,11 @@ transport:
         bufferSize: "4096"
         timeout: "30s"
 ```
+
+**Protocol Options:**
+- `auto` (default) - Auto-detect and prefer Streamable HTTP over SSE
+- `streamable-http` - Force Streamable HTTP transport (modern MCP)
+- `sse` - Force Server-Sent Events transport (legacy MCP)
 
 ### Status Management
 

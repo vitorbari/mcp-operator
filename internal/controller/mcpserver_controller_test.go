@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	mcpv1 "github.com/vitorbari/mcp-operator/api/v1"
-	"github.com/vitorbari/mcp-operator/pkg/transport"
+	"github.com/vitorbari/mcp-operator/internal/transport"
 )
 
 var _ = Describe("MCPServer Controller", func() {
@@ -819,7 +819,404 @@ var _ = Describe("MCPServer Controller", func() {
 			Expect(err.Error()).To(ContainSubstring("spec.image"))
 		})
 	})
+
+	Context("When handling protocol mismatch", func() {
+		const (
+			resourceNamespace = "default"
+			timeout           = time.Second * 10
+			interval          = time.Millisecond * 250
+		)
+
+		ctx := context.Background()
+		var resourceName string
+		var typeNamespacedName types.NamespacedName
+		var mcpserver *mcpv1.MCPServer
+		var controllerReconciler *MCPServerReconciler
+
+		BeforeEach(func() {
+			resourceName = "test-mismatch-" + RandStringRunes(8)
+			typeNamespacedName = types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+
+			controllerReconciler = &MCPServerReconciler{
+				Client:           k8sClient,
+				Scheme:           k8sClient.Scheme(),
+				TransportFactory: transport.NewManagerFactory(k8sClient, k8sClient.Scheme()),
+				Recorder:         record.NewFakeRecorder(100),
+			}
+		})
+
+		AfterEach(func() {
+			resource := &mcpv1.MCPServer{}
+			err := k8sClient.Get(ctx, typeNamespacedName, resource)
+			if err == nil {
+				resource.Finalizers = nil
+				_ = k8sClient.Update(ctx, resource)
+				_ = k8sClient.Delete(ctx, resource)
+			}
+		})
+
+		It("should detect protocol mismatch in non-strict mode", func() {
+			By("Creating MCPServer with streamable-http protocol")
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "test-server:latest",
+					Replicas: ptr(int32(1)),
+					Transport: &mcpv1.MCPServerTransport{
+						Type:     mcpv1.MCPTransportHTTP,
+						Protocol: mcpv1.MCPProtocolStreamableHTTP, // User configures streamable-http
+					},
+					Validation: &mcpv1.ValidationSpec{
+						Enabled:    ptr(true),
+						StrictMode: ptr(false), // Non-strict mode
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			By("Simulating protocol mismatch detection")
+			// Fetch the MCPServer to get current state
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+			}, timeout, interval).Should(Succeed())
+
+			// Simulate detected SSE (different from configured streamable-http)
+			mcpserver.Status.Phase = mcpv1.MCPServerPhaseRunning
+			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				Compliant:           false, // Not compliant due to mismatch
+				ProtocolVersion:     "2024-11-05",
+				TransportUsed:       "sse", // Server actually uses SSE
+				ValidatedGeneration: mcpserver.Generation,
+				Issues: []mcpv1.ValidationIssue{
+					{
+						Code:    "PROTOCOL_MISMATCH",
+						Level:   "error",
+						Message: "Protocol mismatch: configured 'streamable-http' but server uses 'sse'",
+					},
+				},
+			}
+			mcpserver.Status.Conditions = []mcpv1.MCPServerCondition{
+				{
+					Type:               mcpv1.MCPServerConditionDegraded,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "ProtocolMismatch",
+					Message:            "Configured protocol does not match detected protocol",
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, mcpserver)).To(Succeed())
+
+			By("Verifying status reflects protocol mismatch")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+				if err != nil {
+					return false
+				}
+				return mcpserver.Status.Phase == mcpv1.MCPServerPhaseRunning &&
+					mcpserver.Status.Validation != nil &&
+					!mcpserver.Status.Validation.Compliant
+			}, timeout, interval).Should(BeTrue())
+
+			By("Verifying Degraded condition is set")
+			Expect(mcpserver.Status.Conditions).NotTo(BeEmpty())
+			degradedCondition := findCondition(mcpserver.Status.Conditions, mcpv1.MCPServerConditionDegraded)
+			Expect(degradedCondition).NotTo(BeNil())
+			Expect(degradedCondition.Status).To(Equal(corev1.ConditionTrue))
+			Expect(degradedCondition.Reason).To(Equal("ProtocolMismatch"))
+
+			By("Verifying validation issue is recorded")
+			Expect(mcpserver.Status.Validation.Issues).To(HaveLen(1))
+			Expect(mcpserver.Status.Validation.Issues[0].Code).To(Equal("PROTOCOL_MISMATCH"))
+			Expect(mcpserver.Status.Validation.Issues[0].Level).To(Equal("error"))
+		})
+
+		It("should detect protocol mismatch in strict mode", func() {
+			By("Creating MCPServer with streamable-http protocol and strict mode")
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "test-server:latest",
+					Replicas: ptr(int32(1)),
+					Transport: &mcpv1.MCPServerTransport{
+						Type:     mcpv1.MCPTransportHTTP,
+						Protocol: mcpv1.MCPProtocolStreamableHTTP,
+					},
+					Validation: &mcpv1.ValidationSpec{
+						Enabled:    ptr(true),
+						StrictMode: ptr(true), // Strict mode
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			By("Simulating protocol mismatch in strict mode")
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+			}, timeout, interval).Should(Succeed())
+
+			// In strict mode, phase should be Failed
+			mcpserver.Status.Phase = mcpv1.MCPServerPhaseFailed
+			mcpserver.Status.Message = "Protocol validation failed in strict mode"
+			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				Compliant:           false,
+				ProtocolVersion:     "2024-11-05",
+				TransportUsed:       "sse",
+				ValidatedGeneration: mcpserver.Generation,
+				Issues: []mcpv1.ValidationIssue{
+					{
+						Code:    "PROTOCOL_MISMATCH",
+						Level:   "error",
+						Message: "Protocol mismatch: configured 'streamable-http' but server uses 'sse'",
+					},
+				},
+			}
+			mcpserver.Status.Conditions = []mcpv1.MCPServerCondition{
+				{
+					Type:               mcpv1.MCPServerConditionDegraded,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "ValidationFailedStrict",
+					Message:            "MCP protocol validation failed in strict mode",
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, mcpserver)).To(Succeed())
+
+			By("Verifying phase is Failed in strict mode")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+				if err != nil {
+					return false
+				}
+				return mcpserver.Status.Phase == mcpv1.MCPServerPhaseFailed
+			}, timeout, interval).Should(BeTrue())
+
+			By("Verifying Degraded condition with strict mode reason")
+			degradedCondition := findCondition(mcpserver.Status.Conditions, mcpv1.MCPServerConditionDegraded)
+			Expect(degradedCondition).NotTo(BeNil())
+			Expect(degradedCondition.Status).To(Equal(corev1.ConditionTrue))
+			Expect(degradedCondition.Reason).To(Equal("ValidationFailedStrict"))
+		})
+
+		It("should not detect mismatch with auto protocol", func() {
+			By("Creating MCPServer with auto protocol")
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "test-server:latest",
+					Replicas: ptr(int32(1)),
+					Transport: &mcpv1.MCPServerTransport{
+						Type:     mcpv1.MCPTransportHTTP,
+						Protocol: mcpv1.MCPProtocolAuto, // Auto-detection
+					},
+					Validation: &mcpv1.ValidationSpec{
+						Enabled:    ptr(true),
+						StrictMode: ptr(false),
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			By("Simulating successful auto-detection")
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+			}, timeout, interval).Should(Succeed())
+
+			// Auto-detection detected SSE - no mismatch
+			mcpserver.Status.Phase = mcpv1.MCPServerPhaseRunning
+			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				Compliant:           true, // Compliant - no mismatch with auto
+				ProtocolVersion:     "2024-11-05",
+				TransportUsed:       "sse", // Auto-detected SSE
+				ValidatedGeneration: mcpserver.Generation,
+				Issues:              []mcpv1.ValidationIssue{}, // No issues
+			}
+			mcpserver.Status.Conditions = []mcpv1.MCPServerCondition{
+				{
+					Type:               mcpv1.MCPServerConditionDegraded,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "ValidationPassed",
+					Message:            "MCP protocol validation succeeded",
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, mcpserver)).To(Succeed())
+
+			By("Verifying no mismatch with auto protocol")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+				if err != nil {
+					return false
+				}
+				return mcpserver.Status.Validation != nil &&
+					mcpserver.Status.Validation.Compliant
+			}, timeout, interval).Should(BeTrue())
+
+			By("Verifying Degraded condition is False")
+			degradedCondition := findCondition(mcpserver.Status.Conditions, mcpv1.MCPServerConditionDegraded)
+			Expect(degradedCondition).NotTo(BeNil())
+			Expect(degradedCondition.Status).To(Equal(corev1.ConditionFalse))
+
+			By("Verifying no validation issues")
+			Expect(mcpserver.Status.Validation.Issues).To(BeEmpty())
+		})
+
+		It("should not retry validation on protocol mismatch", func() {
+			By("Testing getValidationRetryInterval with protocol mismatch")
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "test-server:latest",
+					Replicas: ptr(int32(1)),
+					Transport: &mcpv1.MCPServerTransport{
+						Protocol: mcpv1.MCPProtocolStreamableHTTP,
+					},
+				},
+				Status: mcpv1.MCPServerStatus{
+					Validation: &mcpv1.ValidationStatus{
+						State:     mcpv1.ValidationStateFailed, // Protocol mismatch confirmed
+						Compliant: false,
+						Attempts:  2, // Mismatch confirmed after 2 attempts
+						Issues: []mcpv1.ValidationIssue{
+							{
+								Code:  "PROTOCOL_MISMATCH",
+								Level: "error",
+							},
+						},
+					},
+				},
+			}
+
+			By("Calling getValidationRetryInterval")
+			interval := controllerReconciler.getValidationRetryInterval(mcpserver)
+
+			By("Verifying no retry on protocol mismatch")
+			Expect(interval).To(Equal(time.Duration(0)), "Protocol mismatch should not trigger retry")
+		})
+
+		It("should clear Degraded condition when mismatch is resolved", func() {
+			By("Creating MCPServer with initial mismatch")
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "test-server:latest",
+					Replicas: ptr(int32(1)),
+					Transport: &mcpv1.MCPServerTransport{
+						Type:     mcpv1.MCPTransportHTTP,
+						Protocol: mcpv1.MCPProtocolStreamableHTTP,
+					},
+					Validation: &mcpv1.ValidationSpec{
+						Enabled:    ptr(true),
+						StrictMode: ptr(false),
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			By("Setting initial mismatch state")
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+			}, timeout, interval).Should(Succeed())
+
+			mcpserver.Status.Phase = mcpv1.MCPServerPhaseRunning
+			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				Compliant:           false,
+				TransportUsed:       "sse",
+				ValidatedGeneration: mcpserver.Generation,
+				Issues: []mcpv1.ValidationIssue{
+					{
+						Code:  "PROTOCOL_MISMATCH",
+						Level: "error",
+					},
+				},
+			}
+			mcpserver.Status.Conditions = []mcpv1.MCPServerCondition{
+				{
+					Type:               mcpv1.MCPServerConditionDegraded,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "ProtocolMismatch",
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, mcpserver)).To(Succeed())
+
+			By("Fixing the configuration to match detected protocol")
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+			}, timeout, interval).Should(Succeed())
+
+			// User fixes spec to match detected protocol
+			mcpserver.Spec.Transport.Protocol = mcpv1.MCPProtocolSSE // Changed to match
+			Expect(k8sClient.Update(ctx, mcpserver)).To(Succeed())
+
+			By("Simulating successful validation after fix")
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+			}, timeout, interval).Should(Succeed())
+
+			// Generation incremented, validation re-runs and succeeds
+			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				Compliant:           true, // Now compliant
+				TransportUsed:       "sse",
+				ValidatedGeneration: mcpserver.Generation,
+				Issues:              []mcpv1.ValidationIssue{}, // Issues cleared
+			}
+			mcpserver.Status.Conditions = []mcpv1.MCPServerCondition{
+				{
+					Type:               mcpv1.MCPServerConditionDegraded,
+					Status:             corev1.ConditionFalse, // Degraded cleared
+					LastTransitionTime: metav1.Now(),
+					Reason:             "ValidationPassed",
+					Message:            "MCP protocol validation succeeded",
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, mcpserver)).To(Succeed())
+
+			By("Verifying Degraded condition is cleared")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+				if err != nil {
+					return false
+				}
+				degradedCondition := findCondition(mcpserver.Status.Conditions, mcpv1.MCPServerConditionDegraded)
+				return degradedCondition != nil && degradedCondition.Status == corev1.ConditionFalse
+			}, timeout, interval).Should(BeTrue())
+
+			By("Verifying validation is now compliant")
+			Expect(mcpserver.Status.Validation.Compliant).To(BeTrue())
+			Expect(mcpserver.Status.Validation.Issues).To(BeEmpty())
+		})
+	})
 })
+
+// findCondition finds a condition by type in the conditions list
+//
+//nolint:unparam // condType is designed to be flexible for future test cases with other condition types
+func findCondition(conditions []mcpv1.MCPServerCondition, condType mcpv1.MCPServerConditionType) *mcpv1.MCPServerCondition {
+	for i := range conditions {
+		if conditions[i].Type == condType {
+			return &conditions[i]
+		}
+	}
+	return nil
+}
 
 // Helper function to create pointer to values
 func ptr[T any](v T) *T {

@@ -114,6 +114,70 @@ var (
 		},
 		[]string{"namespace", "name", "phase"},
 	)
+
+	// Validation compliance status
+	mcpServerValidationCompliant = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mcpserver_validation_compliant",
+			Help: "Whether the MCPServer is MCP protocol compliant (1=compliant, 0=non-compliant, -1=not validated)",
+		},
+		[]string{"namespace", "name"},
+	)
+
+	// Validation duration histogram
+	validationDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mcpserver_validation_duration_seconds",
+			Help:    "Time spent validating MCP protocol compliance",
+			Buckets: []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10},
+		},
+		[]string{"namespace", "name"},
+	)
+
+	// Validation total counter
+	validationTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mcpserver_validation_total",
+			Help: "Total number of MCP protocol validations",
+		},
+		[]string{"namespace", "name", "result"},
+	)
+
+	// Validation issues counter
+	validationIssues = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mcpserver_validation_issues_total",
+			Help: "Total number of validation issues found",
+		},
+		[]string{"namespace", "name", "level", "code"},
+	)
+
+	// Validation protocol version
+	mcpServerProtocolVersion = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mcpserver_protocol_version",
+			Help: "Detected MCP protocol version (1=current version, 0=not current version)",
+		},
+		[]string{"namespace", "name", "version"},
+	)
+
+	// Validation capabilities
+	mcpServerCapabilities = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mcpserver_capabilities",
+			Help: "Discovered MCP capabilities (1=has capability, 0=does not have capability)",
+		},
+		[]string{"namespace", "name", "capability"},
+	)
+
+	// Time since last validation
+	mcpServerLastValidation = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mcpserver_last_validation_timestamp",
+			Help: "Unix timestamp of the last validation check",
+		},
+		[]string{"namespace", "name"},
+	)
 )
 
 func init() {
@@ -129,6 +193,13 @@ func init() {
 		reconcileDuration,
 		reconcileTotal,
 		mcpServerPhase,
+		mcpServerValidationCompliant,
+		validationDuration,
+		validationTotal,
+		validationIssues,
+		mcpServerProtocolVersion,
+		mcpServerCapabilities,
+		mcpServerLastValidation,
 	)
 }
 
@@ -190,12 +261,80 @@ func UpdateMCPServerMetrics(mcpServer *mcpv1.MCPServer) {
 		}
 		mcpServerPhase.WithLabelValues(mcpServer.Namespace, mcpServer.Name, phase).Set(value)
 	}
+
+	// Track validation status
+	if mcpServer.Status.Validation != nil {
+		// Track compliance status
+		complianceValue := 0.0
+		if mcpServer.Status.Validation.Compliant {
+			complianceValue = 1.0
+		}
+		mcpServerValidationCompliant.WithLabelValues(labels...).Set(complianceValue)
+
+		// Track protocol version
+		supportedVersions := []string{"2024-11-05", "2025-03-26"}
+		for _, version := range supportedVersions {
+			versionValue := 0.0
+			if mcpServer.Status.Validation.ProtocolVersion == version {
+				versionValue = 1.0
+			}
+			mcpServerProtocolVersion.WithLabelValues(mcpServer.Namespace, mcpServer.Name, version).Set(versionValue)
+		}
+
+		// Track capabilities
+		allCapabilities := []string{"tools", "resources", "prompts", "logging"}
+		for _, capability := range allCapabilities {
+			hasCapability := 0.0
+			for _, discovered := range mcpServer.Status.Validation.Capabilities {
+				if discovered == capability {
+					hasCapability = 1.0
+					break
+				}
+			}
+			mcpServerCapabilities.WithLabelValues(mcpServer.Namespace, mcpServer.Name, capability).Set(hasCapability)
+		}
+
+		// Track last validation timestamp
+		if mcpServer.Status.Validation.LastValidated != nil {
+			mcpServerLastValidation.WithLabelValues(labels...).Set(float64(mcpServer.Status.Validation.LastValidated.Unix()))
+		}
+	} else {
+		// No validation status - set to -1 to indicate not validated
+		mcpServerValidationCompliant.WithLabelValues(labels...).Set(-1)
+	}
 }
 
 // RecordReconcileMetrics records reconciliation timing and results
 func RecordReconcileMetrics(controller string, duration float64, result string) {
 	reconcileDuration.WithLabelValues(controller).Observe(duration)
 	reconcileTotal.WithLabelValues(controller, result).Inc()
+}
+
+// RecordValidationMetrics records validation execution metrics
+func RecordValidationMetrics(mcpServer *mcpv1.MCPServer, duration float64, success bool) {
+	labels := []string{mcpServer.Namespace, mcpServer.Name}
+
+	// Record validation duration
+	validationDuration.WithLabelValues(labels...).Observe(duration)
+
+	// Record validation result
+	result := "success"
+	if !success {
+		result = "failure"
+	}
+	validationTotal.WithLabelValues(mcpServer.Namespace, mcpServer.Name, result).Inc()
+
+	// Record validation issues if validation status is available
+	if mcpServer.Status.Validation != nil {
+		for _, issue := range mcpServer.Status.Validation.Issues {
+			validationIssues.WithLabelValues(
+				mcpServer.Namespace,
+				mcpServer.Name,
+				issue.Level,
+				issue.Code,
+			).Inc()
+		}
+	}
 }
 
 // DeleteMCPServerMetrics removes metrics for a deleted MCPServer
@@ -224,5 +363,21 @@ func DeleteMCPServerMetrics(mcpServer *mcpv1.MCPServer) {
 	phases := []string{"Creating", "Running", "Updating", "Scaling", "Failed", "Terminating"}
 	for _, phase := range phases {
 		mcpServerPhase.DeleteLabelValues(mcpServer.Namespace, mcpServer.Name, phase)
+	}
+
+	// Remove validation metrics
+	mcpServerValidationCompliant.DeleteLabelValues(labels...)
+	mcpServerLastValidation.DeleteLabelValues(labels...)
+
+	// Remove protocol version metrics
+	supportedVersions := []string{"2024-11-05", "2025-03-26"}
+	for _, version := range supportedVersions {
+		mcpServerProtocolVersion.DeleteLabelValues(mcpServer.Namespace, mcpServer.Name, version)
+	}
+
+	// Remove capability metrics
+	allCapabilities := []string{"tools", "resources", "prompts", "logging"}
+	for _, capability := range allCapabilities {
+		mcpServerCapabilities.DeleteLabelValues(mcpServer.Namespace, mcpServer.Name, capability)
 	}
 }

@@ -39,7 +39,8 @@ import (
 
 	mcpv1 "github.com/vitorbari/mcp-operator/api/v1"
 	"github.com/vitorbari/mcp-operator/internal/controller"
-	"github.com/vitorbari/mcp-operator/pkg/transport"
+	"github.com/vitorbari/mcp-operator/internal/transport"
+	"github.com/vitorbari/mcp-operator/pkg/validator"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -195,6 +196,16 @@ func main() {
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
+		os.Exit(1)
+	}
+
+	// Register validator metrics with the controller-runtime metrics registry
+	setupLog.Info("Registering validator metrics")
+	if err := validator.RegisterMetrics(validator.MetricsConfig{
+		Register: true,
+		Registry: nil, // Use default controller-runtime registry
+	}); err != nil {
+		setupLog.Error(err, "unable to register validator metrics")
 		os.Exit(1)
 	}
 

@@ -60,7 +60,8 @@ func Run(cmd *exec.Cmd) (string, error) {
 // UninstallCertManager uninstalls the cert manager
 func UninstallCertManager() {
 	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
-	cmd := exec.Command("kubectl", "delete", "-f", url)
+	// Add timeout and --wait=false to avoid hanging on finalizers during cleanup
+	cmd := exec.Command("kubectl", "delete", "-f", url, "--timeout=60s", "--wait=false")
 	if _, err := Run(cmd); err != nil {
 		warnError(err)
 	}
@@ -72,7 +73,7 @@ func UninstallCertManager() {
 	}
 	for _, lease := range kubeSystemLeases {
 		cmd = exec.Command("kubectl", "delete", "lease", lease,
-			"-n", "kube-system", "--ignore-not-found", "--force", "--grace-period=0")
+			"-n", "kube-system", "--ignore-not-found", "--force", "--grace-period=0", "--timeout=30s")
 		if _, err := Run(cmd); err != nil {
 			warnError(err)
 		}
@@ -170,7 +171,8 @@ func GetProjectDir() (string, error) {
 // UninstallPrometheusOperator uninstalls the Prometheus Operator
 func UninstallPrometheusOperator() {
 	url := fmt.Sprintf(prometheusOperatorURLTmpl, prometheusOperatorVersion)
-	cmd := exec.Command("kubectl", "delete", "-f", url, "--ignore-not-found")
+	// Add timeout and --wait=false to avoid hanging on finalizers during cleanup
+	cmd := exec.Command("kubectl", "delete", "-f", url, "--ignore-not-found", "--timeout=60s", "--wait=false")
 	if _, err := Run(cmd); err != nil {
 		warnError(err)
 	}

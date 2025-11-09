@@ -1,3 +1,25 @@
+# =============================================================================
+# IMPORTANT: This is a COMPREHENSIVE REFERENCE EXAMPLE
+# =============================================================================
+# This file showcases ALL available MCPServer features and configuration options.
+# It is designed as documentation and requires production-grade infrastructure:
+#
+# Prerequisites:
+#   - Metrics server (for HPA)
+#   - Ingress controller (nginx)
+#   - Cert-manager (for TLS)
+#   - Custom node labels (disk-type, workload-type)
+#   - External ConfigMaps and Secrets
+#   - Service accounts and RBAC configuration
+#
+# ⚠️  NOT SUITABLE FOR LOCAL TESTING ⚠️
+#
+# For local development and testing, use instead:
+#   - config/samples/mcp-basic-example.yaml (simple, production-ready)
+#   - config/samples/wikipedia-http.yaml (minimal SSE example)
+#
+# =============================================================================
+
 apiVersion: mcp.mcp-operator.io/v1
 kind: MCPServer
 metadata:
@@ -31,6 +53,12 @@ spec:
   # ============================================
   transport:
     type: "http"
+    # Protocol specifies the MCP transport protocol
+    # Valid values:
+    # - "auto": Auto-detect protocol (prefers Streamable HTTP over SSE)
+    # - "streamable-http": Use Streamable HTTP transport (MCP 2025-03-26+)
+    # - "sse": Use Server-Sent Events transport (MCP 2024-11-05)
+    protocol: "auto"
     config:
       http:
         port: 8080
@@ -204,6 +232,31 @@ spec:
         - type: "Pods"
           value: 1
           periodSeconds: 60
+
+  # ============================================
+  # MCP Protocol Validation Configuration
+  # ============================================
+  validation:
+    # Enable protocol validation (default: true)
+    enabled: true
+
+    # TransportProtocol specifies which transport protocol to validate against
+    # If not specified, uses the protocol from spec.transport.protocol
+    # Valid values:
+    # - "auto": Auto-detect and validate all supported protocols
+    # - "streamable-http": Only validate Streamable HTTP protocol
+    # - "sse": Only validate SSE protocol
+    # transportProtocol: "auto"  # Optional - defaults to transport.protocol
+
+    # Fail deployment if validation fails (default: false)
+    # When true, the MCPServer will be marked as Failed if validation fails
+    strictMode: false
+
+    # Require specific capabilities to be present
+    # Valid values: "tools", "resources", "prompts"
+    requiredCapabilities:
+      - "tools"
+      - "resources"
 
   # ============================================
   # Ingress Configuration

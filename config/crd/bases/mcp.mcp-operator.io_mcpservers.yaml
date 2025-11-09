@@ -24,8 +24,17 @@ spec:
     - jsonPath: .status.readyReplicas
       name: Ready
       type: integer
-    - jsonPath: .status.transportType
-      name: Transport
+    - jsonPath: .status.validation.transportUsed
+      name: Protocol
+      type: string
+    - jsonPath: .status.validation.requiresAuth
+      name: Auth
+      type: boolean
+    - jsonPath: .status.validation.compliant
+      name: Compliant
+      type: boolean
+    - jsonPath: .status.validation.capabilities
+      name: Capabilities
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -3407,6 +3416,24 @@ spec:
                             type: boolean
                         type: object
                     type: object
+                  protocol:
+                    allOf:
+                    - enum:
+                      - auto
+                      - streamable-http
+                      - sse
+                    - enum:
+                      - auto
+                      - streamable-http
+                      - sse
+                    default: auto
+                    description: |-
+                      Protocol specifies the MCP transport protocol to use
+                      Valid values:
+                      - "auto": Auto-detect protocol (prefers Streamable HTTP over SSE)
+                      - "streamable-http": Use Streamable HTTP transport (MCP 2025-03-26+)
+                      - "sse": Use Server-Sent Events transport (MCP 2024-11-05)
+                    type: string
                   type:
                     allOf:
                     - enum:
@@ -3416,6 +3443,51 @@ spec:
                       - custom
                     default: http
                     description: Type specifies the transport type
+                    type: string
+                type: object
+              validation:
+                description: Validation defines MCP protocol validation configuration
+                properties:
+                  enabled:
+                    default: true
+                    description: |-
+                      Enabled indicates if protocol validation should be performed.
+                      Default: true (validation runs even when this spec is omitted)
+                      Set to false to explicitly disable all validation.
+                    type: boolean
+                  requiredCapabilities:
+                    description: |-
+                      RequiredCapabilities specifies capabilities that must be present.
+                      If specified, validation fails if server doesn't advertise all required capabilities.
+                      Valid values: "tools", "resources", "prompts"
+                    items:
+                      type: string
+                    type: array
+                  strictMode:
+                    default: false
+                    description: |-
+                      StrictMode fails deployment if validation fails.
+                      When false (default), deployment continues and validation issues are reported in status.
+                      When true, the MCPServer phase becomes "Failed" and deployment is scaled to 0 replicas.
+                      Default: false
+                    type: boolean
+                  transportProtocol:
+                    allOf:
+                    - enum:
+                      - auto
+                      - streamable-http
+                      - sse
+                    - enum:
+                      - auto
+                      - streamable-http
+                      - sse
+                    description: |-
+                      TransportProtocol specifies which transport protocol to validate against.
+                      If not specified, uses the protocol from spec.transport.protocol.
+                      Valid values:
+                      - "auto": Auto-detect and validate all supported protocols (default)
+                      - "streamable-http": Only validate Streamable HTTP protocol
+                      - "sse": Only validate SSE protocol
                     type: string
                 type: object
             required:
@@ -3490,6 +3562,7 @@ spec:
                 - Scaling
                 - Updating
                 - Failed
+                - ValidationFailed
                 - Terminating
                 type: string
               readyReplicas:
@@ -3504,11 +3577,118 @@ spec:
                 description: ServiceEndpoint represents the endpoint where the MCP
                   server is accessible
                 type: string
+              transport:
+                description: Transport represents the detected transport protocol
+                  information
+                properties:
+                  detectedProtocol:
+                    description: |-
+                      DetectedProtocol indicates the detected MCP transport protocol
+                      Valid values: "streamable-http", "sse", "unknown"
+                    type: string
+                  endpoint:
+                    description: Endpoint is the full URL that was validated
+                    type: string
+                  lastDetected:
+                    description: LastDetected is the timestamp when transport detection
+                      occurred
+                    format: date-time
+                    type: string
+                  sessionSupport:
+                    description: SessionSupport indicates if the transport supports
+                      sessions
+                    type: boolean
+                type: object
               transportType:
                 description: TransportType represents the active transport type
                 enum:
                 - http
                 type: string
+              validation:
+                description: Validation represents the MCP protocol validation status
+                properties:
+                  attempts:
+                    description: Attempts is the number of validation attempts made
+                    format: int32
+                    type: integer
+                  capabilities:
+                    description: Capabilities lists the capabilities discovered from
+                      the server
+                    items:
+                      type: string
+                    type: array
+                  compliant:
+                    description: Compliant indicates if the server is protocol compliant
+                    type: boolean
+                  issues:
+                    description: Issues contains validation issues found
+                    items:
+                      description: ValidationIssue represents a validation problem
+                        found
+                      properties:
+                        code:
+                          description: Code is a machine-readable issue code
+                          type: string
+                        level:
+                          description: |-
+                            Level indicates the severity of the issue
+                            Valid values: "error", "warning", "info"
+                          enum:
+                          - error
+                          - warning
+                          - info
+                          type: string
+                        message:
+                          description: Message is a human-readable description of
+                            the issue
+                          type: string
+                      required:
+                      - level
+                      - message
+                      type: object
+                    type: array
+                  lastAttemptTime:
+                    description: LastAttemptTime is the timestamp of the last validation
+                      attempt
+                    format: date-time
+                    type: string
+                  lastValidated:
+                    description: LastValidated is the timestamp of the last successful
+                      validation
+                    format: date-time
+                    type: string
+                  protocolVersion:
+                    description: ProtocolVersion is the detected MCP protocol version
+                    type: string
+                  requiresAuth:
+                    description: RequiresAuth indicates if the server requires authentication
+                    type: boolean
+                  state:
+                    allOf:
+                    - enum:
+                      - Pending
+                      - Validating
+                      - Passed
+                      - Failed
+                    - enum:
+                      - Pending
+                      - Validating
+                      - Passed
+                      - Failed
+                    description: State represents the current validation state
+                    type: string
+                  transportUsed:
+                    description: |-
+                      TransportUsed indicates which transport protocol was used for validation
+                      Valid values: "streamable-http", "sse"
+                    type: string
+                  validatedGeneration:
+                    description: |-
+                      ValidatedGeneration is the generation of the MCPServer that was validated
+                      Used to detect when spec changes require re-validation
+                    format: int64
+                    type: integer
+                type: object
             type: object
         required:
         - spec

@@ -79,6 +79,10 @@ type MCPServerSpec struct {
 	// Ingress defines the ingress configuration for external access
 	// +optional
 	Ingress *MCPServerIngress `json:"ingress,omitempty"`
+
+	// Validation defines MCP protocol validation configuration
+	// +optional
+	Validation *ValidationSpec `json:"validation,omitempty"`
 }
 
 // MCPServerSecurity defines security settings for the MCP server
@@ -231,10 +235,18 @@ type MCPServerStatus struct {
 	// ObservedGeneration represents the most recent generation observed by the controller
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// Validation represents the MCP protocol validation status
+	// +optional
+	Validation *ValidationStatus `json:"validation,omitempty"`
+
+	// Transport represents the detected transport protocol information
+	// +optional
+	Transport *TransportStatus `json:"transport,omitempty"`
 }
 
 // MCPServerPhase represents the current phase of an MCP server deployment
-// +kubebuilder:validation:Enum=Pending;Creating;Running;Scaling;Updating;Failed;Terminating
+// +kubebuilder:validation:Enum=Pending;Creating;Running;Scaling;Updating;Failed;ValidationFailed;Terminating
 type MCPServerPhase string
 
 const (
@@ -250,6 +262,8 @@ const (
 	MCPServerPhaseUpdating MCPServerPhase = "Updating"
 	// MCPServerPhaseFailed indicates the MCP server deployment failed
 	MCPServerPhaseFailed MCPServerPhase = "Failed"
+	// MCPServerPhaseValidationFailed indicates validation failed in strict mode
+	MCPServerPhaseValidationFailed MCPServerPhase = "ValidationFailed"
 	// MCPServerPhaseTerminating indicates the MCP server is being terminated
 	MCPServerPhaseTerminating MCPServerPhase = "Terminating"
 )
@@ -369,6 +383,16 @@ type MCPServerTransport struct {
 	// +optional
 	Type MCPTransportType `json:"type,omitempty"`
 
+	// Protocol specifies the MCP transport protocol to use
+	// Valid values:
+	// - "auto": Auto-detect protocol (prefers Streamable HTTP over SSE)
+	// - "streamable-http": Use Streamable HTTP transport (MCP 2025-03-26+)
+	// - "sse": Use Server-Sent Events transport (MCP 2024-11-05)
+	// +kubebuilder:validation:Enum=auto;streamable-http;sse
+	// +kubebuilder:default=auto
+	// +optional
+	Protocol MCPTransportProtocol `json:"protocol,omitempty"`
+
 	// Config contains transport-specific configuration
 	// +optional
 	Config *MCPTransportConfigDetails `json:"config,omitempty"`
@@ -381,6 +405,19 @@ type MCPTransportType string
 const (
 	// MCPTransportHTTP indicates HTTP transport (supports both SSE and standard HTTP)
 	MCPTransportHTTP MCPTransportType = "http"
+)
+
+// MCPTransportProtocol represents the MCP protocol variant
+// +kubebuilder:validation:Enum=auto;streamable-http;sse
+type MCPTransportProtocol string
+
+const (
+	// MCPProtocolAuto enables auto-detection (prefers Streamable HTTP over SSE)
+	MCPProtocolAuto MCPTransportProtocol = "auto"
+	// MCPProtocolStreamableHTTP uses Streamable HTTP transport (MCP 2025-03-26+)
+	MCPProtocolStreamableHTTP MCPTransportProtocol = "streamable-http"
+	// MCPProtocolSSE uses Server-Sent Events transport (MCP 2024-11-05)
+	MCPProtocolSSE MCPTransportProtocol = "sse"
 )
 
 // MCPTransportConfigDetails contains transport-specific configuration options
@@ -444,12 +481,161 @@ type MCPServerIngress struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
+// ValidationState represents the current state of validation
+// +kubebuilder:validation:Enum=Pending;Validating;Passed;Failed
+type ValidationState string
+
+const (
+	// ValidationStatePending indicates validation has not started yet
+	ValidationStatePending ValidationState = "Pending"
+	// ValidationStateValidating indicates validation is in progress
+	ValidationStateValidating ValidationState = "Validating"
+	// ValidationStatePassed indicates validation succeeded
+	ValidationStatePassed ValidationState = "Passed"
+	// ValidationStateFailed indicates validation failed
+	ValidationStateFailed ValidationState = "Failed"
+)
+
+// ValidationSpec defines MCP protocol validation configuration.
+//
+// IMPORTANT: Validation is ENABLED BY DEFAULT even if this entire spec is omitted.
+// To disable validation, explicitly set enabled: false.
+//
+// Default behavior (when spec.validation is nil or empty):
+//   - Protocol auto-detection runs automatically
+//   - Authentication detection runs automatically
+//   - Capabilities are discovered from server
+//   - StrictMode is false (deployment continues even if validation fails)
+//   - Validation results populate status.validation fields
+//
+// Validation occurs on deployment (create/update), not periodically.
+type ValidationSpec struct {
+	// Enabled indicates if protocol validation should be performed.
+	// Default: true (validation runs even when this spec is omitted)
+	// Set to false to explicitly disable all validation.
+	// +kubebuilder:default=true
+	// +optional
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// TransportProtocol specifies which transport protocol to validate against.
+	// If not specified, uses the protocol from spec.transport.protocol.
+	// Valid values:
+	// - "auto": Auto-detect and validate all supported protocols (default)
+	// - "streamable-http": Only validate Streamable HTTP protocol
+	// - "sse": Only validate SSE protocol
+	// +kubebuilder:validation:Enum=auto;streamable-http;sse
+	// +optional
+	TransportProtocol MCPTransportProtocol `json:"transportProtocol,omitempty"`
+
+	// StrictMode fails deployment if validation fails.
+	// When false (default), deployment continues and validation issues are reported in status.
+	// When true, the MCPServer phase becomes "Failed" and deployment is scaled to 0 replicas.
+	// Default: false
+	// +kubebuilder:default=false
+	// +optional
+	StrictMode *bool `json:"strictMode,omitempty"`
+
+	// RequiredCapabilities specifies capabilities that must be present.
+	// If specified, validation fails if server doesn't advertise all required capabilities.
+	// Valid values: "tools", "resources", "prompts"
+	// +optional
+	RequiredCapabilities []string `json:"requiredCapabilities,omitempty"`
+}
+
+// ValidationStatus represents the MCP protocol validation status
+type ValidationStatus struct {
+	// State represents the current validation state
+	// +kubebuilder:validation:Enum=Pending;Validating;Passed;Failed
+	// +optional
+	State ValidationState `json:"state,omitempty"`
+
+	// Attempts is the number of validation attempts made
+	// +optional
+	Attempts int32 `json:"attempts,omitempty"`
+
+	// LastAttemptTime is the timestamp of the last validation attempt
+	// +optional
+	LastAttemptTime *metav1.Time `json:"lastAttemptTime,omitempty"`
+
+	// ProtocolVersion is the detected MCP protocol version
+	// +optional
+	ProtocolVersion string `json:"protocolVersion,omitempty"`
+
+	// Capabilities lists the capabilities discovered from the server
+	// +optional
+	Capabilities []string `json:"capabilities,omitempty"`
+
+	// Compliant indicates if the server is protocol compliant
+	// +optional
+	Compliant bool `json:"compliant"`
+
+	// LastValidated is the timestamp of the last successful validation
+	// +optional
+	LastValidated *metav1.Time `json:"lastValidated,omitempty"`
+
+	// Issues contains validation issues found
+	// +optional
+	Issues []ValidationIssue `json:"issues,omitempty"`
+
+	// TransportUsed indicates which transport protocol was used for validation
+	// Valid values: "streamable-http", "sse"
+	// +optional
+	TransportUsed string `json:"transportUsed,omitempty"`
+
+	// RequiresAuth indicates if the server requires authentication
+	// +optional
+	RequiresAuth bool `json:"requiresAuth"`
+
+	// ValidatedGeneration is the generation of the MCPServer that was validated
+	// Used to detect when spec changes require re-validation
+	// +optional
+	ValidatedGeneration int64 `json:"validatedGeneration,omitempty"`
+}
+
+// TransportStatus represents the detected transport protocol information
+type TransportStatus struct {
+	// DetectedProtocol indicates the detected MCP transport protocol
+	// Valid values: "streamable-http", "sse", "unknown"
+	// +optional
+	DetectedProtocol string `json:"detectedProtocol,omitempty"`
+
+	// Endpoint is the full URL that was validated
+	// +optional
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// LastDetected is the timestamp when transport detection occurred
+	// +optional
+	LastDetected *metav1.Time `json:"lastDetected,omitempty"`
+
+	// SessionSupport indicates if the transport supports sessions
+	// +optional
+	SessionSupport bool `json:"sessionSupport,omitempty"`
+}
+
+// ValidationIssue represents a validation problem found
+type ValidationIssue struct {
+	// Level indicates the severity of the issue
+	// Valid values: "error", "warning", "info"
+	// +kubebuilder:validation:Enum=error;warning;info
+	Level string `json:"level"`
+
+	// Message is a human-readable description of the issue
+	Message string `json:"message"`
+
+	// Code is a machine-readable issue code
+	// +optional
+	Code string `json:"code,omitempty"`
+}
+
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Replicas",type=integer,JSONPath=`.status.replicas`
 // +kubebuilder:printcolumn:name="Ready",type=integer,JSONPath=`.status.readyReplicas`
-// +kubebuilder:printcolumn:name="Transport",type=string,JSONPath=`.status.transportType`
+// +kubebuilder:printcolumn:name="Protocol",type=string,JSONPath=`.status.validation.transportUsed`
+// +kubebuilder:printcolumn:name="Auth",type=boolean,JSONPath=`.status.validation.requiresAuth`
+// +kubebuilder:printcolumn:name="Compliant",type=boolean,JSONPath=`.status.validation.compliant`
+// +kubebuilder:printcolumn:name="Capabilities",type=string,JSONPath=`.status.validation.capabilities`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // MCPServer is the Schema for the mcpservers API
