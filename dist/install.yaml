@@ -4059,7 +4059,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/vitorbari/mcp-operator:v0.1.0-alpha.7
+        image: ghcr.io/vitorbari/mcp-operator:v0.1.0-alpha.8
         livenessProbe:
           httpGet:
             path: /healthz
