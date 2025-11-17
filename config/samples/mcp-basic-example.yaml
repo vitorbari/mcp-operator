@@ -6,6 +6,17 @@ metadata:
 spec:
   image: "tzolov/mcp-everything-server:v3"
   command: ["node", "dist/index.js", "sse"]
+
+  # SSE transport configuration
+  transport:
+    type: "http"
+    protocol: "sse"
+    config:
+      http:
+        port: 3001  # SSE server listens on 3001
+        path: "/sse"
+        sessionManagement: true
+
   security:
     runAsUser: 1000
     runAsGroup: 1000

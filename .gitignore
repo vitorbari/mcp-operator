@@ -32,3 +32,6 @@ go.work
 
 # Personal notes and drafts
 .notes/
+
+# Test MCPServer configurations
+test-servers/

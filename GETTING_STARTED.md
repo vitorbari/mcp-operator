@@ -1,29 +1,28 @@
 # Getting Started with MCP Operator
 
-This guide will help you get the MCP Operator running in about 5 minutes.
+This guide will get you up and running with MCP Operator in about 5 minutes. Let's go!
 
-## Prerequisites
+## What You'll Need
 
-Before you begin, you'll need:
+- **A Kubernetes cluster** - Any of these will work:
+  - [Kind](https://kind.sigs.k8s.io/) (great for local testing)
+  - [Minikube](https://minikube.sigs.k8s.io/) (another good local option)
+  - Any cloud cluster (GKE, EKS, AKS, etc.)
+- **kubectl** - [Install it here](https://kubernetes.io/docs/tasks/tools/) if you don't have it
 
-- **Kubernetes cluster** - One of the following:
-  - [Kind](https://kind.sigs.k8s.io/) (recommended for testing) - Lightweight and fast
-  - [Minikube](https://minikube.sigs.k8s.io/) - Full-featured local cluster
-  - Any cloud Kubernetes cluster (GKE, EKS, AKS)
-- **kubectl** - [Install kubectl](https://kubernetes.io/docs/tasks/tools/)
-- **Basic Kubernetes knowledge** - Familiarity with pods, deployments, and services
+### Quick Cluster Setup
 
-### Setting up a local cluster
+Don't have a cluster yet? Here's the fastest way to get one:
 
-**Using Kind (recommended):**
+**Using Kind (recommended for testing):**
 
 ```bash
 # Install Kind
 brew install kind  # macOS
-# or download from https://kind.sigs.k8s.io/docs/user/quick-start/#installation
+# or download from https://kind.sigs.k8s.io/docs/user/quick-start/
 
 # Create a cluster
-kind create cluster --name mcp-test
+kind create cluster --name mcp-demo
 ```
 
 **Using Minikube:**
@@ -37,15 +36,15 @@ brew install minikube  # macOS
 minikube start
 ```
 
-## Step 1: Install the MCP Operator
+## Step 1: Install the Operator
 
-Install the operator in your cluster:
+Install MCP Operator in your cluster:
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/install.yaml
 ```
 
-Wait for the operator to be ready:
+Wait for it to be ready:
 
 ```bash
 kubectl wait --for=condition=available --timeout=300s \
@@ -53,213 +52,187 @@ kubectl wait --for=condition=available --timeout=300s \
   -n mcp-operator-system
 ```
 
-Verify the installation:
+Verify it's running:
 
 ```bash
 kubectl get pods -n mcp-operator-system
 ```
 
-### Optional: Enable Monitoring
-
-If you want metrics and dashboards (requires Prometheus Operator):
-
-```bash
-# Skip this if you don't have Prometheus Operator installed
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/monitoring.yaml
-```
-
-You should see the controller manager running:
+You should see something like:
 
 ```
 NAME                                               READY   STATUS    RESTARTS   AGE
 mcp-operator-controller-manager-xxxxxxxxxx-xxxxx   2/2     Running   0          30s
 ```
 
-## Step 2: Deploy Your First MCP Server
+That's it! The operator is now watching for MCPServers in your cluster.
 
-Create a file named `my-first-mcp-server.yaml`:
+## Step 2: Create Your First MCP Server
+
+Let's deploy the Wikipedia MCP server. Create a file called `wikipedia.yaml`:
 
 ```yaml
 apiVersion: mcp.mcp-operator.io/v1
 kind: MCPServer
 metadata:
-  name: my-first-mcp-server
-  namespace: default
+  name: wikipedia
 spec:
-  image: "tzolov/mcp-everything-server:v3"
-  command: ["node", "dist/index.js", "sse"]
-  replicas: 1
+  image: "mcp/wikipedia-mcp:latest"
+  args: ["--transport", "sse", "--port", "3001", "--host", "0.0.0.0"]
+
   transport:
     type: http
-    protocol: sse  # Explicitly specify SSE protocol (or use 'auto' for auto-detection)
+    protocol: auto  # The operator will auto-detect the protocol
     config:
       http:
         port: 3001
-        path: "/sse"  # SSE endpoint path
-        sessionManagement: true
-  security:
-    runAsUser: 1000
-    runAsGroup: 1000
+        path: "/sse"
+
   resources:
     requests:
       cpu: "100m"
       memory: "128Mi"
-    limits:
-      cpu: "500m"
-      memory: "512Mi"
 ```
 
-Apply it to your cluster:
+Apply it:
 
 ```bash
-kubectl apply -f my-first-mcp-server.yaml
+kubectl apply -f wikipedia.yaml
 ```
 
-## Step 3: Verify It's Working
+## Step 3: Check It Out
 
-Check the MCPServer status:
+See your MCP servers:
 
 ```bash
-kubectl get mcpserver my-first-mcp-server
+kubectl get mcpservers
 ```
 
-You should see output like:
+You should see something like:
 
 ```
-NAME                  PHASE     REPLICAS   READY   TRANSPORT   AGE
-my-first-mcp-server   Running   1          1       http        1m
+NAME        PHASE     REPLICAS   READY   PROTOCOL     COMPLIANT   CAPABILITIES
+wikipedia   Running   1          1       2024-11-05   true        ["tools","resources","prompts"]
 ```
 
-View detailed status:
+Cool, right? The operator automatically:
+- Detected the MCP protocol version (`2024-11-05`)
+- Validated the server is compliant
+- Discovered the server's capabilities
+
+Get more details:
 
 ```bash
-kubectl describe mcpserver my-first-mcp-server
+kubectl describe mcpserver wikipedia
 ```
 
-Check the pods:
+Check the validation status:
 
 ```bash
-kubectl get pods -l app=my-first-mcp-server
+kubectl get mcpserver wikipedia -o jsonpath='{.status.validation}' | jq
 ```
 
-View logs:
+You'll see:
 
-```bash
-kubectl logs -l app=my-first-mcp-server
+```json
+{
+  "state": "Compliant",
+  "compliant": true,
+  "protocolVersion": "2024-11-05",
+  "transportUsed": "sse",
+  "requiresAuth": false,
+  "capabilities": ["tools", "resources", "prompts"]
+}
 ```
 
-## Step 4: Access Your MCP Server
+## Step 4: Access Your Server
 
-The operator creates a Kubernetes service for your MCP server. Access methods vary by platform:
+The operator created a Kubernetes service for your MCP server. Here's how to access it:
 
-**Minikube:**
+**If using Kind or a cloud cluster:**
 
 ```bash
-# Open service in browser (automatically handles port forwarding)
-minikube service my-first-mcp-server
-
-# Or get the URL without opening browser
-minikube service my-first-mcp-server --url
+# Forward the port to your local machine
+kubectl port-forward service/wikipedia 3001:3001
 ```
 
-**Kind or other Kubernetes clusters:**
+**If using Minikube:**
 
 ```bash
-# Port forward to access locally
-kubectl port-forward service/my-first-mcp-server 3001:3001
+# Minikube can open it for you
+minikube service wikipedia --url
 ```
 
-Now you can access your MCP server at `http://localhost:3001`.
+Your MCP server is now accessible at `http://localhost:3001/sse`!
 
-## Step 5: Connect an MCP Client
+## Step 5: Test It
 
-Once your MCP server is accessible, you can connect to it using MCP-compatible clients.
-
-### Using MCP Inspector (Recommended for Testing)
-
-The [MCP Inspector](https://github.com/modelcontextprotocol/inspector) is the official testing tool for MCP servers:
+You can test your MCP server using the [MCP Inspector](https://github.com/modelcontextprotocol/inspector):
 
 ```bash
-# Install MCP Inspector globally
+# Install MCP Inspector
 npm install -g @modelcontextprotocol/inspector
 
-# Connect to your local MCP server
-mcp-inspector http://localhost:3001/mcp
+# Connect to your server
+mcp-inspector http://localhost:3001/sse
 ```
 
-This will open a web interface where you can:
-- Test available tools and prompts
-- Send requests to the MCP server
-- View server capabilities and resources
-- Debug MCP protocol interactions
+This opens a web interface where you can:
+- Test the server's tools and prompts
+- See what capabilities it has
+- Send requests and see responses
 
-### Using Claude Desktop
+## What's Next?
 
-To connect Claude Desktop to your MCP server, add it to your Claude configuration:
+### Try Auto-Scaling
 
-**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-
-**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "my-server": {
-      "url": "http://localhost:3001/mcp"
-    }
-  }
-}
-```
-
-Restart Claude Desktop to load the new server configuration.
-
-### Using Other MCP Clients
-
-For remote MCP servers with ingress enabled, you can connect from any location:
-
-```json
-{
-  "mcpServers": {
-    "remote-server": {
-      "url": "https://mcp.example.com/mcp"
-    }
-  }
-}
-```
-
-**Additional Resources:**
-- [Testing Remote MCP Servers (Cloudflare)](https://developers.cloudflare.com/agents/guides/test-remote-mcp-server/)
-- [Awesome Remote MCP Servers](https://github.com/jaw9c/awesome-remote-mcp-servers)
-- [MCP Protocol Documentation](https://modelcontextprotocol.io)
-
-## Next Steps
-
-### Try More Examples
-
-Explore the sample configurations:
-
-```bash
-# Wikipedia MCP server
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/config/samples/wikipedia-http.yaml
-
-# Full-featured example with ingress
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/config/samples/http-mcp-server-ingress.yaml
-```
-
-### Enable Advanced Features
-
-**Horizontal Pod Autoscaling:**
+Want your server to scale automatically based on traffic? Add HPA:
 
 ```yaml
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: wikipedia
 spec:
+  image: "mcp/wikipedia-mcp:latest"
+  args: ["--transport", "sse", "--port", "3001", "--host", "0.0.0.0"]
+
+  transport:
+    type: http
+    protocol: auto
+    config:
+      http:
+        port: 3001
+        path: "/sse"
+
+  # Add this to enable auto-scaling
   hpa:
     enabled: true
     minReplicas: 2
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
 ```
 
-**Ingress for External Access:**
+Apply the update:
+
+```bash
+kubectl apply -f wikipedia.yaml
+```
+
+Watch it scale:
+
+```bash
+kubectl get mcpservers -w
+```
+
+### Enable External Access
+
+Want to access your MCP server from outside the cluster? Add ingress:
 
 ```yaml
 spec:
@@ -269,35 +242,61 @@ spec:
     className: "nginx"
 ```
 
-See the [README](README.md) for complete API reference and more examples.
+### Add Monitoring
+
+If you have Prometheus Operator installed:
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/monitoring.yaml
+```
+
+This adds a Grafana dashboard showing all your MCP servers' health and performance.
+
+### Explore More Examples
+
+Check out the sample configurations:
+
+```bash
+# Simple examples
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/config/samples/wikipedia-http.yaml
+
+# Production-ready setup
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/config/samples/mcp-basic-example.yaml
+```
 
 ## Troubleshooting
 
-### MCPServer stuck in "Creating" phase
+### Server stuck in "Creating" phase?
 
-Check pod status:
+Check the pods:
 
 ```bash
-kubectl get pods -l app=my-first-mcp-server
-kubectl describe pod -l app=my-first-mcp-server
+kubectl get pods
+kubectl describe pod -l app.kubernetes.io/name=wikipedia
 ```
 
-### Pods are CrashLooping
-
-View logs to see what's failing:
+### Check the logs:
 
 ```bash
-kubectl logs -l app=my-first-mcp-server
+kubectl logs -l app.kubernetes.io/name=wikipedia
+```
+
+### Validation failing?
+
+See what's wrong:
+
+```bash
+kubectl get mcpserver wikipedia -o jsonpath='{.status.validation.issues}' | jq
 ```
 
 Common issues:
-- **Image pull errors** - Verify the image exists and is accessible
-- **Resource limits** - Try increasing memory/CPU limits
-- **Port conflicts** - Ensure the port matches your container's expectations
+- **Wrong port** - Make sure the port in your config matches what the server listens on
+- **Image not found** - Check that the image exists and is accessible
+- **Protocol mismatch** - The operator will detect this and suggest using `auto`
 
-### Operator not responding
+### Still stuck?
 
-Check operator logs:
+The operator logs can help:
 
 ```bash
 kubectl logs -n mcp-operator-system \
@@ -305,12 +304,12 @@ kubectl logs -n mcp-operator-system \
   -c manager
 ```
 
-## Cleanup
+## Clean Up
 
 Remove your MCP server:
 
 ```bash
-kubectl delete mcpserver my-first-mcp-server
+kubectl delete mcpserver wikipedia
 ```
 
 Uninstall the operator:
@@ -323,21 +322,22 @@ Delete your local cluster:
 
 ```bash
 # Kind
-kind delete cluster --name mcp-test
+kind delete cluster --name mcp-demo
 
 # Minikube
 minikube delete
 ```
 
-## Get Help
+## Need Help?
 
-- **Found a bug?** [Open an issue](https://github.com/vitorbari/mcp-operator/issues/new)
-- **Have questions?** [Start a discussion](https://github.com/vitorbari/mcp-operator/discussions)
-- **Want to contribute?** See [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Questions?** [Start a discussion](https://github.com/vitorbari/mcp-operator/discussions)
+- **Found a bug?** [Open an issue](https://github.com/vitorbari/mcp-operator/issues)
+- **Want to contribute?** Check out [CONTRIBUTING.md](CONTRIBUTING.md)
 
-## What's Next?
+## Learn More
 
-- Read the [Architecture Documentation](docs/README.md)
-- Explore [Advanced Examples](config/samples/)
-- Learn about [Transport Configuration](README.md#transport-configuration)
-- Set up [Monitoring and Observability](README.md#monitoring-and-observability)
+- [Full Documentation](README.md)
+- [Configuration Examples](config/samples/)
+- [MCP Protocol Specification](https://modelcontextprotocol.io)
+
+That's it! You've successfully deployed and validated your first MCP server on Kubernetes. Welcome aboard! 🎉
