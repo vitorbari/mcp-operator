@@ -88,6 +88,10 @@ spec:
         port: 3001
         path: "/sse"
 
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+
   resources:
     requests:
       cpu: "100m"
@@ -211,6 +215,10 @@ spec:
     minReplicas: 2
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70
+
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
 
   resources:
     requests:
