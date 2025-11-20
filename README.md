@@ -61,6 +61,10 @@ spec:
         path: "/sse"
         sessionManagement: true
 
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+
   resources:
     requests:
       cpu: "100m"
