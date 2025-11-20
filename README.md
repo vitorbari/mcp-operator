@@ -69,6 +69,10 @@ spec:
     requests:
       cpu: "100m"
       memory: "128Mi"
+
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
 ```
 
 Apply it:
@@ -86,8 +90,8 @@ kubectl get mcpservers
 You should see something like:
 
 ```
-NAME        PHASE     REPLICAS   READY   PROTOCOL     COMPLIANT   CAPABILITIES
-wikipedia   Running   1          1       2024-11-05   true        ["tools","resources","prompts"]
+NAME        PHASE     REPLICAS   READY   PROTOCOL   AUTH    COMPLIANT   CAPABILITIES                      AGE
+wikipedia   Running   1          1       sse        false   true        ["tools","resources","prompts"]   109s
 ```
 
 That's it! Your MCP server is running, validated, and ready to use.

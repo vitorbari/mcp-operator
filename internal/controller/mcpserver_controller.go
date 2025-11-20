@@ -1324,11 +1324,12 @@ func (r *MCPServerReconciler) updateValidationStatus(ctx context.Context, mcpSer
 		Attempts:            attempts,
 		LastAttemptTime:     &now,
 		ProtocolVersion:     result.ProtocolVersion,
+		Protocol:            string(result.DetectedTransport),
+		Endpoint:            result.Endpoint,
 		Capabilities:        result.Capabilities,
 		Compliant:           isCompliant,
-		LastValidated:       &now,
-		TransportUsed:       string(result.DetectedTransport),
 		RequiresAuth:        result.RequiresAuth,
+		LastValidated:       &now,
 		ValidatedGeneration: mcpServer.Generation,
 		Issues:              make([]mcpv1.ValidationIssue, 0, len(result.Issues)+len(mismatchIssues)),
 	}
@@ -1347,24 +1348,6 @@ func (r *MCPServerReconciler) updateValidationStatus(ctx context.Context, mcpSer
 
 	// Update the validation status
 	mcpServer.Status.Validation = validationStatus
-
-	// Update transport status
-	if mcpServer.Status.Transport == nil {
-		mcpServer.Status.Transport = &mcpv1.TransportStatus{}
-	}
-	mcpServer.Status.Transport.DetectedProtocol = string(result.DetectedTransport)
-	mcpServer.Status.Transport.Endpoint = result.Endpoint
-	mcpServer.Status.Transport.LastDetected = &now
-
-	// Determine session support based on spec configuration
-	sessionSupport := false
-	if mcpServer.Spec.Transport != nil &&
-		mcpServer.Spec.Transport.Config != nil &&
-		mcpServer.Spec.Transport.Config.HTTP != nil &&
-		mcpServer.Spec.Transport.Config.HTTP.SessionManagement != nil {
-		sessionSupport = *mcpServer.Spec.Transport.Config.HTTP.SessionManagement
-	}
-	mcpServer.Status.Transport.SessionSupport = sessionSupport
 
 	// Update conditions based on validation result
 	r.updateValidationConditions(mcpServer, result, hasMismatch)

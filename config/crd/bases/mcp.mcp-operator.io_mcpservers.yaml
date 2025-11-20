@@ -24,7 +24,7 @@ spec:
     - jsonPath: .status.readyReplicas
       name: Ready
       type: integer
-    - jsonPath: .status.validation.transportUsed
+    - jsonPath: .status.validation.protocol
       name: Protocol
       type: string
     - jsonPath: .status.validation.requiresAuth
@@ -3577,28 +3577,6 @@ spec:
                 description: ServiceEndpoint represents the endpoint where the MCP
                   server is accessible
                 type: string
-              transport:
-                description: Transport represents the detected transport protocol
-                  information
-                properties:
-                  detectedProtocol:
-                    description: |-
-                      DetectedProtocol indicates the detected MCP transport protocol
-                      Valid values: "streamable-http", "sse", "unknown"
-                    type: string
-                  endpoint:
-                    description: Endpoint is the full URL that was validated
-                    type: string
-                  lastDetected:
-                    description: LastDetected is the timestamp when transport detection
-                      occurred
-                    format: date-time
-                    type: string
-                  sessionSupport:
-                    description: SessionSupport indicates if the transport supports
-                      sessions
-                    type: boolean
-                type: object
               transportType:
                 description: TransportType represents the active transport type
                 enum:
@@ -3620,6 +3598,9 @@ spec:
                   compliant:
                     description: Compliant indicates if the server is protocol compliant
                     type: boolean
+                  endpoint:
+                    description: Endpoint is the full URL that was validated
+                    type: string
                   issues:
                     description: Issues contains validation issues found
                     items:
@@ -3657,8 +3638,16 @@ spec:
                       validation
                     format: date-time
                     type: string
+                  protocol:
+                    description: |-
+                      Protocol indicates which MCP protocol variant was detected
+                      This represents the specific HTTP-based protocol mode
+                      Valid values: "streamable-http", "sse"
+                    type: string
                   protocolVersion:
-                    description: ProtocolVersion is the detected MCP protocol version
+                    description: |-
+                      ProtocolVersion is the detected MCP specification version
+                      Valid values: "2024-11-05" (SSE), "2025-03-26" (Streamable HTTP)
                     type: string
                   requiresAuth:
                     description: RequiresAuth indicates if the server requires authentication
@@ -3676,11 +3665,6 @@ spec:
                       - Passed
                       - Failed
                     description: State represents the current validation state
-                    type: string
-                  transportUsed:
-                    description: |-
-                      TransportUsed indicates which transport protocol was used for validation
-                      Valid values: "streamable-http", "sse"
                     type: string
                   validatedGeneration:
                     description: |-
