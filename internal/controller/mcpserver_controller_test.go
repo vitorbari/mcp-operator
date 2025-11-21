@@ -891,7 +891,7 @@ var _ = Describe("MCPServer Controller", func() {
 			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
 				Compliant:           false, // Not compliant due to mismatch
 				ProtocolVersion:     "2024-11-05",
-				TransportUsed:       "sse", // Server actually uses SSE
+				Protocol:            "sse", // Server actually uses SSE
 				ValidatedGeneration: mcpserver.Generation,
 				Issues: []mcpv1.ValidationIssue{
 					{
@@ -969,7 +969,7 @@ var _ = Describe("MCPServer Controller", func() {
 			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
 				Compliant:           false,
 				ProtocolVersion:     "2024-11-05",
-				TransportUsed:       "sse",
+				Protocol:            "sse",
 				ValidatedGeneration: mcpserver.Generation,
 				Issues: []mcpv1.ValidationIssue{
 					{
@@ -1038,7 +1038,7 @@ var _ = Describe("MCPServer Controller", func() {
 			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
 				Compliant:           true, // Compliant - no mismatch with auto
 				ProtocolVersion:     "2024-11-05",
-				TransportUsed:       "sse", // Auto-detected SSE
+				Protocol:            "sse", // Auto-detected SSE
 				ValidatedGeneration: mcpserver.Generation,
 				Issues:              []mcpv1.ValidationIssue{}, // No issues
 			}
@@ -1138,7 +1138,7 @@ var _ = Describe("MCPServer Controller", func() {
 			mcpserver.Status.Phase = mcpv1.MCPServerPhaseRunning
 			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
 				Compliant:           false,
-				TransportUsed:       "sse",
+				Protocol:            "sse",
 				ValidatedGeneration: mcpserver.Generation,
 				Issues: []mcpv1.ValidationIssue{
 					{
@@ -1174,7 +1174,7 @@ var _ = Describe("MCPServer Controller", func() {
 			// Generation incremented, validation re-runs and succeeds
 			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
 				Compliant:           true, // Now compliant
-				TransportUsed:       "sse",
+				Protocol:            "sse",
 				ValidatedGeneration: mcpserver.Generation,
 				Issues:              []mcpv1.ValidationIssue{}, // Issues cleared
 			}

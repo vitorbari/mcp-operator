@@ -162,7 +162,13 @@ Context("When reconciling MCPServer with custom command and args", func() {
 
 ### Transport Configuration
 
-The operator supports MCP protocol specification with auto-detection or explicit selection:
+The operator supports MCP protocol specification with auto-detection or explicit selection.
+
+**Terminology:**
+- `transport.type`: Transport layer (http, stdio)
+- `transport.protocol`: MCP protocol variant (auto, streamable-http, sse)
+- `status.validation.protocol`: Detected protocol variant
+- `status.validation.protocolVersion`: MCP specification version
 
 **Auto-Detection (Default)**
 ```yaml

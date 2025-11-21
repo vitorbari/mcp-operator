@@ -1687,11 +1687,9 @@ spec:
 				Expect(foundMismatch).To(BeTrue(), "Should have PROTOCOL_MISMATCH issue")
 
 				By("verifying detected protocol")
-				transport, ok := status["transport"].(map[string]interface{})
+				protocol, ok := validation["protocol"].(string)
 				Expect(ok).To(BeTrue())
-				detectedProtocol, ok := transport["detectedProtocol"].(string)
-				Expect(ok).To(BeTrue())
-				Expect(detectedProtocol).To(Equal("sse"))
+				Expect(protocol).To(Equal("sse"))
 
 				By("verifying deployment still exists in non-strict mode")
 				cmd = exec.Command("kubectl", "get", "deployment", mcpServerName, "-n", testNamespace)
@@ -2048,10 +2046,9 @@ spec:
 				Expect(currentAttempts).To(BeNumerically(">=", 1), "Should have attempted validation at least once after fix")
 
 				By("verifying detected protocol matches spec")
-				transport := status["transport"].(map[string]interface{})
-				detectedProtocol, ok := transport["detectedProtocol"].(string)
+				protocol, ok := validation["protocol"].(string)
 				Expect(ok).To(BeTrue())
-				Expect(detectedProtocol).To(Equal("sse"))
+				Expect(protocol).To(Equal("sse"))
 
 				By("verifying ValidationRecovery event was emitted")
 				Eventually(func(g Gomega) {
