@@ -3400,8 +3400,11 @@ spec:
                           SSE and standard HTTP)
                         properties:
                           path:
-                            default: /mcp
-                            description: Path specifies the HTTP endpoint path
+                            description: |-
+                              Path specifies the HTTP endpoint path
+                              When omitted, auto-detection tries protocol-specific defaults:
+                              - "/mcp" for Streamable HTTP
+                              - "/sse" for SSE
                             type: string
                           port:
                             default: 8080
