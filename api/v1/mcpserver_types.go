@@ -437,7 +437,9 @@ type MCPHTTPTransportConfig struct {
 	Port int32 `json:"port,omitempty"`
 
 	// Path specifies the HTTP endpoint path
-	// +kubebuilder:default="/mcp"
+	// When omitted, auto-detection tries protocol-specific defaults:
+	// - "/mcp" for Streamable HTTP
+	// - "/sse" for SSE
 	// +optional
 	Path string `json:"path,omitempty"`
 
