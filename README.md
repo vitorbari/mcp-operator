@@ -64,15 +64,6 @@ spec:
   security:
     runAsUser: 1000
     runAsGroup: 1000
-
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "128Mi"
-
-  security:
-    runAsUser: 1000
-    runAsGroup: 1000
 ```
 
 Apply it:
@@ -81,10 +72,10 @@ Apply it:
 kubectl apply -f my-server.yaml
 ```
 
-Check the status:
+The operator needs a minute to start the server and validate it. Watch it in real-time:
 
 ```sh
-kubectl get mcpservers
+kubectl get mcpservers -w
 ```
 
 You should see something like:
@@ -116,15 +107,16 @@ kind: MCPServer
 metadata:
   name: my-mcp-server
 spec:
-  image: "my-registry/mcp-server:v1.0.0"
+  image: "tzolov/mcp-everything-server:v3"
+  command: ["node", "dist/index.js", "sse"]
 
   transport:
     type: http
     protocol: auto  # Let the operator detect the protocol
     config:
       http:
-        port: 8080
-        path: "/mcp"
+        port: 3001
+        path: "/sse"
         sessionManagement: true
 
   # Scale between 2-10 pods based on CPU
@@ -157,14 +149,20 @@ kind: MCPServer
 metadata:
   name: public-mcp-server
 spec:
-  image: "my-registry/mcp-server:v1.0.0"
+  image: "tzolov/mcp-everything-server:v3"
+  command: ["node", "dist/index.js", "sse"]
 
   transport:
     type: http
     protocol: auto
     config:
       http:
-        port: 8080
+        port: 3001
+        path: "/sse"
+
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
 
   # Make it accessible from the internet
   ingress:

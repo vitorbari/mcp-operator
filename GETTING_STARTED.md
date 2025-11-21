@@ -91,15 +91,6 @@ spec:
   security:
     runAsUser: 1000
     runAsGroup: 1000
-
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "128Mi"
-
-  security:
-    runAsUser: 1000
-    runAsGroup: 1000
 ```
 
 Apply it:
@@ -108,25 +99,28 @@ Apply it:
 kubectl apply -f wikipedia.yaml
 ```
 
-## Step 3: Check It Out
-
-See your MCP servers:
+The operator needs a minute to start the server and validate it. Watch it in real-time:
 
 ```bash
-kubectl get mcpservers
+kubectl get mcpservers -w
 ```
 
-You should see something like:
+You'll see the progression:
 
 ```
-NAME        PHASE     REPLICAS   READY   PROTOCOL   AUTH    COMPLIANT   CAPABILITIES                      AGE
-wikipedia   Running   1          1       sse        false   true        ["tools","resources","prompts"]   109s
+NAME        PHASE      REPLICAS   READY   PROTOCOL   AUTH   COMPLIANT   CAPABILITIES   AGE
+wikipedia   Creating   0          0                                                    2s
+wikipedia   Creating   1          0                                                    5s
+wikipedia   Running    1          1                                                    15s
+wikipedia   Running    1          1       sse        false  true        ["tools","resources","prompts"]   25s
 ```
 
-Cool, right? The operator automatically:
-- Detected the MCP protocol version (`2024-11-05`)
-- Validated the server is compliant
-- Discovered the server's capabilities
+What's happening here?
+- Creating - Kubernetes is starting the pod
+- Running (no protocol) - Server is up, operator is validating it
+- Running (with protocol) - ✅ Validation complete!
+
+Press Ctrl+C to stop watching.
 
 Get more details:
 
@@ -192,68 +186,6 @@ This opens a web interface where you can:
 
 ## What's Next?
 
-### Try Auto-Scaling
-
-Want your server to scale automatically based on traffic? Add HPA:
-
-```yaml
-apiVersion: mcp.mcp-operator.io/v1
-kind: MCPServer
-metadata:
-  name: wikipedia
-spec:
-  image: "mcp/wikipedia-mcp:latest"
-  args: ["--transport", "sse", "--port", "3001", "--host", "0.0.0.0"]
-
-  transport:
-    type: http
-    protocol: auto
-    config:
-      http:
-        port: 3001
-        path: "/sse"
-
-  # Add this to enable auto-scaling
-  hpa:
-    enabled: true
-    minReplicas: 2
-    maxReplicas: 10
-    targetCPUUtilizationPercentage: 70
-
-  security:
-    runAsUser: 1000
-    runAsGroup: 1000
-
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "128Mi"
-```
-
-Apply the update:
-
-```bash
-kubectl apply -f wikipedia.yaml
-```
-
-Watch it scale:
-
-```bash
-kubectl get mcpservers -w
-```
-
-### Enable External Access
-
-Want to access your MCP server from outside the cluster? Add ingress:
-
-```yaml
-spec:
-  ingress:
-    enabled: true
-    host: "mcp.example.com"
-    className: "nginx"
-```
-
 ### Add Monitoring
 
 If you have Prometheus Operator installed:
@@ -269,10 +201,10 @@ This adds a Grafana dashboard showing all your MCP servers' health and performan
 Check out the sample configurations:
 
 ```bash
-# Simple examples
+# Strict mode enabled
 kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/config/samples/wikipedia-http.yaml
 
-# Production-ready setup
+# mcp-everything-server - MCP with all capabilities
 kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/config/samples/mcp-basic-example.yaml
 ```
 
@@ -284,13 +216,13 @@ Check the pods:
 
 ```bash
 kubectl get pods
-kubectl describe pod -l app.kubernetes.io/name=wikipedia
+kubectl describe pod -l app.kubernetes.io/instance=wikipedia
 ```
 
 ### Check the logs:
 
 ```bash
-kubectl logs -l app.kubernetes.io/name=wikipedia
+kubectl logs -l app.kubernetes.io/instance=wikipedia
 ```
 
 ### Validation failing?
