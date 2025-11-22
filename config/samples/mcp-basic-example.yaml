@@ -5,14 +5,14 @@ metadata:
   namespace: mcp-tests
 spec:
   image: "tzolov/mcp-everything-server:v3"
-  command: ["node", "dist/index.js", "sse"]
+  command: ["node", "dist/index.js", "streamableHttp"]
 
-  # SSE transport configuration
+  # Streamable HTTP transport
   transport:
     type: "http"
-    protocol: "sse"
+    protocol: "streamable-http"
     config:
       http:
-        port: 3001  # SSE server listens on 3001
-        path: "/sse"
+        port: 3001  # StreamableHttp server listens on 3001
+        path: "/mcp"
         sessionManagement: true

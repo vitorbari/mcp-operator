@@ -60,10 +60,6 @@ spec:
         port: 3001
         path: "/sse"
         sessionManagement: true
-
-  security:
-    runAsUser: 1000
-    runAsGroup: 1000
 ```
 
 Apply it:
