@@ -114,9 +114,14 @@ func BuildBaseContainer(mcpServer *mcpv1.MCPServer, port int32) corev1.Container
 	// Add security context with restricted PSS defaults
 	trueVal := true
 	falseVal := false
+	defaultUser := int64(1000)
+	defaultGroup := int64(1000)
+
 	securityContext := &corev1.SecurityContext{
-		// Default to restricted PSS compliance
+		// Default to restricted PSS compliance with secure defaults
 		RunAsNonRoot:             &trueVal,
+		RunAsUser:                &defaultUser,
+		RunAsGroup:               &defaultGroup,
 		AllowPrivilegeEscalation: &falseVal,
 		Capabilities: &corev1.Capabilities{
 			Drop: []corev1.Capability{"ALL"},
@@ -126,6 +131,7 @@ func BuildBaseContainer(mcpServer *mcpv1.MCPServer, port int32) corev1.Container
 		},
 	}
 
+	// Apply user-provided security settings (these override defaults)
 	if mcpServer.Spec.Security != nil {
 		if mcpServer.Spec.Security.RunAsUser != nil {
 			securityContext.RunAsUser = mcpServer.Spec.Security.RunAsUser
@@ -193,9 +199,19 @@ func AddHealthProbes(container *corev1.Container, mcpServer *mcpv1.MCPServer, po
 
 // BuildBasePodSpec creates a base PodSpec with common configuration
 func BuildBasePodSpec(mcpServer *mcpv1.MCPServer, containers []corev1.Container) corev1.PodSpec {
+	// Apply pod-level security context defaults
+	defaultFsGroup := int64(1000)
 	podSpec := corev1.PodSpec{
 		ServiceAccountName: mcpServer.Name,
 		Containers:         containers,
+		SecurityContext: &corev1.PodSecurityContext{
+			FSGroup: &defaultFsGroup,
+		},
+	}
+
+	// Override fsGroup if user specified it
+	if mcpServer.Spec.Security != nil && mcpServer.Spec.Security.FSGroup != nil {
+		podSpec.SecurityContext.FSGroup = mcpServer.Spec.Security.FSGroup
 	}
 
 	// Apply pod template specifications

@@ -106,6 +106,11 @@ type MCPServerSecurity struct {
 	// AllowPrivilegeEscalation controls whether a process can gain more privileges than its parent
 	// +optional
 	AllowPrivilegeEscalation *bool `json:"allowPrivilegeEscalation,omitempty"`
+
+	// FSGroup defines a special supplemental group that applies to all containers in a pod
+	// This is useful for managing volume permissions
+	// +optional
+	FSGroup *int64 `json:"fsGroup,omitempty"`
 }
 
 // MCPServerService defines service configuration
