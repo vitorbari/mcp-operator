@@ -253,7 +253,7 @@ func UpdateMCPServerMetrics(mcpServer *mcpv1.MCPServer) {
 	}
 
 	// Track MCPServer phase
-	phases := []string{"Creating", "Running", "Updating", "Scaling", "Failed", "Terminating"}
+	phases := []string{"Pending", "Creating", "Running", "Updating", "Scaling", "Failed", "ValidationFailed", "Terminating"}
 	for _, phase := range phases {
 		value := 0.0
 		if string(mcpServer.Status.Phase) == phase {
