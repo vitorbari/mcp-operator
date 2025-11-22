@@ -303,20 +303,29 @@ See `config/samples/` for complete examples showing all available fields.
 
 ## Security
 
-The operator enforces secure defaults:
-- Containers run as non-root by default
-- All Linux capabilities dropped
-- No privilege escalation allowed
+The operator automatically applies secure defaults compliant with Kubernetes [Pod Security Standards (Restricted)](https://kubernetes.io/docs/concepts/security/pod-security-standards/):
 
-You can customize the security context per server:
+**Default Security Context:**
+- `runAsNonRoot: true` - Containers must run as non-root
+- `runAsUser: 1000` - Default non-root user ID
+- `runAsGroup: 1000` - Default group ID
+- `fsGroup: 1000` - File system group for volume permissions
+- `allowPrivilegeEscalation: false` - No privilege escalation
+- `capabilities: drop: ["ALL"]` - All Linux capabilities dropped
+- `seccompProfile: RuntimeDefault` - Default seccomp profile
+
+These defaults are applied automatically when `spec.security` is not specified. You only need to specify security settings if you want to override the defaults:
 
 ```yaml
 spec:
   security:
-    runAsUser: 1000
-    runAsGroup: 1000
-    runAsNonRoot: true
+    runAsUser: 2000              # Override default user
+    runAsGroup: 2000             # Override default group
+    fsGroup: 2000                # Override default fsGroup
+    readOnlyRootFilesystem: true # Add read-only root filesystem
 ```
+
+**Note:** Partial configurations are supported - unspecified fields will use the secure defaults.
 
 ## Examples and Samples
 

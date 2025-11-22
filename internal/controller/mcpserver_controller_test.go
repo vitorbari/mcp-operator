@@ -1204,6 +1204,200 @@ var _ = Describe("MCPServer Controller", func() {
 			Expect(mcpserver.Status.Validation.Issues).To(BeEmpty())
 		})
 	})
+
+	Context("When reconciling MCPServer with security defaults", func() {
+		const resourceNamespace = "default"
+
+		ctx := context.Background()
+		var resourceName string
+		var typeNamespacedName types.NamespacedName
+		var mcpserver *mcpv1.MCPServer
+		var controllerReconciler *MCPServerReconciler
+
+		BeforeEach(func() {
+			resourceName = "test-mcpserver-security-" + RandStringRunes(8)
+			typeNamespacedName = types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+
+			controllerReconciler = &MCPServerReconciler{
+				Client:           k8sClient,
+				Scheme:           k8sClient.Scheme(),
+				TransportFactory: transport.NewManagerFactory(k8sClient, k8sClient.Scheme()),
+				Recorder:         record.NewFakeRecorder(100),
+			}
+		})
+
+		AfterEach(func() {
+			By("Cleaning up the MCPServer resource")
+			resource := &mcpv1.MCPServer{}
+			err := k8sClient.Get(ctx, typeNamespacedName, resource)
+			if err == nil {
+				resource.Finalizers = nil
+				_ = k8sClient.Update(ctx, resource)
+				_ = k8sClient.Delete(ctx, resource)
+			}
+		})
+
+		It("should apply security defaults when security is not specified", func() {
+			By("Creating MCPServer without security config")
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "nginx:1.21",
+					Replicas: ptr(int32(1)),
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			By("Reconciling the MCPServer")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking that Deployment has security defaults applied")
+			deployment := &appsv1.Deployment{}
+			deploymentKey := types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, deploymentKey, deployment)
+				return err == nil
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			// Verify container security context defaults
+			container := deployment.Spec.Template.Spec.Containers[0]
+			Expect(container.SecurityContext).NotTo(BeNil())
+			Expect(container.SecurityContext.RunAsNonRoot).NotTo(BeNil())
+			Expect(*container.SecurityContext.RunAsNonRoot).To(BeTrue())
+			Expect(container.SecurityContext.RunAsUser).NotTo(BeNil())
+			Expect(*container.SecurityContext.RunAsUser).To(Equal(int64(1000)))
+			Expect(container.SecurityContext.RunAsGroup).NotTo(BeNil())
+			Expect(*container.SecurityContext.RunAsGroup).To(Equal(int64(1000)))
+			Expect(container.SecurityContext.AllowPrivilegeEscalation).NotTo(BeNil())
+			Expect(*container.SecurityContext.AllowPrivilegeEscalation).To(BeFalse())
+
+			// Verify pod security context defaults
+			podSecurityContext := deployment.Spec.Template.Spec.SecurityContext
+			Expect(podSecurityContext).NotTo(BeNil())
+			Expect(podSecurityContext.FSGroup).NotTo(BeNil())
+			Expect(*podSecurityContext.FSGroup).To(Equal(int64(1000)))
+		})
+
+		It("should respect user-specified security settings", func() {
+			By("Creating MCPServer with custom security config")
+			customUser := int64(2000)
+			customGroup := int64(3000)
+			customFsGroup := int64(4000)
+			runAsNonRoot := false
+			allowPrivEsc := true
+
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "nginx:1.21",
+					Replicas: ptr(int32(1)),
+					Security: &mcpv1.MCPServerSecurity{
+						RunAsUser:                &customUser,
+						RunAsGroup:               &customGroup,
+						FSGroup:                  &customFsGroup,
+						RunAsNonRoot:             &runAsNonRoot,
+						AllowPrivilegeEscalation: &allowPrivEsc,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			By("Reconciling the MCPServer")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking that Deployment uses custom security settings")
+			deployment := &appsv1.Deployment{}
+			deploymentKey := types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, deploymentKey, deployment)
+				return err == nil
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			// Verify container security context uses custom values
+			container := deployment.Spec.Template.Spec.Containers[0]
+			Expect(container.SecurityContext).NotTo(BeNil())
+			Expect(*container.SecurityContext.RunAsUser).To(Equal(customUser))
+			Expect(*container.SecurityContext.RunAsGroup).To(Equal(customGroup))
+			Expect(*container.SecurityContext.RunAsNonRoot).To(Equal(runAsNonRoot))
+			Expect(*container.SecurityContext.AllowPrivilegeEscalation).To(Equal(allowPrivEsc))
+
+			// Verify pod security context uses custom fsGroup
+			podSecurityContext := deployment.Spec.Template.Spec.SecurityContext
+			Expect(podSecurityContext).NotTo(BeNil())
+			Expect(*podSecurityContext.FSGroup).To(Equal(customFsGroup))
+		})
+
+		It("should merge defaults with partial user config", func() {
+			By("Creating MCPServer with partial security config")
+			customUser := int64(5000)
+
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "nginx:1.21",
+					Replicas: ptr(int32(1)),
+					Security: &mcpv1.MCPServerSecurity{
+						RunAsUser: &customUser, // Only override user
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			By("Reconciling the MCPServer")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking that Deployment merges custom and default values")
+			deployment := &appsv1.Deployment{}
+			deploymentKey := types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, deploymentKey, deployment)
+				return err == nil
+			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
+
+			// Verify container security context has custom user but default group
+			container := deployment.Spec.Template.Spec.Containers[0]
+			Expect(container.SecurityContext).NotTo(BeNil())
+			Expect(*container.SecurityContext.RunAsUser).To(Equal(customUser))        // Custom
+			Expect(*container.SecurityContext.RunAsGroup).To(Equal(int64(1000)))      // Default
+			Expect(*container.SecurityContext.RunAsNonRoot).To(BeTrue())              // Default
+			Expect(*container.SecurityContext.AllowPrivilegeEscalation).To(BeFalse()) // Default
+
+			// Verify pod security context has default fsGroup
+			podSecurityContext := deployment.Spec.Template.Spec.SecurityContext
+			Expect(podSecurityContext).NotTo(BeNil())
+			Expect(*podSecurityContext.FSGroup).To(Equal(int64(1000))) // Default
+		})
+	})
 })
 
 // findCondition finds a condition by type in the conditions list

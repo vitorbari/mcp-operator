@@ -33,10 +33,6 @@ spec:
       cpu: 500m
       memory: 512Mi
 
-  security:
-    runAsUser: 1000
-    runAsGroup: 1000
-
   # MCP Protocol Validation Configuration
   validation:
     enabled: true

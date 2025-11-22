@@ -79,12 +79,15 @@ spec:
   # ============================================
   # Security Configuration
   # ============================================
+  # All security options shown explicitly (these match operator defaults)
+  # The operator applies these same defaults automatically if omitted
   security:
     runAsUser: 1000
     runAsGroup: 1000
-    readOnlyRootFilesystem: true
+    fsGroup: 1000
     runAsNonRoot: true
     allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
 
   # ============================================
   # Service Configuration
