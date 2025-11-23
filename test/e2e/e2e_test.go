@@ -798,6 +798,60 @@ spec:
 			By("verifying HPA has memory target")
 			Expect(output).To(ContainSubstring("memory"))
 			Expect(output).To(ContainSubstring("80"))
+
+			By("verifying deployment doesn't have replicas field set (HPA manages it)")
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.replicas}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			// When HPA is enabled, replicas should be managed by HPA, not set in deployment spec
+			// The deployment will have a replica count, but it's managed by HPA
+			Expect(output).NotTo(BeEmpty(), "Deployment should have a replica count managed by HPA")
+
+			By("manually scaling deployment to test HPA doesn't conflict")
+			cmd = exec.Command("kubectl", "scale", "deployment", mcpServerName,
+				"-n", testNamespace, "--replicas=3")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for deployment to scale")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.status.replicas}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("3"))
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			By("getting deployment generation after scaling")
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.metadata.generation}")
+			postScaleGeneration, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("triggering reconciliation by updating a label")
+			cmd = exec.Command("kubectl", "annotate", "mcpserver", mcpServerName,
+				"-n", testNamespace, "test-annotation=trigger-reconcile", "--overwrite")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting a bit for reconciliation to occur")
+			time.Sleep(5 * time.Second)
+
+			By("verifying deployment generation didn't change after reconciliation (no reconciliation loop)")
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.metadata.generation}")
+			currentGeneration, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(currentGeneration).To(Equal(postScaleGeneration),
+				"Deployment generation should not change during reconciliation when HPA is managing replicas")
+
+			By("verifying deployment still has 3 replicas (not reset by operator)")
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.replicas}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("3"), "Operator should not override HPA-managed replica count")
 		})
 
 		It("should configure health check probes", func() {

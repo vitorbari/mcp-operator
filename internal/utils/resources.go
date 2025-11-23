@@ -321,7 +321,8 @@ func BuildDeployment(mcpServer *mcpv1.MCPServer, podSpec corev1.PodSpec) *appsv1
 	}
 
 	// Only set replicas if HPA is not enabled
-	// When HPA is enabled, it manages the replica count
+	// When HPA is enabled, leave replicas nil - HPA manages it via the scale subresource
+	// Kubernetes will default to 1 on creation, then HPA takes over immediately
 	if !isHPAEnabled(mcpServer) {
 		replicas := GetReplicaCount(mcpServer)
 		deploymentSpec.Replicas = &replicas
