@@ -13,8 +13,7 @@
 
 Run [Model Context Protocol](https://modelcontextprotocol.io) (MCP) servers on Kubernetes with automatic protocol validation, horizontal scaling, and built-in observability.
 
-<!-- Placeholder for demo gif - will be added -->
-<!-- ![Demo](assets/demo.gif) -->
+![demo](https://github.com/user-attachments/assets/90b13590-985e-4de0-b208-98e19b76bd01)
 
 ## What is this?
 
@@ -221,6 +220,8 @@ If you have Prometheus Operator installed, you can enable metrics and dashboards
 ```sh
 kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/monitoring.yaml
 ```
+
+<img width="1269" height="906" alt="Grafana Dashboard" src="https://github.com/user-attachments/assets/8023710c-c74e-44c5-afa1-b5b979e39d7f" />
 
 This gives you:
 - **Prometheus metrics** - Track server health, phase distribution, replica counts
