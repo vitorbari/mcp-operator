@@ -302,9 +302,30 @@ func BuildService(
 
 // BuildDeployment creates a Deployment object
 func BuildDeployment(mcpServer *mcpv1.MCPServer, podSpec corev1.PodSpec) *appsv1.Deployment {
-	replicas := GetReplicaCount(mcpServer)
 	labels := BuildStandardLabels(mcpServer)
 	annotations := BuildAnnotations(mcpServer)
+
+	deploymentSpec := appsv1.DeploymentSpec{
+		Selector: &metav1.LabelSelector{
+			MatchLabels: map[string]string{
+				"app": mcpServer.Name,
+			},
+		},
+		Template: corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels:      labels,
+				Annotations: annotations,
+			},
+			Spec: podSpec,
+		},
+	}
+
+	// Only set replicas if HPA is not enabled
+	// When HPA is enabled, it manages the replica count
+	if !isHPAEnabled(mcpServer) {
+		replicas := GetReplicaCount(mcpServer)
+		deploymentSpec.Replicas = &replicas
+	}
 
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -312,22 +333,15 @@ func BuildDeployment(mcpServer *mcpv1.MCPServer, podSpec corev1.PodSpec) *appsv1
 			Namespace: mcpServer.Namespace,
 			Labels:    labels,
 		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"app": mcpServer.Name,
-				},
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels:      labels,
-					Annotations: annotations,
-				},
-				Spec: podSpec,
-			},
-		},
+		Spec: deploymentSpec,
 	}
+}
+
+// isHPAEnabled checks if HPA is enabled for the MCPServer
+func isHPAEnabled(mcpServer *mcpv1.MCPServer) bool {
+	return mcpServer.Spec.HPA != nil &&
+		mcpServer.Spec.HPA.Enabled != nil &&
+		*mcpServer.Spec.HPA.Enabled
 }
 
 // UpdateService updates a service with the given spec, avoiding duplication

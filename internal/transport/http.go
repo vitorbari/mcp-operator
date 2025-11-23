@@ -166,9 +166,32 @@ func (h *HTTPResourceManager) updateDeployment(ctx context.Context, mcpServer *m
 			return err
 		}
 
-		// Update deployment if necessary
-		if !reflect.DeepEqual(found.Spec, deployment.Spec) {
-			found.Spec = deployment.Spec
+		// When HPA is enabled, we need to handle replicas specially
+		// to avoid reconciliation loops
+		shouldUpdate := false
+		if isHPAEnabled(mcpServer) {
+			// Store the HPA-managed replica count
+			hpaReplicas := found.Spec.Replicas
+			// Set deployment spec to match for comparison
+			deployment.Spec.Replicas = hpaReplicas
+
+			// Compare specs (now with matching replicas)
+			if !reflect.DeepEqual(found.Spec, deployment.Spec) {
+				// Specs differ (not just replicas), update needed
+				found.Spec = deployment.Spec
+				// Restore HPA-managed replicas after the copy
+				found.Spec.Replicas = hpaReplicas
+				shouldUpdate = true
+			}
+		} else {
+			// No HPA, do normal comparison
+			if !reflect.DeepEqual(found.Spec, deployment.Spec) {
+				found.Spec = deployment.Spec
+				shouldUpdate = true
+			}
+		}
+
+		if shouldUpdate {
 			return h.client.Update(ctx, found)
 		}
 
@@ -271,4 +294,11 @@ func (h *HTTPResourceManager) buildService(mcpServer *mcpv1.MCPServer) *corev1.S
 	}
 
 	return service
+}
+
+// isHPAEnabled checks if HPA is enabled for the MCPServer
+func isHPAEnabled(mcpServer *mcpv1.MCPServer) bool {
+	return mcpServer.Spec.HPA != nil &&
+		mcpServer.Spec.HPA.Enabled != nil &&
+		*mcpServer.Spec.HPA.Enabled
 }
