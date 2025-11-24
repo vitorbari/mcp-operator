@@ -138,7 +138,9 @@ data:
           "pluginVersion": "12.1.1",
           "targets": [
             {
+              "editorMode": "code",
               "expr": "sum(mcpserver_ready_total) or vector(0)",
+              "range": true,
               "refId": "A"
             }
           ],
@@ -347,6 +349,70 @@ data:
               "color": {
                 "mode": "thresholds"
               },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 3,
+            "x": 15,
+            "y": 0
+          },
+          "id": 13,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "value",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "sum(mcpserver_phase{phase=\"ValidationFailed\"}) or vector(0)",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Failed",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
               "decimals": 3,
               "mappings": [],
               "thresholds": {
@@ -373,7 +439,7 @@ data:
           "gridPos": {
             "h": 4,
             "w": 3,
-            "x": 15,
+            "x": 18,
             "y": 0
           },
           "id": 8,
@@ -447,6 +513,8 @@ data:
                   "mode": "off"
                 }
               },
+              "decimals": 0,
+              "fieldMinMax": false,
               "mappings": [],
               "min": 0,
               "thresholds": {
@@ -520,13 +588,17 @@ data:
           "pluginVersion": "12.1.1",
           "targets": [
             {
-              "expr": "sum(mcpserver_validation_compliant == 1)",
+              "editorMode": "code",
+              "expr": "count(mcpserver_validation_compliant == 1)",
               "legendFormat": "Compliant",
+              "range": true,
               "refId": "A"
             },
             {
-              "expr": "sum(mcpserver_validation_compliant == 0)",
+              "editorMode": "code",
+              "expr": "count(mcpserver_validation_compliant == 0)",
               "legendFormat": "Non-Compliant",
+              "range": true,
               "refId": "B"
             }
           ],
@@ -670,6 +742,7 @@ data:
                   "mode": "off"
                 }
               },
+              "decimals": 0,
               "mappings": [],
               "min": 0,
               "thresholds": {
@@ -880,7 +953,7 @@ data:
         "list": []
       },
       "time": {
-        "from": "now-2d",
+        "from": "now-15m",
         "to": "now"
       },
       "timepicker": {
@@ -896,7 +969,7 @@ data:
       "timezone": "browser",
       "title": "MCP Operator",
       "uid": "mcp-operator-overview",
-      "version": 2
+      "version": 1
     }
 kind: ConfigMap
 metadata:
