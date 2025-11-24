@@ -150,7 +150,11 @@ func (h *HTTPResourceManager) createDeployment(ctx context.Context, mcpServer *m
 	return nil
 }
 
-// updateDeployment updates the HTTP deployment
+// updateDeployment updates the HTTP deployment using selective field comparison
+// to avoid reconciliation loops when HPA is managing replicas.
+//
+// This implements the recommended kubebuilder pattern: only update the specific
+// fields the operator manages, leaving HPA-managed fields untouched.
 func (h *HTTPResourceManager) updateDeployment(ctx context.Context, mcpServer *mcpv1.MCPServer) error {
 	deployment := h.buildDeployment(mcpServer)
 
@@ -166,12 +170,42 @@ func (h *HTTPResourceManager) updateDeployment(ctx context.Context, mcpServer *m
 			return err
 		}
 
-		// Update deployment if necessary
-		if !reflect.DeepEqual(found.Spec, deployment.Spec) {
-			found.Spec = deployment.Spec
+		// Compare only the fields this operator manages, avoiding unnecessary updates
+		// when HPA has modified replicas.
+		//
+		// Key principle: If HPA is enabled, we don't touch replicas. If not, we manage them.
+		// This prevents reconciliation loops and unnecessary deployment generation increments.
+		needsUpdate := false
+
+		// 1. Update replicas only if HPA is not enabled
+		// When HPA is enabled, it owns the replicas field via the scale subresource
+		if !isHPAEnabled(mcpServer) {
+			if deployment.Spec.Replicas != nil &&
+				(found.Spec.Replicas == nil || *found.Spec.Replicas != *deployment.Spec.Replicas) {
+				found.Spec.Replicas = deployment.Spec.Replicas
+				needsUpdate = true
+			}
+		}
+
+		// 2. Update selector (immutable after creation, but verify for safety)
+		if !reflect.DeepEqual(found.Spec.Selector, deployment.Spec.Selector) {
+			found.Spec.Selector = deployment.Spec.Selector
+			needsUpdate = true
+		}
+
+		// 3. Update pod template spec
+		// DeepEqual works here because 'found' was read from API server with all defaults applied,
+		// and 'deployment' contains our desired state. If they match, nothing changed.
+		if !reflect.DeepEqual(found.Spec.Template, deployment.Spec.Template) {
+			found.Spec.Template = deployment.Spec.Template
+			needsUpdate = true
+		}
+
+		if needsUpdate {
 			return h.client.Update(ctx, found)
 		}
 
+		// No update needed - idempotent success
 		return nil
 	})
 }
@@ -271,4 +305,11 @@ func (h *HTTPResourceManager) buildService(mcpServer *mcpv1.MCPServer) *corev1.S
 	}
 
 	return service
+}
+
+// isHPAEnabled checks if HPA is enabled for the MCPServer
+func isHPAEnabled(mcpServer *mcpv1.MCPServer) bool {
+	return mcpServer.Spec.HPA != nil &&
+		mcpServer.Spec.HPA.Enabled != nil &&
+		*mcpServer.Spec.HPA.Enabled
 }
