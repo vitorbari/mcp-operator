@@ -347,66 +347,6 @@ spec:
                 description: Image specifies the container image for the MCP server
                 pattern: ^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[a-zA-Z0-9][a-zA-Z0-9._-]*)?$
                 type: string
-              ingress:
-                description: Ingress defines the ingress configuration for external
-                  access
-                properties:
-                  annotations:
-                    additionalProperties:
-                      type: string
-                    description: Annotations specifies custom annotations for the
-                      ingress
-                    type: object
-                  className:
-                    description: ClassName specifies the ingress class name to use
-                    type: string
-                  enabled:
-                    default: false
-                    description: Enabled specifies whether to create an Ingress resource
-                    type: boolean
-                  host:
-                    description: Host specifies the hostname for the ingress
-                    type: string
-                  path:
-                    default: /
-                    description: Path specifies the path for the ingress rule
-                    type: string
-                  pathType:
-                    default: Prefix
-                    description: PathType specifies the path type for the ingress
-                      rule
-                    enum:
-                    - Exact
-                    - Prefix
-                    - ImplementationSpecific
-                    type: string
-                  tls:
-                    description: TLS configuration for the ingress
-                    items:
-                      description: IngressTLS describes the transport layer security
-                        associated with an ingress.
-                      properties:
-                        hosts:
-                          description: |-
-                            hosts is a list of hosts included in the TLS certificate. The values in
-                            this list must match the name/s used in the tlsSecret. Defaults to the
-                            wildcard host setting for the loadbalancer controller fulfilling this
-                            Ingress, if left unspecified.
-                          items:
-                            type: string
-                          type: array
-                          x-kubernetes-list-type: atomic
-                        secretName:
-                          description: |-
-                            secretName is the name of the secret used to terminate TLS traffic on
-                            port 443. Field is left optional to allow TLS routing based on SNI
-                            hostname alone. If the SNI host in a listener conflicts with the "Host"
-                            header field used by an IngressRule, the SNI host is used for termination
-                            and value of the "Host" header is used for routing.
-                          type: string
-                      type: object
-                    type: array
-                type: object
               podTemplate:
                 description: PodTemplate defines additional pod template specifications
                 properties:
@@ -3833,18 +3773,6 @@ rules:
   - patch
   - update
 - apiGroups:
-  - networking.k8s.io
-  resources:
-  - ingresses
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
   - rbac.authorization.k8s.io
   resources:
   - rolebindings
@@ -4052,7 +3980,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/vitorbari/mcp-operator:v0.1.0-alpha.9
+        image: ghcr.io/vitorbari/mcp-operator:v0.1.0-alpha.10
         livenessProbe:
           httpGet:
             path: /healthz
