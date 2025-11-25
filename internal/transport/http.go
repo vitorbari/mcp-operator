@@ -93,11 +93,6 @@ func (h *HTTPResourceManager) RequiresService() bool {
 	return true
 }
 
-// RequiresIngress returns true for HTTP transport
-func (h *HTTPResourceManager) RequiresIngress() bool {
-	return true
-}
-
 // getHTTPPort returns the port for HTTP transport
 func (h *HTTPResourceManager) getHTTPPort(mcpServer *mcpv1.MCPServer) int32 {
 	if mcpServer.Spec.Transport != nil &&

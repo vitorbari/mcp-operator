@@ -43,9 +43,6 @@ type ResourceManager interface {
 
 	// RequiresService returns whether this transport needs a Service resource
 	RequiresService() bool
-
-	// RequiresIngress returns whether this transport can use an Ingress resource
-	RequiresIngress() bool
 }
 
 // ResourceManagerConfig contains common configuration for resource managers
