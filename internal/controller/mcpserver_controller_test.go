@@ -26,7 +26,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -423,126 +422,6 @@ var _ = Describe("MCPServer Controller", func() {
 
 			Expect(service.Spec.Ports[0].Port).To(Equal(int32(9090)))
 			Expect(service.Spec.Ports[0].TargetPort.IntVal).To(Equal(int32(80)))
-		})
-	})
-
-	Context("When reconciling MCPServer with Ingress", func() {
-		const resourceNamespace = "default"
-
-		ctx := context.Background()
-		var resourceName string
-		var typeNamespacedName types.NamespacedName
-		var mcpserver *mcpv1.MCPServer
-		var controllerReconciler *MCPServerReconciler
-
-		BeforeEach(func() {
-			resourceName = "test-mcpserver-ingress-" + RandStringRunes(8)
-			typeNamespacedName = types.NamespacedName{
-				Name:      resourceName,
-				Namespace: resourceNamespace,
-			}
-
-			By("Creating the MCPServer resource with Ingress enabled")
-			mcpserver = &mcpv1.MCPServer{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      resourceName,
-					Namespace: resourceNamespace,
-				},
-				Spec: mcpv1.MCPServerSpec{
-					Image:    "nginx:1.21",
-					Replicas: ptr(int32(1)),
-					Transport: &mcpv1.MCPServerTransport{
-						Type: mcpv1.MCPTransportHTTP,
-						Config: &mcpv1.MCPTransportConfigDetails{
-							HTTP: &mcpv1.MCPHTTPTransportConfig{
-								Port:              8080,
-								SessionManagement: ptr(true),
-							},
-						},
-					},
-					Ingress: &mcpv1.MCPServerIngress{
-						Enabled:   ptr(true),
-						Host:      "test.example.com",
-						Path:      "/mcp",
-						ClassName: ptr("nginx"),
-						Annotations: map[string]string{
-							"cert-manager.io/cluster-issuer": "letsencrypt",
-						},
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
-
-			controllerReconciler = &MCPServerReconciler{
-				Client:           k8sClient,
-				Scheme:           k8sClient.Scheme(),
-				TransportFactory: transport.NewManagerFactory(k8sClient, k8sClient.Scheme()),
-				Recorder:         record.NewFakeRecorder(100),
-			}
-		})
-
-		AfterEach(func() {
-			By("Cleaning up the MCPServer resource")
-			resource := &mcpv1.MCPServer{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			if err == nil {
-				resource.Finalizers = nil
-				_ = k8sClient.Update(ctx, resource)
-				_ = k8sClient.Delete(ctx, resource)
-			}
-		})
-
-		It("should create an Ingress resource", func() {
-			By("Reconciling the MCPServer")
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Checking that an Ingress was created")
-			ingress := &networkingv1.Ingress{}
-			ingressKey := types.NamespacedName{
-				Name:      resourceName,
-				Namespace: resourceNamespace,
-			}
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, ingressKey, ingress)
-				return err == nil
-			}, time.Second*10, time.Millisecond*250).Should(BeTrue())
-
-			Expect(ingress.Spec.Rules).To(HaveLen(1))
-			Expect(ingress.Spec.Rules[0].Host).To(Equal("test.example.com"))
-			Expect(ingress.Spec.Rules[0].HTTP.Paths).To(HaveLen(1))
-			Expect(ingress.Spec.Rules[0].HTTP.Paths[0].Path).To(Equal("/mcp"))
-
-			// Check annotations include custom and proxy configuration
-			Expect(ingress.Annotations).To(HaveKey("cert-manager.io/cluster-issuer"))
-			Expect(ingress.Annotations).To(HaveKey("nginx.ingress.kubernetes.io/proxy-buffering"))
-			Expect(ingress.Annotations["nginx.ingress.kubernetes.io/proxy-buffering"]).To(Equal("off"))
-		})
-
-		It("should not create Ingress when disabled", func() {
-			By("Updating the MCPServer to disable Ingress")
-			Expect(k8sClient.Get(ctx, typeNamespacedName, mcpserver)).To(Succeed())
-			mcpserver.Spec.Ingress.Enabled = ptr(false)
-			Expect(k8sClient.Update(ctx, mcpserver)).To(Succeed())
-
-			By("Reconciling the MCPServer")
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Checking that no Ingress exists")
-			ingress := &networkingv1.Ingress{}
-			ingressKey := types.NamespacedName{
-				Name:      resourceName,
-				Namespace: resourceNamespace,
-			}
-			Consistently(func() bool {
-				err := k8sClient.Get(ctx, ingressKey, ingress)
-				return errors.IsNotFound(err)
-			}, time.Second*5, time.Millisecond*250).Should(BeTrue())
 		})
 	})
 

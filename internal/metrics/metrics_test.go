@@ -46,7 +46,6 @@ var _ = Describe("Metrics", func() {
 		mcpServerReplicas.Reset()
 		mcpServerAvailableReplicas.Reset()
 		transportTypeDistribution.Reset()
-		mcpServerIngressEnabled.Reset()
 		mcpServerHPAEnabled.Reset()
 		mcpServerResourceRequests.Reset()
 		reconcileDuration.Reset()
@@ -69,9 +68,6 @@ var _ = Describe("Metrics", func() {
 						corev1.ResourceCPU:    resource.MustParse("100m"),
 						corev1.ResourceMemory: resource.MustParse("128Mi"),
 					},
-				},
-				Ingress: &mcpv1.MCPServerIngress{
-					Enabled: ptr(true),
 				},
 				HPA: &mcpv1.MCPServerHPA{
 					Enabled: ptr(true),
@@ -126,24 +122,6 @@ var _ = Describe("Metrics", func() {
 			metric := &dto.Metric{}
 			Expect(transportTypeDistribution.WithLabelValues("http").Write(metric)).To(Succeed())
 			Expect(metric.GetCounter().GetValue()).To(Equal(float64(1)))
-		})
-
-		It("should track ingress enablement", func() {
-			UpdateMCPServerMetrics(mcpServer)
-
-			// Check ingress enabled metric
-			metric := &dto.Metric{}
-			Expect(mcpServerIngressEnabled.WithLabelValues("default", "test-server").Write(metric)).To(Succeed())
-			Expect(metric.GetGauge().GetValue()).To(Equal(float64(1)))
-		})
-
-		It("should track ingress disabled", func() {
-			mcpServer.Spec.Ingress.Enabled = ptr(false)
-			UpdateMCPServerMetrics(mcpServer)
-
-			metric := &dto.Metric{}
-			Expect(mcpServerIngressEnabled.WithLabelValues("default", "test-server").Write(metric)).To(Succeed())
-			Expect(metric.GetGauge().GetValue()).To(Equal(float64(0)))
 		})
 
 		It("should track HPA enablement", func() {
@@ -263,7 +241,6 @@ var _ = Describe("Metrics", func() {
 					mcpServerReplicas,
 					mcpServerAvailableReplicas,
 					transportTypeDistribution,
-					mcpServerIngressEnabled,
 					mcpServerHPAEnabled,
 					mcpServerResourceRequests,
 					reconcileDuration,

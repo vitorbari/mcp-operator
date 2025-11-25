@@ -24,7 +24,7 @@ MCP Operator makes it easy to run MCP servers in Kubernetes. Just define your se
 - **Protocol Validation** - Ensures your servers are MCP-compliant
 - **Horizontal Scaling** - Built-in autoscaling based on CPU and memory
 - **Observability** - Prometheus metrics and Grafana dashboards out of the box
-- **Production Ready** - Pod security standards, health checks, and ingress support
+- **Production Ready** - Pod security standards and health checks
 
 ## Quick Start
 
@@ -89,7 +89,6 @@ When you create an MCPServer, the operator automatically sets up:
 - **Deployment** - Manages your server pods with health checks
 - **Service** - Exposes your server inside the cluster
 - **HPA (optional)** - Scales pods based on traffic
-- **Ingress (optional)** - Exposes your server externally
 - **Validation** - Checks protocol compliance and reports capabilities
 
 ## Examples
@@ -134,41 +133,6 @@ spec:
     limits:
       cpu: "1000m"
       memory: "1Gi"
-```
-
-### External Access with Ingress
-
-```yaml
-apiVersion: mcp.mcp-operator.io/v1
-kind: MCPServer
-metadata:
-  name: public-mcp-server
-spec:
-  image: "tzolov/mcp-everything-server:v3"
-  command: ["node", "dist/index.js", "sse"]
-
-  transport:
-    type: http
-    protocol: auto
-    config:
-      http:
-        port: 3001
-        path: "/sse"
-
-  security:
-    runAsUser: 1000
-    runAsGroup: 1000
-
-  # Make it accessible from the internet
-  ingress:
-    enabled: true
-    host: "mcp.example.com"
-    path: "/"
-    className: "nginx"
-    tls:
-      - secretName: "mcp-tls"
-        hosts:
-          - "mcp.example.com"
 ```
 
 ## Protocol Validation
@@ -281,7 +245,6 @@ Most of the time, `auto` works great and saves you from having to figure out whi
 | `hpa` | object | Horizontal Pod Autoscaler configuration |
 | `security` | object | Pod security context settings |
 | `service` | object | Service exposure configuration |
-| `ingress` | object | Ingress configuration for external access |
 | `healthCheck` | object | Health check probe configuration |
 | `environment` | []object | Environment variables |
 

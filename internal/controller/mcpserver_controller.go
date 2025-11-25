@@ -27,7 +27,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -65,7 +64,6 @@ type MCPServerReconciler struct {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 
@@ -280,13 +278,6 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err := r.reconcileHPA(ctx, mcpServer); err != nil {
 		log.Error(err, "Failed to reconcile HPA")
 		r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "HPAFailed", fmt.Sprintf("Failed to reconcile HPA: %v", err))
-		return r.updateStatusWithError(ctx, mcpServer, err)
-	}
-
-	// Reconcile Ingress if enabled
-	if err := r.reconcileIngress(ctx, mcpServer); err != nil {
-		log.Error(err, "Failed to reconcile Ingress")
-		r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "IngressFailed", fmt.Sprintf("Failed to reconcile Ingress: %v", err))
 		return r.updateStatusWithError(ctx, mcpServer, err)
 	}
 
@@ -575,164 +566,6 @@ func (r *MCPServerReconciler) buildHPAScalingRules(behavior *mcpv1.MCPServerHPAB
 	}
 
 	return rules
-}
-
-// reconcileIngress ensures the Ingress exists if enabled
-func (r *MCPServerReconciler) reconcileIngress(ctx context.Context, mcpServer *mcpv1.MCPServer) error {
-	// Check if ingress is enabled and transport supports it
-	if mcpServer.Spec.Ingress == nil || mcpServer.Spec.Ingress.Enabled == nil || !*mcpServer.Spec.Ingress.Enabled {
-		// If Ingress is not enabled, delete any existing Ingress
-		existingIngress := &networkingv1.Ingress{}
-		err := r.Get(ctx, types.NamespacedName{Name: mcpServer.Name, Namespace: mcpServer.Namespace}, existingIngress)
-		if err == nil {
-			// Ingress exists, delete it
-			if err := r.Delete(ctx, existingIngress); err != nil {
-				return err
-			}
-		} else if !errors.IsNotFound(err) {
-			return err
-		}
-		return nil
-	}
-
-	// Check if transport supports ingress
-	if mcpServer.Spec.Transport != nil {
-		manager, err := r.TransportFactory.GetManagerForMCPServer(mcpServer)
-		if err != nil {
-			return err
-		}
-		if !manager.RequiresIngress() {
-			// Transport doesn't support ingress, skip creation
-			return nil
-		}
-	}
-
-	ingress := r.buildIngress(mcpServer)
-
-	if err := controllerutil.SetControllerReference(mcpServer, ingress, r.Scheme); err != nil {
-		return err
-	}
-
-	found := &networkingv1.Ingress{}
-	err := r.Get(ctx, types.NamespacedName{Name: ingress.Name, Namespace: ingress.Namespace}, found)
-	if err != nil && errors.IsNotFound(err) {
-		if err := r.Create(ctx, ingress); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	} else {
-		// Update ingress if necessary
-		if !reflect.DeepEqual(found.Spec, ingress.Spec) {
-			found.Spec = ingress.Spec
-			found.Annotations = ingress.Annotations
-			if err := r.Update(ctx, found); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-// buildIngress creates an Ingress object for the MCPServer
-func (r *MCPServerReconciler) buildIngress(mcpServer *mcpv1.MCPServer) *networkingv1.Ingress {
-	labels := map[string]string{
-		"app":                          mcpServer.Name,
-		"app.kubernetes.io/name":       "mcpserver",
-		"app.kubernetes.io/instance":   mcpServer.Name,
-		"app.kubernetes.io/component":  "mcp-server",
-		"app.kubernetes.io/managed-by": "mcp-operator",
-	}
-
-	// Start with sensible defaults for long-lived connections
-	annotations := map[string]string{
-		"nginx.ingress.kubernetes.io/proxy-read-timeout":    "3600",
-		"nginx.ingress.kubernetes.io/proxy-send-timeout":    "3600",
-		"nginx.ingress.kubernetes.io/proxy-connect-timeout": "60",
-		"nginx.ingress.kubernetes.io/proxy-buffering":       "off",
-	}
-
-	// Add session affinity if session management is enabled
-	if mcpServer.Spec.Transport != nil &&
-		mcpServer.Spec.Transport.Config != nil &&
-		mcpServer.Spec.Transport.Config.HTTP != nil &&
-		mcpServer.Spec.Transport.Config.HTTP.SessionManagement != nil &&
-		*mcpServer.Spec.Transport.Config.HTTP.SessionManagement {
-		annotations["nginx.ingress.kubernetes.io/affinity"] = "cookie"
-		annotations["nginx.ingress.kubernetes.io/session-cookie-name"] = "mcp-session"
-	}
-
-	// Merge custom annotations (user annotations take precedence)
-	if mcpServer.Spec.Ingress.Annotations != nil {
-		for k, v := range mcpServer.Spec.Ingress.Annotations {
-			annotations[k] = v
-		}
-	}
-
-	// Default values
-	path := "/"
-	if mcpServer.Spec.Ingress.Path != "" {
-		path = mcpServer.Spec.Ingress.Path
-	}
-
-	pathType := networkingv1.PathTypePrefix
-	if mcpServer.Spec.Ingress.PathType != nil {
-		pathType = *mcpServer.Spec.Ingress.PathType
-	}
-
-	// Get service port
-	servicePort := int32(8080)
-	if mcpServer.Spec.Service != nil && mcpServer.Spec.Service.Port != 0 {
-		servicePort = mcpServer.Spec.Service.Port
-	}
-
-	// Build ingress spec
-	ingressSpec := networkingv1.IngressSpec{
-		Rules: []networkingv1.IngressRule{
-			{
-				Host: mcpServer.Spec.Ingress.Host,
-				IngressRuleValue: networkingv1.IngressRuleValue{
-					HTTP: &networkingv1.HTTPIngressRuleValue{
-						Paths: []networkingv1.HTTPIngressPath{
-							{
-								Path:     path,
-								PathType: &pathType,
-								Backend: networkingv1.IngressBackend{
-									Service: &networkingv1.IngressServiceBackend{
-										Name: mcpServer.Name,
-										Port: networkingv1.ServiceBackendPort{
-											Number: servicePort,
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	// Add TLS if specified
-	if len(mcpServer.Spec.Ingress.TLS) > 0 {
-		ingressSpec.TLS = mcpServer.Spec.Ingress.TLS
-	}
-
-	// Add ingress class if specified
-	if mcpServer.Spec.Ingress.ClassName != nil {
-		ingressSpec.IngressClassName = mcpServer.Spec.Ingress.ClassName
-	}
-
-	return &networkingv1.Ingress{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        mcpServer.Name,
-			Namespace:   mcpServer.Namespace,
-			Labels:      labels,
-			Annotations: annotations,
-		},
-		Spec: ingressSpec,
-	}
 }
 
 // updateStatus updates the MCPServer status with retry logic for conflicts
@@ -1679,7 +1512,6 @@ func (r *MCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&rbacv1.Role{}).
 		Owns(&rbacv1.RoleBinding{}).
 		Owns(&autoscalingv2.HorizontalPodAutoscaler{}).
-		Owns(&networkingv1.Ingress{}).
 		Named("mcpserver").
 		Complete(r)
 }
