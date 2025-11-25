@@ -123,8 +123,7 @@ type ResourceManager interface {
 2. ServiceAccount and RBAC creation
 3. Transport-specific resource reconciliation (delegation to transport managers)
 4. HPA reconciliation if enabled
-5. Ingress reconciliation if enabled
-6. Status updates with retry logic
+5. Status updates with retry logic
 
 **Resource Management**
 - All resources use owner references for garbage collection

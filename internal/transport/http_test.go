@@ -203,13 +203,6 @@ var _ = Describe("HTTPResourceManager", func() {
 		})
 	})
 
-	Describe("RequiresIngress", func() {
-		It("should return true for HTTP transport", func() {
-			requiresIngress := httpManager.RequiresIngress()
-			Expect(requiresIngress).To(BeTrue())
-		})
-	})
-
 	Describe("Transport port handling", func() {
 		It("should work with default HTTP port", func() {
 			port := GetTransportPort(mcpServer)

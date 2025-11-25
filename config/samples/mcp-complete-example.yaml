@@ -6,8 +6,6 @@
 #
 # Prerequisites:
 #   - Metrics server (for HPA)
-#   - Ingress controller (nginx)
-#   - Cert-manager (for TLS)
 #   - Custom node labels (disk-type, workload-type)
 #   - External ConfigMaps and Secrets
 #   - Service accounts and RBAC configuration
@@ -260,31 +258,3 @@ spec:
     requiredCapabilities:
       - "tools"
       - "resources"
-
-  # ============================================
-  # Ingress Configuration
-  # ============================================
-  ingress:
-    enabled: true
-    className: "nginx"
-    host: "mcp.example.com"
-    path: "/mcp"
-    pathType: "Prefix"
-
-    # TLS configuration
-    tls:
-      - secretName: mcp-tls-cert
-        hosts:
-          - mcp.example.com
-          - api.mcp.example.com
-
-    # Ingress annotations
-    annotations:
-      cert-manager.io/cluster-issuer: "letsencrypt-prod"
-      nginx.ingress.kubernetes.io/rate-limit: "100"
-      nginx.ingress.kubernetes.io/rate-limit-window: "1m"
-      nginx.ingress.kubernetes.io/ssl-redirect: "true"
-      nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-      nginx.ingress.kubernetes.io/proxy-body-size: "10m"
-      nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-      nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"

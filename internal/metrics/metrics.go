@@ -60,15 +60,6 @@ var (
 		[]string{"type"},
 	)
 
-	// Ingress enablement tracker
-	mcpServerIngressEnabled = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "mcpserver_ingress_enabled",
-			Help: "Whether ingress is enabled for MCP server (1=enabled, 0=disabled)",
-		},
-		[]string{"namespace", "name"},
-	)
-
 	// HPA enablement tracker
 	mcpServerHPAEnabled = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -187,7 +178,6 @@ func init() {
 		mcpServerReplicas,
 		mcpServerAvailableReplicas,
 		transportTypeDistribution,
-		mcpServerIngressEnabled,
 		mcpServerHPAEnabled,
 		mcpServerResourceRequests,
 		reconcileDuration,
@@ -227,13 +217,6 @@ func UpdateMCPServerMetrics(mcpServer *mcpv1.MCPServer) {
 
 	// Count transport type usage
 	transportTypeDistribution.WithLabelValues(transportType).Inc()
-
-	// Track ingress enablement
-	ingressEnabled := 0.0
-	if mcpServer.Spec.Ingress != nil && mcpServer.Spec.Ingress.Enabled != nil && *mcpServer.Spec.Ingress.Enabled {
-		ingressEnabled = 1.0
-	}
-	mcpServerIngressEnabled.WithLabelValues(labels...).Set(ingressEnabled)
 
 	// Track HPA enablement
 	hpaEnabled := 0.0
@@ -343,7 +326,6 @@ func DeleteMCPServerMetrics(mcpServer *mcpv1.MCPServer) {
 
 	// Remove basic metrics
 	mcpServerReady.DeleteLabelValues(labels...)
-	mcpServerIngressEnabled.DeleteLabelValues(labels...)
 	mcpServerHPAEnabled.DeleteLabelValues(labels...)
 
 	// Remove resource metrics
