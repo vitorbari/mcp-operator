@@ -189,7 +189,7 @@ func TestClient_CustomHeadersSentInRequests(t *testing.T) {
 		method := request["method"].(string)
 
 		// Handle initialize request (has ID)
-		if method == "initialize" {
+		if method == MethodInitialize {
 			requestID := int(request["id"].(float64))
 			response := JSONRPCResponse{
 				JSONRPC: "2.0",
@@ -211,7 +211,7 @@ func TestClient_CustomHeadersSentInRequests(t *testing.T) {
 		}
 
 		// Handle initialized notification (no ID)
-		if method == "notifications/initialized" {
+		if method == MethodNotificationInitialized {
 			w.WriteHeader(http.StatusAccepted)
 			return
 		}
@@ -247,7 +247,7 @@ func TestClient_Initialize(t *testing.T) {
 	server := mockMCPServerWithNotifications(
 		t,
 		func(method string, params json.RawMessage) (interface{}, *RPCError) {
-			if method != "initialize" {
+			if method != MethodInitialize {
 				return nil, &RPCError{Code: -32601, Message: "Method not found"}
 			}
 
@@ -282,7 +282,7 @@ func TestClient_Initialize(t *testing.T) {
 		},
 		func(method string) {
 			// Notification handler
-			if method == "notifications/initialized" {
+			if method == MethodNotificationInitialized {
 				initializedNotificationReceived = true
 			}
 		},
@@ -325,7 +325,7 @@ func TestClient_Initialize(t *testing.T) {
 
 func TestClient_ListTools(t *testing.T) {
 	server := mockMCPServer(t, func(method string, params json.RawMessage) (interface{}, *RPCError) {
-		if method != "tools/list" {
+		if method != MethodToolsList {
 			return nil, &RPCError{Code: -32601, Message: "Method not found"}
 		}
 
@@ -367,7 +367,7 @@ func TestClient_ListTools(t *testing.T) {
 
 func TestClient_ListResources(t *testing.T) {
 	server := mockMCPServer(t, func(method string, params json.RawMessage) (interface{}, *RPCError) {
-		if method != "resources/list" {
+		if method != MethodResourcesList {
 			return nil, &RPCError{Code: -32601, Message: "Method not found"}
 		}
 
@@ -403,7 +403,7 @@ func TestClient_ListResources(t *testing.T) {
 
 func TestClient_ListPrompts(t *testing.T) {
 	server := mockMCPServer(t, func(method string, params json.RawMessage) (interface{}, *RPCError) {
-		if method != "prompts/list" {
+		if method != MethodPromptsList {
 			return nil, &RPCError{Code: -32601, Message: "Method not found"}
 		}
 
@@ -502,7 +502,7 @@ func TestClient_Timeout(t *testing.T) {
 
 func TestClient_Ping(t *testing.T) {
 	server := mockMCPServer(t, func(method string, params json.RawMessage) (interface{}, *RPCError) {
-		if method != "initialize" {
+		if method != MethodInitialize {
 			return nil, &RPCError{Code: -32601, Message: "Method not found"}
 		}
 

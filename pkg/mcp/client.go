@@ -115,6 +115,13 @@ const (
 	// HeaderSessionID is the HTTP header name for MCP session management
 	// Used in Streamable HTTP transport to maintain session state
 	HeaderSessionID = "Mcp-Session-Id"
+
+	// MCP JSON-RPC method names
+	MethodInitialize              = "initialize"
+	MethodNotificationInitialized = "notifications/initialized"
+	MethodToolsList               = "tools/list"
+	MethodResourcesList           = "resources/list"
+	MethodPromptsList             = "prompts/list"
 )
 
 // Client is an MCP protocol client
@@ -225,13 +232,13 @@ func (c *Client) Initialize(ctx context.Context) (*InitializeResult, error) {
 	}
 
 	var result InitializeResult
-	if err := c.call(ctx, "initialize", params, &result); err != nil {
+	if err := c.call(ctx, MethodInitialize, params, &result); err != nil {
 		return nil, fmt.Errorf("initialize failed: %w", err)
 	}
 
 	// Send initialized notification to complete the handshake
 	// This is a notification (no response expected)
-	if err := c.notify(ctx, "notifications/initialized"); err != nil {
+	if err := c.notify(ctx, MethodNotificationInitialized); err != nil {
 		return nil, fmt.Errorf("initialized notification failed: %w", err)
 	}
 
@@ -241,7 +248,7 @@ func (c *Client) Initialize(ctx context.Context) (*InitializeResult, error) {
 // ListTools lists available tools from the MCP server
 func (c *Client) ListTools(ctx context.Context) (*ListToolsResult, error) {
 	var result ListToolsResult
-	if err := c.call(ctx, "tools/list", nil, &result); err != nil {
+	if err := c.call(ctx, MethodToolsList, nil, &result); err != nil {
 		return nil, fmt.Errorf("list tools failed: %w", err)
 	}
 
@@ -251,7 +258,7 @@ func (c *Client) ListTools(ctx context.Context) (*ListToolsResult, error) {
 // ListResources lists available resources from the MCP server
 func (c *Client) ListResources(ctx context.Context) (*ListResourcesResult, error) {
 	var result ListResourcesResult
-	if err := c.call(ctx, "resources/list", nil, &result); err != nil {
+	if err := c.call(ctx, MethodResourcesList, nil, &result); err != nil {
 		return nil, fmt.Errorf("list resources failed: %w", err)
 	}
 
@@ -261,7 +268,7 @@ func (c *Client) ListResources(ctx context.Context) (*ListResourcesResult, error
 // ListPrompts lists available prompts from the MCP server
 func (c *Client) ListPrompts(ctx context.Context) (*ListPromptsResult, error) {
 	var result ListPromptsResult
-	if err := c.call(ctx, "prompts/list", nil, &result); err != nil {
+	if err := c.call(ctx, MethodPromptsList, nil, &result); err != nil {
 		return nil, fmt.Errorf("list prompts failed: %w", err)
 	}
 

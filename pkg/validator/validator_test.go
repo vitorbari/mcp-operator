@@ -41,7 +41,7 @@ func mockMCPServer(t *testing.T, config mockServerConfig) *httptest.Server {
 		var rpcErr *mcp.RPCError
 
 		switch request.Method {
-		case "initialize":
+		case mcp.MethodInitialize:
 			if config.initializeFails {
 				rpcErr = &mcp.RPCError{Code: -32603, Message: "Internal error"}
 			} else {
@@ -51,19 +51,19 @@ func mockMCPServer(t *testing.T, config mockServerConfig) *httptest.Server {
 					ServerInfo:      config.serverInfo,
 				}
 			}
-		case "tools/list":
+		case mcp.MethodToolsList:
 			if config.toolsListFails {
 				rpcErr = &mcp.RPCError{Code: -32603, Message: "Tools list failed"}
 			} else {
 				result = mcp.ListToolsResult{Tools: []mcp.Tool{}}
 			}
-		case "resources/list":
+		case mcp.MethodResourcesList:
 			if config.resourcesListFails {
 				rpcErr = &mcp.RPCError{Code: -32603, Message: "Resources list failed"}
 			} else {
 				result = mcp.ListResourcesResult{Resources: []mcp.Resource{}}
 			}
-		case "prompts/list":
+		case mcp.MethodPromptsList:
 			if config.promptsListFails {
 				rpcErr = &mcp.RPCError{Code: -32603, Message: "Prompts list failed"}
 			} else {

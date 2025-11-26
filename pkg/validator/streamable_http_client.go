@@ -77,7 +77,7 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) (*mcp.InitializeR
 	}
 
 	var result mcp.InitializeResult
-	if err := c.callWithResponse(ctx, "initialize", params, &result, func(headers http.Header) {
+	if err := c.callWithResponse(ctx, mcp.MethodInitialize, params, &result, func(headers http.Header) {
 		// Capture session ID from initialize response
 		if sessionID := headers.Get(mcp.HeaderSessionID); sessionID != "" {
 			c.sessionID = sessionID
@@ -87,7 +87,7 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) (*mcp.InitializeR
 	}
 
 	// Send initialized notification to complete the handshake
-	if err := c.notify(ctx, "notifications/initialized"); err != nil {
+	if err := c.notify(ctx, mcp.MethodNotificationInitialized); err != nil {
 		return nil, fmt.Errorf("initialized notification failed: %w", err)
 	}
 
@@ -97,7 +97,7 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) (*mcp.InitializeR
 // ListTools lists available tools from the MCP server
 func (c *StreamableHTTPClient) ListTools(ctx context.Context) (*mcp.ListToolsResult, error) {
 	var result mcp.ListToolsResult
-	if err := c.call(ctx, "tools/list", nil, &result); err != nil {
+	if err := c.call(ctx, mcp.MethodToolsList, nil, &result); err != nil {
 		return nil, fmt.Errorf("list tools failed: %w", err)
 	}
 
@@ -107,7 +107,7 @@ func (c *StreamableHTTPClient) ListTools(ctx context.Context) (*mcp.ListToolsRes
 // ListResources lists available resources from the MCP server
 func (c *StreamableHTTPClient) ListResources(ctx context.Context) (*mcp.ListResourcesResult, error) {
 	var result mcp.ListResourcesResult
-	if err := c.call(ctx, "resources/list", nil, &result); err != nil {
+	if err := c.call(ctx, mcp.MethodResourcesList, nil, &result); err != nil {
 		return nil, fmt.Errorf("list resources failed: %w", err)
 	}
 
@@ -117,7 +117,7 @@ func (c *StreamableHTTPClient) ListResources(ctx context.Context) (*mcp.ListReso
 // ListPrompts lists available prompts from the MCP server
 func (c *StreamableHTTPClient) ListPrompts(ctx context.Context) (*mcp.ListPromptsResult, error) {
 	var result mcp.ListPromptsResult
-	if err := c.call(ctx, "prompts/list", nil, &result); err != nil {
+	if err := c.call(ctx, mcp.MethodPromptsList, nil, &result); err != nil {
 		return nil, fmt.Errorf("list prompts failed: %w", err)
 	}
 
