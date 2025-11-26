@@ -38,6 +38,8 @@ limitations under the License.
 //   - Prompt discovery and execution
 //   - Automatic request ID management
 //   - Configurable timeouts
+//   - Bearer token authentication support
+//   - Custom header management
 //   - Full JSON-RPC 2.0 support
 //
 // # Basic Usage
@@ -55,6 +57,11 @@ limitations under the License.
 //
 //	client := mcp.NewClient("http://localhost:8080/mcp",
 //	    mcp.WithTimeout(60*time.Second))
+//
+// Creating a client with Bearer token authentication:
+//
+//	client := mcp.NewClient("http://localhost:8080/mcp",
+//	    mcp.WithBearerToken("your-token-here"))
 //
 // Listing available tools:
 //
@@ -112,10 +119,11 @@ const (
 
 // Client is an MCP protocol client
 type Client struct {
-	endpoint   string
-	httpClient *http.Client
-	requestID  atomic.Int32
-	sessionID  string // MCP session ID for Streamable HTTP transport
+	endpoint      string
+	httpClient    *http.Client
+	requestID     atomic.Int32
+	sessionID     string            // MCP session ID for Streamable HTTP transport
+	customHeaders map[string]string // Custom headers for authentication and other purposes
 }
 
 // Option is a functional option for configuring the Client
@@ -130,6 +138,35 @@ type Option func(*Client)
 func WithTimeout(timeout time.Duration) Option {
 	return func(c *Client) {
 		c.httpClient.Timeout = timeout
+	}
+}
+
+// WithBearerToken sets a Bearer token for authentication
+//
+// Example:
+//
+//	client := mcp.NewClient("http://localhost:8080/mcp",
+//	    mcp.WithBearerToken("your-token-here"))
+func WithBearerToken(token string) Option {
+	return func(c *Client) {
+		c.customHeaders["Authorization"] = "Bearer " + token
+	}
+}
+
+// WithHeaders sets custom HTTP headers for all requests
+//
+// Example:
+//
+//	client := mcp.NewClient("http://localhost:8080/mcp",
+//	    mcp.WithHeaders(map[string]string{
+//	        "X-API-Key": "key123",
+//	        "X-Custom-Header": "value",
+//	    }))
+func WithHeaders(headers map[string]string) Option {
+	return func(c *Client) {
+		for k, v := range headers {
+			c.customHeaders[k] = v
+		}
 	}
 }
 
@@ -150,6 +187,7 @@ func NewClient(endpoint string, opts ...Option) *Client {
 		httpClient: &http.Client{
 			Timeout: DefaultTimeout,
 		},
+		customHeaders: make(map[string]string),
 	}
 
 	// Apply functional options
@@ -253,6 +291,11 @@ func (c *Client) notify(ctx context.Context, method string) error {
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json, text/event-stream")
 
+	// Apply custom headers (e.g., authentication)
+	for key, value := range c.customHeaders {
+		httpReq.Header.Set(key, value)
+	}
+
 	// Include session ID if we have one
 	if c.sessionID != "" {
 		httpReq.Header.Set(HeaderSessionID, c.sessionID)
@@ -309,6 +352,11 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 	httpReq.Header.Set("Content-Type", "application/json")
 	// Accept both JSON and SSE responses (required by MCP Streamable HTTP transport)
 	httpReq.Header.Set("Accept", "application/json, text/event-stream")
+
+	// Apply custom headers (e.g., authentication)
+	for key, value := range c.customHeaders {
+		httpReq.Header.Set(key, value)
+	}
 
 	// Include session ID if we have one (for Streamable HTTP session management)
 	if c.sessionID != "" {
