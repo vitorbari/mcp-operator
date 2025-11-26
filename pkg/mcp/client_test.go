@@ -203,7 +203,10 @@ func TestClient_CustomHeadersSentInRequests(t *testing.T) {
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(response)
+			err := json.NewEncoder(w).Encode(response)
+			if err != nil {
+				t.Fatalf("Failed to encode response: %v", err)
+			}
 			return
 		}
 
