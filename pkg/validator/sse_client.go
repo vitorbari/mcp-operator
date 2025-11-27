@@ -178,7 +178,7 @@ func (c *SSEClient) Initialize(ctx context.Context) (*mcp.InitializeResult, erro
 	request := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      c.requestID,
-		"method":  "initialize",
+		"method":  mcp.MethodInitialize,
 		"params": map[string]interface{}{
 			"protocolVersion": ProtocolVersion20241105, // SSE uses legacy protocol version
 			"capabilities":    map[string]interface{}{},

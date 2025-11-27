@@ -12,6 +12,8 @@ The Model Context Protocol is a standardized protocol that enables AI models to 
 - **Tool Discovery & Invocation**: List and execute server-provided tools
 - **Resource Access**: List and read server resources (files, databases, APIs)
 - **Prompt Management**: Discover and use prompt templates
+- **Bearer Token Authentication**: Built-in support for authenticated connections
+- **Custom Headers**: Flexible header management for authentication and metadata
 - **Automatic Request ID Management**: Built-in request tracking
 - **Configurable Timeouts**: Customize HTTP request timeouts
 - **Full JSON-RPC 2.0 Support**: Standards-compliant implementation
@@ -65,6 +67,39 @@ client := mcp.NewClient(
     mcp.WithTimeout(60 * time.Second),
 )
 ```
+
+### Authentication
+
+For MCP servers that require authentication, use Bearer tokens or custom headers:
+
+```go
+// Bearer token authentication
+client := mcp.NewClient(
+    "https://api.example.com/mcp",
+    mcp.WithBearerToken("your-secret-token"),
+)
+
+// Custom headers (e.g., API keys)
+client := mcp.NewClient(
+    "https://api.example.com/mcp",
+    mcp.WithHeaders(map[string]string{
+        "X-API-Key":    "api-key-123",
+        "X-Tenant-ID":  "tenant-789",
+    }),
+)
+
+// Combine multiple options
+client := mcp.NewClient(
+    "https://api.example.com/mcp",
+    mcp.WithBearerToken("token"),
+    mcp.WithTimeout(60 * time.Second),
+    mcp.WithHeaders(map[string]string{
+        "X-Client-Version": "1.0.0",
+    }),
+)
+```
+
+All authentication headers are automatically included in every request to the server, including the initial `initialize` handshake.
 
 ## Working with Tools
 
@@ -191,7 +226,14 @@ if err := validator.ValidateCompliance(ctx); err != nil {
 Monitor MCP server health and capabilities:
 
 ```go
-func monitorServer(client *mcp.Client) error {
+func monitorServer(serverURL, apiToken string) error {
+    // Create authenticated client
+    client := mcp.NewClient(
+        serverURL,
+        mcp.WithBearerToken(apiToken),
+        mcp.WithTimeout(30 * time.Second),
+    )
+
     result, err := client.Initialize(ctx)
     if err != nil {
         return fmt.Errorf("server unreachable: %w", err)
@@ -280,7 +322,7 @@ func (a *AIAssistant) ExecuteWithTools(query string) (string, error) {
 
 - **MCP Version**: 2024-11-05
 - **Transport**: HTTP with JSON-RPC 2.0
-- **Authentication**: Currently supports unauthenticated connections
+- **Authentication**: Bearer tokens and custom headers
 
 ## Error Handling
 

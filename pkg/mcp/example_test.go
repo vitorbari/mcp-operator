@@ -36,7 +36,7 @@ func ExampleClient() {
 
 		var result interface{}
 		switch request.Method {
-		case "initialize":
+		case mcp.MethodInitialize:
 			result = mcp.InitializeResult{
 				ProtocolVersion: "2024-11-05",
 				Capabilities: mcp.ServerCapabilities{
@@ -49,7 +49,7 @@ func ExampleClient() {
 					Version: "1.0.0",
 				},
 			}
-		case "tools/list":
+		case mcp.MethodToolsList:
 			result = mcp.ListToolsResult{
 				Tools: []mcp.Tool{
 					{

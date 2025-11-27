@@ -125,13 +125,129 @@ func TestNewClient_MultipleOptions(t *testing.T) {
 	}
 }
 
+func TestNewClientWithBearerToken(t *testing.T) {
+	token := "test-token-123"
+	client := NewClient("http://example.com/mcp", WithBearerToken(token))
+
+	expectedAuth := "Bearer " + token
+	if client.customHeaders["Authorization"] != expectedAuth {
+		t.Errorf("Expected Authorization header %q, got %q", expectedAuth, client.customHeaders["Authorization"])
+	}
+}
+
+func TestNewClientWithHeaders(t *testing.T) {
+	headers := map[string]string{
+		"X-API-Key":       "key123",
+		"X-Custom-Header": "value",
+	}
+	client := NewClient("http://example.com/mcp", WithHeaders(headers))
+
+	for key, expectedValue := range headers {
+		if client.customHeaders[key] != expectedValue {
+			t.Errorf("Expected header %s=%q, got %q", key, expectedValue, client.customHeaders[key])
+		}
+	}
+}
+
+func TestNewClient_WithBearerTokenAndHeaders(t *testing.T) {
+	token := "test-token"
+	headers := map[string]string{
+		"X-Custom": "value",
+	}
+
+	client := NewClient("http://example.com/mcp",
+		WithBearerToken(token),
+		WithHeaders(headers),
+	)
+
+	// Both bearer token and custom headers should be set
+	if client.customHeaders["Authorization"] != "Bearer "+token {
+		t.Errorf("Bearer token not set correctly")
+	}
+	if client.customHeaders["X-Custom"] != "value" {
+		t.Errorf("Custom header not set correctly")
+	}
+}
+
+func TestClient_CustomHeadersSentInRequests(t *testing.T) {
+	var receivedAuthHeader string
+	var receivedCustomHeader string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Capture headers
+		receivedAuthHeader = r.Header.Get("Authorization")
+		receivedCustomHeader = r.Header.Get("X-Custom")
+
+		// Parse request to get method
+		var request map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Logf("Failed to decode request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		method := request["method"].(string)
+
+		// Handle initialize request (has ID)
+		if method == MethodInitialize {
+			requestID := int(request["id"].(float64))
+			response := JSONRPCResponse{
+				JSONRPC: "2.0",
+				ID:      requestID,
+				Result: &InitializeResult{
+					ProtocolVersion: DefaultProtocolVersion,
+					ServerInfo: Implementation{
+						Name:    "test-server",
+						Version: "1.0.0",
+					},
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			err := json.NewEncoder(w).Encode(response)
+			if err != nil {
+				t.Fatalf("Failed to encode response: %v", err)
+			}
+			return
+		}
+
+		// Handle initialized notification (no ID)
+		if method == MethodNotificationInitialized {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL,
+		WithBearerToken("my-token"),
+		WithHeaders(map[string]string{
+			"X-Custom": "test-value",
+		}),
+	)
+
+	_, err := client.Initialize(context.Background())
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	// Verify headers were sent
+	if receivedAuthHeader != "Bearer my-token" {
+		t.Errorf("Expected Authorization header %q, got %q", "Bearer my-token", receivedAuthHeader)
+	}
+	if receivedCustomHeader != "test-value" {
+		t.Errorf("Expected X-Custom header %q, got %q", "test-value", receivedCustomHeader)
+	}
+}
+
 func TestClient_Initialize(t *testing.T) {
 	initializedNotificationReceived := false
 
 	server := mockMCPServerWithNotifications(
 		t,
 		func(method string, params json.RawMessage) (interface{}, *RPCError) {
-			if method != "initialize" {
+			if method != MethodInitialize {
 				return nil, &RPCError{Code: -32601, Message: "Method not found"}
 			}
 
@@ -166,7 +282,7 @@ func TestClient_Initialize(t *testing.T) {
 		},
 		func(method string) {
 			// Notification handler
-			if method == "notifications/initialized" {
+			if method == MethodNotificationInitialized {
 				initializedNotificationReceived = true
 			}
 		},
@@ -209,7 +325,7 @@ func TestClient_Initialize(t *testing.T) {
 
 func TestClient_ListTools(t *testing.T) {
 	server := mockMCPServer(t, func(method string, params json.RawMessage) (interface{}, *RPCError) {
-		if method != "tools/list" {
+		if method != MethodToolsList {
 			return nil, &RPCError{Code: -32601, Message: "Method not found"}
 		}
 
@@ -251,7 +367,7 @@ func TestClient_ListTools(t *testing.T) {
 
 func TestClient_ListResources(t *testing.T) {
 	server := mockMCPServer(t, func(method string, params json.RawMessage) (interface{}, *RPCError) {
-		if method != "resources/list" {
+		if method != MethodResourcesList {
 			return nil, &RPCError{Code: -32601, Message: "Method not found"}
 		}
 
@@ -287,7 +403,7 @@ func TestClient_ListResources(t *testing.T) {
 
 func TestClient_ListPrompts(t *testing.T) {
 	server := mockMCPServer(t, func(method string, params json.RawMessage) (interface{}, *RPCError) {
-		if method != "prompts/list" {
+		if method != MethodPromptsList {
 			return nil, &RPCError{Code: -32601, Message: "Method not found"}
 		}
 
@@ -386,7 +502,7 @@ func TestClient_Timeout(t *testing.T) {
 
 func TestClient_Ping(t *testing.T) {
 	server := mockMCPServer(t, func(method string, params json.RawMessage) (interface{}, *RPCError) {
-		if method != "initialize" {
+		if method != MethodInitialize {
 			return nil, &RPCError{Code: -32601, Message: "Method not found"}
 		}
 

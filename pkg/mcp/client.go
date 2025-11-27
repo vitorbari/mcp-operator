@@ -38,6 +38,8 @@ limitations under the License.
 //   - Prompt discovery and execution
 //   - Automatic request ID management
 //   - Configurable timeouts
+//   - Bearer token authentication support
+//   - Custom header management
 //   - Full JSON-RPC 2.0 support
 //
 // # Basic Usage
@@ -55,6 +57,11 @@ limitations under the License.
 //
 //	client := mcp.NewClient("http://localhost:8080/mcp",
 //	    mcp.WithTimeout(60*time.Second))
+//
+// Creating a client with Bearer token authentication:
+//
+//	client := mcp.NewClient("http://localhost:8080/mcp",
+//	    mcp.WithBearerToken("your-token-here"))
 //
 // Listing available tools:
 //
@@ -108,14 +115,22 @@ const (
 	// HeaderSessionID is the HTTP header name for MCP session management
 	// Used in Streamable HTTP transport to maintain session state
 	HeaderSessionID = "Mcp-Session-Id"
+
+	// MCP JSON-RPC method names
+	MethodInitialize              = "initialize"
+	MethodNotificationInitialized = "notifications/initialized"
+	MethodToolsList               = "tools/list"
+	MethodResourcesList           = "resources/list"
+	MethodPromptsList             = "prompts/list"
 )
 
 // Client is an MCP protocol client
 type Client struct {
-	endpoint   string
-	httpClient *http.Client
-	requestID  atomic.Int32
-	sessionID  string // MCP session ID for Streamable HTTP transport
+	endpoint      string
+	httpClient    *http.Client
+	requestID     atomic.Int32
+	sessionID     string            // MCP session ID for Streamable HTTP transport
+	customHeaders map[string]string // Custom headers for authentication and other purposes
 }
 
 // Option is a functional option for configuring the Client
@@ -130,6 +145,35 @@ type Option func(*Client)
 func WithTimeout(timeout time.Duration) Option {
 	return func(c *Client) {
 		c.httpClient.Timeout = timeout
+	}
+}
+
+// WithBearerToken sets a Bearer token for authentication
+//
+// Example:
+//
+//	client := mcp.NewClient("http://localhost:8080/mcp",
+//	    mcp.WithBearerToken("your-token-here"))
+func WithBearerToken(token string) Option {
+	return func(c *Client) {
+		c.customHeaders["Authorization"] = "Bearer " + token
+	}
+}
+
+// WithHeaders sets custom HTTP headers for all requests
+//
+// Example:
+//
+//	client := mcp.NewClient("http://localhost:8080/mcp",
+//	    mcp.WithHeaders(map[string]string{
+//	        "X-API-Key": "key123",
+//	        "X-Custom-Header": "value",
+//	    }))
+func WithHeaders(headers map[string]string) Option {
+	return func(c *Client) {
+		for k, v := range headers {
+			c.customHeaders[k] = v
+		}
 	}
 }
 
@@ -150,6 +194,7 @@ func NewClient(endpoint string, opts ...Option) *Client {
 		httpClient: &http.Client{
 			Timeout: DefaultTimeout,
 		},
+		customHeaders: make(map[string]string),
 	}
 
 	// Apply functional options
@@ -187,13 +232,13 @@ func (c *Client) Initialize(ctx context.Context) (*InitializeResult, error) {
 	}
 
 	var result InitializeResult
-	if err := c.call(ctx, "initialize", params, &result); err != nil {
+	if err := c.call(ctx, MethodInitialize, params, &result); err != nil {
 		return nil, fmt.Errorf("initialize failed: %w", err)
 	}
 
 	// Send initialized notification to complete the handshake
 	// This is a notification (no response expected)
-	if err := c.notify(ctx, "notifications/initialized"); err != nil {
+	if err := c.notify(ctx, MethodNotificationInitialized); err != nil {
 		return nil, fmt.Errorf("initialized notification failed: %w", err)
 	}
 
@@ -203,7 +248,7 @@ func (c *Client) Initialize(ctx context.Context) (*InitializeResult, error) {
 // ListTools lists available tools from the MCP server
 func (c *Client) ListTools(ctx context.Context) (*ListToolsResult, error) {
 	var result ListToolsResult
-	if err := c.call(ctx, "tools/list", nil, &result); err != nil {
+	if err := c.call(ctx, MethodToolsList, nil, &result); err != nil {
 		return nil, fmt.Errorf("list tools failed: %w", err)
 	}
 
@@ -213,7 +258,7 @@ func (c *Client) ListTools(ctx context.Context) (*ListToolsResult, error) {
 // ListResources lists available resources from the MCP server
 func (c *Client) ListResources(ctx context.Context) (*ListResourcesResult, error) {
 	var result ListResourcesResult
-	if err := c.call(ctx, "resources/list", nil, &result); err != nil {
+	if err := c.call(ctx, MethodResourcesList, nil, &result); err != nil {
 		return nil, fmt.Errorf("list resources failed: %w", err)
 	}
 
@@ -223,7 +268,7 @@ func (c *Client) ListResources(ctx context.Context) (*ListResourcesResult, error
 // ListPrompts lists available prompts from the MCP server
 func (c *Client) ListPrompts(ctx context.Context) (*ListPromptsResult, error) {
 	var result ListPromptsResult
-	if err := c.call(ctx, "prompts/list", nil, &result); err != nil {
+	if err := c.call(ctx, MethodPromptsList, nil, &result); err != nil {
 		return nil, fmt.Errorf("list prompts failed: %w", err)
 	}
 
@@ -252,6 +297,11 @@ func (c *Client) notify(ctx context.Context, method string) error {
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json, text/event-stream")
+
+	// Apply custom headers (e.g., authentication)
+	for key, value := range c.customHeaders {
+		httpReq.Header.Set(key, value)
+	}
 
 	// Include session ID if we have one
 	if c.sessionID != "" {
@@ -309,6 +359,11 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 	httpReq.Header.Set("Content-Type", "application/json")
 	// Accept both JSON and SSE responses (required by MCP Streamable HTTP transport)
 	httpReq.Header.Set("Accept", "application/json, text/event-stream")
+
+	// Apply custom headers (e.g., authentication)
+	for key, value := range c.customHeaders {
+		httpReq.Header.Set(key, value)
+	}
 
 	// Include session ID if we have one (for Streamable HTTP session management)
 	if c.sessionID != "" {
