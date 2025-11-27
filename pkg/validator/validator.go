@@ -56,6 +56,18 @@ type ValidationOptions struct {
 	// If set, skips auto-detection and uses the specified transport
 	// Valid values: TransportStreamableHTTP, TransportSSE, or empty for auto-detection
 	Transport TransportType
+
+	// ClientInfo specifies custom client identification sent during initialization
+	// If nil, uses default "mcp-operator-validator" v0.1.0
+	ClientInfo *mcp.Implementation
+
+	// BearerToken for authentication
+	// If set, adds Authorization: Bearer <token> header to all requests
+	BearerToken string
+
+	// CustomHeaders for additional authentication or metadata
+	// Applied to all requests
+	CustomHeaders map[string]string
 }
 
 // ValidationResult contains the results of protocol validation
@@ -364,6 +376,9 @@ func (v *Validator) Validate(ctx context.Context, opts ValidationOptions) (*Vali
 		Timeout:                 v.timeout,
 		HTTPClient:              nil,
 		EnableSessionManagement: false,
+		ClientInfo:              opts.ClientInfo,
+		BearerToken:             opts.BearerToken,
+		CustomHeaders:           opts.CustomHeaders,
 	}
 
 	transport, err := v.transportFactory.CreateTransport(transportType, endpoint, transportOpts)
@@ -501,14 +516,10 @@ func (v *Validator) validateWithTransport(
 		}
 	}
 
-	// Step 6: Test capability endpoints (only for transports that support it)
-	// Currently only Streamable HTTP has the methods for testing capabilities
-	if transport.Name() == TransportStreamableHTTP {
-		// We need to cast to the concrete type to access ListTools, ListResources, ListPrompts
-		if httpTransport, ok := transport.(*streamableHTTPTransport); ok {
-			testCapabilityEndpoints(ctx, httpTransport.client, initResult.Capabilities, result)
-		}
-	}
+	// Step 6: Test capability endpoints
+	// All transports now implement the capability testing interface
+	// (though some may return "not implemented" errors for legacy transports like SSE)
+	testCapabilityEndpoints(ctx, transport, initResult.Capabilities, result)
 
 	return nil
 }
@@ -542,13 +553,13 @@ func discoverCapabilities(caps mcp.ServerCapabilities) []string {
 // testCapabilityEndpoints tests that advertised capabilities actually work
 func testCapabilityEndpoints(
 	ctx context.Context,
-	client *StreamableHTTPClient,
+	transport Transport,
 	caps mcp.ServerCapabilities,
 	result *ValidationResult,
 ) {
 	// Test tools/list if tools capability is advertised
 	if caps.Tools != nil {
-		if _, err := client.ListTools(ctx); err != nil {
+		if _, err := transport.ListTools(ctx); err != nil {
 			result.Issues = append(result.Issues, newWarningIssue(
 				CodeToolsListFailed,
 				fmt.Sprintf("Tools capability advertised but tools/list failed: %v", err),
@@ -558,7 +569,7 @@ func testCapabilityEndpoints(
 
 	// Test resources/list if resources capability is advertised
 	if caps.Resources != nil {
-		if _, err := client.ListResources(ctx); err != nil {
+		if _, err := transport.ListResources(ctx); err != nil {
 			result.Issues = append(result.Issues, newWarningIssue(
 				CodeResourcesListFailed,
 				fmt.Sprintf("Resources capability advertised but resources/list failed: %v", err),
@@ -568,7 +579,7 @@ func testCapabilityEndpoints(
 
 	// Test prompts/list if prompts capability is advertised
 	if caps.Prompts != nil {
-		if _, err := client.ListPrompts(ctx); err != nil {
+		if _, err := transport.ListPrompts(ctx); err != nil {
 			result.Issues = append(result.Issues, newWarningIssue(
 				CodePromptsListFailed,
 				fmt.Sprintf("Prompts capability advertised but prompts/list failed: %v", err),
