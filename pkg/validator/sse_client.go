@@ -37,10 +37,20 @@ type SSEClient struct {
 	messagesURL string
 	sseReader   io.ReadCloser
 	requestID   int64
+	clientInfo  mcp.Implementation
 }
 
 // NewSSEClient creates a new SSE client
-func NewSSEClient(sseEndpoint string, timeout time.Duration) *SSEClient {
+func NewSSEClient(sseEndpoint string, timeout time.Duration, clientInfo *mcp.Implementation) *SSEClient {
+	// Use default client info if not provided
+	defaultClientInfo := mcp.Implementation{
+		Name:    "mcp-operator-validator",
+		Version: "0.1.0",
+	}
+	if clientInfo != nil {
+		defaultClientInfo = *clientInfo
+	}
+
 	return &SSEClient{
 		httpClient: &http.Client{
 			// Don't set a timeout on the HTTP client for SSE connections
@@ -49,6 +59,7 @@ func NewSSEClient(sseEndpoint string, timeout time.Duration) *SSEClient {
 		},
 		sseEndpoint: sseEndpoint,
 		requestID:   1,
+		clientInfo:  defaultClientInfo,
 	}
 }
 
@@ -183,8 +194,8 @@ func (c *SSEClient) Initialize(ctx context.Context) (*mcp.InitializeResult, erro
 			"protocolVersion": ProtocolVersion20241105, // SSE uses legacy protocol version
 			"capabilities":    map[string]interface{}{},
 			"clientInfo": map[string]string{
-				"name":    "mcp-operator-validator",
-				"version": "1.0.0",
+				"name":    c.clientInfo.Name,
+				"version": c.clientInfo.Version,
 			},
 		},
 	}

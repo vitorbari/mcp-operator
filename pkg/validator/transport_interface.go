@@ -39,6 +39,17 @@ type Transport interface {
 
 	// Close cleans up any resources
 	Close() error
+
+	// Capability testing methods
+
+	// ListTools lists available tools from the MCP server
+	ListTools(ctx context.Context) (*mcp.ListToolsResult, error)
+
+	// ListResources lists available resources from the MCP server
+	ListResources(ctx context.Context) (*mcp.ListResourcesResult, error)
+
+	// ListPrompts lists available prompts from the MCP server
+	ListPrompts(ctx context.Context) (*mcp.ListPromptsResult, error)
 }
 
 // TransportOptions contains configuration for creating transports
@@ -51,6 +62,16 @@ type TransportOptions struct {
 
 	// EnableSessionManagement enables session support if available
 	EnableSessionManagement bool
+
+	// ClientInfo specifies custom client identification
+	// If nil, uses default "mcp-operator-validator" v0.1.0
+	ClientInfo *mcp.Implementation
+
+	// BearerToken for authentication
+	BearerToken string
+
+	// CustomHeaders for additional authentication or metadata
+	CustomHeaders map[string]string
 }
 
 // DefaultTransportOptions returns sensible defaults for transport creation
@@ -120,19 +141,43 @@ func (f *DefaultTransportFactory) SupportedTransports() []TransportType {
 	}
 }
 
-// streamableHTTPTransport wraps StreamableHTTPClient to implement Transport interface
+// streamableHTTPTransport wraps mcp.Client to implement Transport interface
 type streamableHTTPTransport struct {
-	client    *StreamableHTTPClient
+	client    *mcp.Client
 	transport TransportType
 }
 
 func newStreamableHTTPTransport(endpoint string, httpClient *http.Client, opts TransportOptions) Transport {
-	// Create a new client with the provided HTTP client
-	client := &StreamableHTTPClient{
-		endpoint:   endpoint,
-		httpClient: httpClient,
-		timeout:    opts.Timeout,
+	// Note: We don't directly use the provided httpClient because mcp.Client manages its own
+	// TODO: Consider adding WithHTTPClient option to mcp.Client for advanced cases
+	_ = httpClient
+
+	// Prepare client options
+	clientOpts := []mcp.Option{}
+
+	// Set timeout (mcp.Client creates its own http.Client with this timeout)
+	if opts.Timeout > 0 {
+		clientOpts = append(clientOpts, mcp.WithTimeout(opts.Timeout))
 	}
+
+	// Set client info or use default
+	if opts.ClientInfo != nil {
+		clientOpts = append(clientOpts, mcp.WithClientInfo(opts.ClientInfo.Name, opts.ClientInfo.Version))
+	} else {
+		// Default for validator
+		clientOpts = append(clientOpts, mcp.WithClientInfo("mcp-operator-validator", "0.1.0"))
+	}
+
+	// Add authentication if provided
+	if opts.BearerToken != "" {
+		clientOpts = append(clientOpts, mcp.WithBearerToken(opts.BearerToken))
+	}
+	if len(opts.CustomHeaders) > 0 {
+		clientOpts = append(clientOpts, mcp.WithHeaders(opts.CustomHeaders))
+	}
+
+	// Create mcp.Client
+	client := mcp.NewClient(endpoint, clientOpts...)
 
 	return &streamableHTTPTransport{
 		client:    client,
@@ -154,7 +199,21 @@ func (t *streamableHTTPTransport) SupportsSessionManagement() bool {
 }
 
 func (t *streamableHTTPTransport) Close() error {
-	return t.client.Close()
+	// mcp.Client doesn't require explicit cleanup
+	// HTTP connections are managed by the http.Client's connection pool
+	return nil
+}
+
+func (t *streamableHTTPTransport) ListTools(ctx context.Context) (*mcp.ListToolsResult, error) {
+	return t.client.ListTools(ctx)
+}
+
+func (t *streamableHTTPTransport) ListResources(ctx context.Context) (*mcp.ListResourcesResult, error) {
+	return t.client.ListResources(ctx)
+}
+
+func (t *streamableHTTPTransport) ListPrompts(ctx context.Context) (*mcp.ListPromptsResult, error) {
+	return t.client.ListPrompts(ctx)
 }
 
 // sseTransport wraps SSEClient to implement Transport interface
@@ -169,15 +228,14 @@ func newSSETransport(endpoint string, httpClient *http.Client, opts TransportOpt
 	// Create SSE client - note: SSE client manages its own HTTP client configuration
 	// We don't use the provided httpClient here because SSE requires special timeout handling
 	_ = httpClient
-	_ = opts
 
-	client := &SSEClient{
-		httpClient: &http.Client{
-			Timeout: 0, // SSE needs long-lived connections
-		},
-		sseEndpoint: endpoint,
-		requestID:   1,
+	// Use custom client info or default for validator
+	var clientInfo *mcp.Implementation
+	if opts.ClientInfo != nil {
+		clientInfo = opts.ClientInfo
 	}
+
+	client := NewSSEClient(endpoint, opts.Timeout, clientInfo)
 
 	return &sseTransport{
 		client:    client,
@@ -211,4 +269,20 @@ func (t *sseTransport) SupportsSessionManagement() bool {
 func (t *sseTransport) Close() error {
 	t.connected = false
 	return t.client.Close()
+}
+
+func (t *sseTransport) ListTools(ctx context.Context) (*mcp.ListToolsResult, error) {
+	// SSE client doesn't currently implement capability testing
+	// This is acceptable as SSE is a legacy transport
+	return nil, fmt.Errorf("ListTools not implemented for SSE transport")
+}
+
+func (t *sseTransport) ListResources(ctx context.Context) (*mcp.ListResourcesResult, error) {
+	// SSE client doesn't currently implement capability testing
+	return nil, fmt.Errorf("ListResources not implemented for SSE transport")
+}
+
+func (t *sseTransport) ListPrompts(ctx context.Context) (*mcp.ListPromptsResult, error) {
+	// SSE client doesn't currently implement capability testing
+	return nil, fmt.Errorf("ListPrompts not implemented for SSE transport")
 }
