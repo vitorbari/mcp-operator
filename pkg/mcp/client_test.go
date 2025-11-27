@@ -169,6 +169,112 @@ func TestNewClient_WithBearerTokenAndHeaders(t *testing.T) {
 	}
 }
 
+func TestNewClientWithClientInfo(t *testing.T) {
+	client := NewClient("http://example.com/mcp",
+		WithClientInfo("my-app", "1.2.3"))
+
+	if client.clientInfo == nil {
+		t.Fatal("clientInfo is nil")
+	}
+	if client.clientInfo.Name != "my-app" {
+		t.Errorf("Expected client name %q, got %q", "my-app", client.clientInfo.Name)
+	}
+	if client.clientInfo.Version != "1.2.3" {
+		t.Errorf("Expected client version %q, got %q", "1.2.3", client.clientInfo.Version)
+	}
+}
+
+func TestClient_InitializeWithCustomClientInfo(t *testing.T) {
+	var receivedClientInfo Implementation
+
+	server := mockMCPServerWithNotifications(
+		t,
+		func(method string, params json.RawMessage) (interface{}, *RPCError) {
+			if method != "initialize" {
+				return nil, &RPCError{Code: -32601, Message: "Method not found"}
+			}
+
+			// Capture the client info from params
+			var initParams InitializeParams
+			if err := json.Unmarshal(params, &initParams); err != nil {
+				return nil, &RPCError{Code: -32602, Message: "Invalid params"}
+			}
+			receivedClientInfo = initParams.ClientInfo
+
+			return &InitializeResult{
+				ProtocolVersion: DefaultProtocolVersion,
+				ServerInfo: Implementation{
+					Name:    "test-server",
+					Version: "1.0.0",
+				},
+			}, nil
+		},
+		func(method string) {},
+	)
+	defer server.Close()
+
+	client := NewClient(server.URL,
+		WithClientInfo("custom-client", "2.0.0"))
+
+	_, err := client.Initialize(context.Background())
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	// Verify custom client info was sent
+	if receivedClientInfo.Name != "custom-client" {
+		t.Errorf("Expected client name %q, got %q", "custom-client", receivedClientInfo.Name)
+	}
+	if receivedClientInfo.Version != "2.0.0" {
+		t.Errorf("Expected client version %q, got %q", "2.0.0", receivedClientInfo.Version)
+	}
+}
+
+func TestClient_InitializeWithDefaultClientInfo(t *testing.T) {
+	var receivedClientInfo Implementation
+
+	server := mockMCPServerWithNotifications(
+		t,
+		func(method string, params json.RawMessage) (interface{}, *RPCError) {
+			if method != "initialize" {
+				return nil, &RPCError{Code: -32601, Message: "Method not found"}
+			}
+
+			var initParams InitializeParams
+			if err := json.Unmarshal(params, &initParams); err != nil {
+				return nil, &RPCError{Code: -32602, Message: "Invalid params"}
+			}
+			receivedClientInfo = initParams.ClientInfo
+
+			return &InitializeResult{
+				ProtocolVersion: DefaultProtocolVersion,
+				ServerInfo: Implementation{
+					Name:    "test-server",
+					Version: "1.0.0",
+				},
+			}, nil
+		},
+		func(method string) {},
+	)
+	defer server.Close()
+
+	// Create client without WithClientInfo - should use defaults
+	client := NewClient(server.URL)
+
+	_, err := client.Initialize(context.Background())
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	// Verify default client info was sent
+	if receivedClientInfo.Name != "go-mcp-client" {
+		t.Errorf("Expected default client name %q, got %q", "go-mcp-client", receivedClientInfo.Name)
+	}
+	if receivedClientInfo.Version != "1.0.0" {
+		t.Errorf("Expected default client version %q, got %q", "1.0.0", receivedClientInfo.Version)
+	}
+}
+
 func TestClient_CustomHeadersSentInRequests(t *testing.T) {
 	var receivedAuthHeader string
 	var receivedCustomHeader string
@@ -261,8 +367,8 @@ func TestClient_Initialize(t *testing.T) {
 				t.Errorf("Expected protocol version %s, got %s", DefaultProtocolVersion, initParams.ProtocolVersion)
 			}
 
-			if initParams.ClientInfo.Name != "mcp-operator-validator" {
-				t.Errorf("Expected client name mcp-operator-validator, got %s", initParams.ClientInfo.Name)
+			if initParams.ClientInfo.Name != "go-mcp-client" {
+				t.Errorf("Expected client name go-mcp-client, got %s", initParams.ClientInfo.Name)
 			}
 
 			return InitializeResult{

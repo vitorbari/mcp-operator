@@ -40,6 +40,7 @@ limitations under the License.
 //   - Configurable timeouts
 //   - Bearer token authentication support
 //   - Custom header management
+//   - Custom client identification
 //   - Full JSON-RPC 2.0 support
 //
 // # Basic Usage
@@ -62,6 +63,11 @@ limitations under the License.
 //
 //	client := mcp.NewClient("http://localhost:8080/mcp",
 //	    mcp.WithBearerToken("your-token-here"))
+//
+// Creating a client with custom identification:
+//
+//	client := mcp.NewClient("http://localhost:8080/mcp",
+//	    mcp.WithClientInfo("my-app", "1.2.3"))
 //
 // Listing available tools:
 //
@@ -131,6 +137,7 @@ type Client struct {
 	requestID     atomic.Int32
 	sessionID     string            // MCP session ID for Streamable HTTP transport
 	customHeaders map[string]string // Custom headers for authentication and other purposes
+	clientInfo    *Implementation   // Client identification sent during initialization
 }
 
 // Option is a functional option for configuring the Client
@@ -177,6 +184,24 @@ func WithHeaders(headers map[string]string) Option {
 	}
 }
 
+// WithClientInfo sets custom client identification for the initialize handshake
+//
+// By default, the client identifies as "go-mcp-client" version "1.0.0".
+// Use this option to customize the client name and version sent to the server.
+//
+// Example:
+//
+//	client := mcp.NewClient("http://localhost:8080/mcp",
+//	    mcp.WithClientInfo("my-app", "1.2.3"))
+func WithClientInfo(name, version string) Option {
+	return func(c *Client) {
+		c.clientInfo = &Implementation{
+			Name:    name,
+			Version: version,
+		}
+	}
+}
+
 // NewClient creates a new MCP client for the given endpoint.
 //
 // By default, the client uses a 30-second timeout. This can be customized
@@ -215,6 +240,15 @@ func NewClient(endpoint string, opts ...Option) *Client {
 //
 // This method handles all three steps automatically.
 func (c *Client) Initialize(ctx context.Context) (*InitializeResult, error) {
+	// Use custom client info if provided, otherwise use generic default
+	clientInfo := Implementation{
+		Name:    "go-mcp-client",
+		Version: "1.0.0",
+	}
+	if c.clientInfo != nil {
+		clientInfo = *c.clientInfo
+	}
+
 	params := InitializeParams{
 		ProtocolVersion: DefaultProtocolVersion,
 		Capabilities: ClientCapabilities{
@@ -223,12 +257,7 @@ func (c *Client) Initialize(ctx context.Context) (*InitializeResult, error) {
 			},
 			Sampling: &SamplingCapability{},
 		},
-		// TODO: Make ClientInfo configurable via functional option (e.g., WithClientInfo)
-		// to allow users to specify custom client name and version
-		ClientInfo: Implementation{
-			Name:    "mcp-operator-validator",
-			Version: "0.1.0",
-		},
+		ClientInfo: clientInfo,
 	}
 
 	var result InitializeResult

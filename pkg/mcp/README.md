@@ -14,6 +14,7 @@ The Model Context Protocol is a standardized protocol that enables AI models to 
 - **Prompt Management**: Discover and use prompt templates
 - **Bearer Token Authentication**: Built-in support for authenticated connections
 - **Custom Headers**: Flexible header management for authentication and metadata
+- **Custom Client Identification**: Configure client name and version
 - **Automatic Request ID Management**: Built-in request tracking
 - **Configurable Timeouts**: Customize HTTP request timeouts
 - **Full JSON-RPC 2.0 Support**: Standards-compliant implementation
@@ -100,6 +101,31 @@ client := mcp.NewClient(
 ```
 
 All authentication headers are automatically included in every request to the server, including the initial `initialize` handshake.
+
+### Client Identification
+
+Customize how your client identifies itself to the MCP server:
+
+```go
+// Default: identifies as "go-mcp-client" version "1.0.0"
+client := mcp.NewClient("http://localhost:8080/mcp")
+
+// Custom identification
+client := mcp.NewClient(
+    "http://localhost:8080/mcp",
+    mcp.WithClientInfo("my-app", "2.5.1"),
+)
+
+// Combine with other options
+client := mcp.NewClient(
+    "https://api.example.com/mcp",
+    mcp.WithClientInfo("monitoring-service", "1.0.0"),
+    mcp.WithBearerToken("token"),
+    mcp.WithTimeout(60 * time.Second),
+)
+```
+
+The client name and version are sent during the `initialize` handshake and can be used by servers for logging, analytics, or version-specific behavior.
 
 ## Working with Tools
 

@@ -89,3 +89,47 @@ func ExampleNewClient_withBearerTokenAndCustomHeaders() {
 
 	fmt.Println("Connected with authentication and custom headers")
 }
+
+// ExampleNewClient_withClientInfo demonstrates custom client identification
+func ExampleNewClient_withClientInfo() {
+	// Create a client with custom identification
+	client := mcp.NewClient(
+		"http://localhost:8080/mcp",
+		mcp.WithClientInfo("analytics-service", "2.1.0"),
+	)
+
+	// The custom client info will be sent during initialization
+	ctx := context.Background()
+	result, err := client.Initialize(ctx)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Connected as: analytics-service v2.1.0 to %s\n", result.ServerInfo.Name)
+}
+
+// ExampleNewClient_allOptions demonstrates using all configuration options together
+func ExampleNewClient_allOptions() {
+	// Create a fully configured client
+	client := mcp.NewClient(
+		"https://api.example.com/mcp",
+		mcp.WithClientInfo("production-service", "3.0.0"),
+		mcp.WithBearerToken("prod-token-xyz"),
+		mcp.WithTimeout(90*time.Second),
+		mcp.WithHeaders(map[string]string{
+			"X-Environment": "production",
+			"X-Region":      "us-west-2",
+		}),
+	)
+
+	// Use the fully configured client
+	ctx := context.Background()
+	_, err := client.Initialize(ctx)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	fmt.Println("Production client ready")
+}
