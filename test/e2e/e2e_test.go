@@ -1992,7 +1992,7 @@ spec:
 					g.Expect(compliant).To(BeTrue())
 				}, 4*time.Minute, 5*time.Second).Should(Succeed())
 
-				By("verifying validation state is Passed")
+				By("verifying validation state is Validated")
 				result, err = getMCPServerStatus(mcpServerName)
 				Expect(err).NotTo(HaveOccurred())
 
@@ -2001,7 +2001,7 @@ spec:
 
 				state, ok := validation["state"].(string)
 				Expect(ok).To(BeTrue())
-				Expect(state).To(Equal("Passed"))
+				Expect(state).To(Equal("Validated"))
 
 				By("verifying no validation issues")
 				issues, ok := validation["issues"].([]interface{})
@@ -2144,7 +2144,7 @@ spec:
 
 					state, ok := validation["state"].(string)
 					g.Expect(ok).To(BeTrue())
-					g.Expect(state).To(Equal("Passed"))
+					g.Expect(state).To(Equal("Validated"))
 				}, 4*time.Minute, 5*time.Second).Should(Succeed())
 
 				By("verifying server is running")

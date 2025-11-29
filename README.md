@@ -76,8 +76,8 @@ kubectl get mcpservers -w
 You should see something like:
 
 ```
-NAME        PHASE     REPLICAS   READY   PROTOCOL   AUTH    COMPLIANT   CAPABILITIES                      AGE
-wikipedia   Running   1          1       sse        false   true        ["tools","resources","prompts"]   109s
+NAME        PHASE     REPLICAS   READY   PROTOCOL   VALIDATION   CAPABILITIES                      AGE
+wikipedia   Running   1          1       sse        Validated    ["tools","resources","prompts"]   109s
 ```
 
 That's it! Your MCP server is running, validated, and ready to use.
@@ -154,12 +154,15 @@ Example output:
 
 ```json
 {
-  "state": "Compliant",
+  "state": "Validated",
   "compliant": true,
+  "protocol": "sse",
   "protocolVersion": "2024-11-05",
-  "transportUsed": "sse",
+  "endpoint": "http://my-server.default.svc:3001/sse",
   "requiresAuth": false,
-  "capabilities": ["tools", "resources", "prompts"]
+  "capabilities": ["tools", "resources", "prompts"],
+  "lastValidated": "2025-11-29T10:30:00Z",
+  "validatedGeneration": 1
 }
 ```
 

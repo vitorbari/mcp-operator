@@ -444,8 +444,8 @@ type MCPHTTPTransportConfig struct {
 	SessionManagement *bool `json:"sessionManagement,omitempty"`
 }
 
-// ValidationState represents the current state of validation
-// +kubebuilder:validation:Enum=Pending;Validating;Passed;Failed
+// ValidationState represents the overall validation state
+// +kubebuilder:validation:Enum=Pending;Validating;Validated;AuthRequired;Failed;Disabled
 type ValidationState string
 
 const (
@@ -453,10 +453,14 @@ const (
 	ValidationStatePending ValidationState = "Pending"
 	// ValidationStateValidating indicates validation is in progress
 	ValidationStateValidating ValidationState = "Validating"
-	// ValidationStatePassed indicates validation succeeded
-	ValidationStatePassed ValidationState = "Passed"
-	// ValidationStateFailed indicates validation failed
+	// ValidationStateValidated indicates validation succeeded and server is compliant
+	ValidationStateValidated ValidationState = "Validated"
+	// ValidationStateAuthRequired indicates server requires authentication
+	ValidationStateAuthRequired ValidationState = "AuthRequired"
+	// ValidationStateFailed indicates validation ran but found issues
 	ValidationStateFailed ValidationState = "Failed"
+	// ValidationStateDisabled indicates user disabled validation
+	ValidationStateDisabled ValidationState = "Disabled"
 )
 
 // ValidationSpec defines MCP protocol validation configuration.
@@ -507,8 +511,8 @@ type ValidationSpec struct {
 
 // ValidationStatus represents the MCP protocol validation status
 type ValidationStatus struct {
-	// State represents the current validation state
-	// +kubebuilder:validation:Enum=Pending;Validating;Passed;Failed
+	// State represents the overall validation state
+	// +kubebuilder:validation:Enum=Pending;Validating;Validated;AuthRequired;Failed;Disabled
 	// +optional
 	State ValidationState `json:"state,omitempty"`
 
@@ -582,8 +586,7 @@ type ValidationIssue struct {
 // +kubebuilder:printcolumn:name="Replicas",type=integer,JSONPath=`.status.replicas`
 // +kubebuilder:printcolumn:name="Ready",type=integer,JSONPath=`.status.readyReplicas`
 // +kubebuilder:printcolumn:name="Protocol",type=string,JSONPath=`.status.validation.protocol`
-// +kubebuilder:printcolumn:name="Auth",type=boolean,JSONPath=`.status.validation.requiresAuth`
-// +kubebuilder:printcolumn:name="Compliant",type=boolean,JSONPath=`.status.validation.compliant`
+// +kubebuilder:printcolumn:name="Validation",type=string,JSONPath=`.status.validation.state`
 // +kubebuilder:printcolumn:name="Capabilities",type=string,JSONPath=`.status.validation.capabilities`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 

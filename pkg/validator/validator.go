@@ -388,7 +388,9 @@ func (v *Validator) Validate(ctx context.Context, opts ValidationOptions) (*Vali
 		if isAuthError(validationErr) {
 			result.RequiresAuth = true
 			result.AuthMethod = extractAuthMethod(validationErr, nil)
-			result.Success = false
+			// IMPORTANT: AuthRequired is NOT a failure - we successfully detected that auth is needed
+			// The server may be compliant, we just can't verify without credentials
+			result.Success = true
 			result.Issues = append(result.Issues, newIssue(
 				LevelInfo,
 				CodeAuthRequired,
@@ -436,7 +438,8 @@ func (v *Validator) validateWithTransport(
 		if isAuthError(err) {
 			result.RequiresAuth = true
 			result.AuthMethod = extractAuthMethod(err, nil)
-			result.Success = false
+			// IMPORTANT: AuthRequired is NOT a failure - we successfully detected that auth is needed
+			result.Success = true
 			// Add warning that auth is required on initialize (non-standard)
 			result.Issues = append(result.Issues, newIssue(
 				LevelWarning,

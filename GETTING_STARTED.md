@@ -104,17 +104,17 @@ kubectl get mcpservers -w
 You'll see the progression:
 
 ```
-NAME        PHASE      REPLICAS   READY   PROTOCOL   AUTH   COMPLIANT   CAPABILITIES   AGE
-wikipedia   Creating   0          0                                                    2s
-wikipedia   Creating   1          0                                                    5s
-wikipedia   Running    1          1                                                    15s
-wikipedia   Running    1          1       sse        false  true        ["tools","resources","prompts"]   25s
+NAME        PHASE      REPLICAS   READY   PROTOCOL   VALIDATION   CAPABILITIES                      AGE
+wikipedia   Creating   0          0                   Pending                                        2s
+wikipedia   Creating   1          0                   Pending                                        5s
+wikipedia   Running    1          1                   Validating                                     15s
+wikipedia   Running    1          1       sse        Validated    ["tools","resources","prompts"]   25s
 ```
 
 What's happening here?
-- Creating - Kubernetes is starting the pod
-- Running (no protocol) - Server is up, operator is validating it
-- Running (with protocol) - ✅ Validation complete!
+- **Creating** - Kubernetes is starting the pod (Validation: Pending)
+- **Running** (Validating) - Server is up, operator is validating it
+- **Running** (Validated) - ✅ Validation complete, protocol detected!
 
 Press Ctrl+C to stop watching.
 
@@ -134,12 +134,15 @@ You'll see:
 
 ```json
 {
-  "state": "Compliant",
+  "state": "Validated",
   "compliant": true,
+  "protocol": "sse",
   "protocolVersion": "2024-11-05",
-  "transportUsed": "sse",
+  "endpoint": "http://wikipedia.default.svc:3001/sse",
   "requiresAuth": false,
-  "capabilities": ["tools", "resources", "prompts"]
+  "capabilities": ["tools", "resources", "prompts"],
+  "lastValidated": "2025-11-29T10:30:00Z",
+  "validatedGeneration": 1
 }
 ```
 
