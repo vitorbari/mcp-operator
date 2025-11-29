@@ -24,6 +24,11 @@ import (
 	"time"
 )
 
+const (
+	httpMethodGET  = "GET"
+	httpMethodPOST = "POST"
+)
+
 // TestSSEDetection_WithAuth tests that SSE detection accepts 401 responses
 // with text/event-stream content-type (auth-required servers)
 func TestSSEDetection_WithAuth(t *testing.T) {
@@ -78,7 +83,7 @@ func TestSSEDetection_WithAuth(t *testing.T) {
 			// Create test server that returns specified response
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Only handle GET requests
-				if r.Method != "GET" {
+				if r.Method != httpMethodGET {
 					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 					return
 				}
@@ -91,9 +96,9 @@ func TestSSEDetection_WithAuth(t *testing.T) {
 
 				// Write SSE-like content if successful
 				if tt.statusCode == http.StatusOK {
-					w.Write([]byte("event: test\ndata: test\n\n"))
+					_, _ = w.Write([]byte("event: test\ndata: test\n\n"))
 				} else if tt.statusCode == http.StatusUnauthorized && tt.contentType == "text/event-stream" {
-					w.Write([]byte("event: error\ndata: {\"error\": \"Unauthorized\"}\n\n"))
+					_, _ = w.Write([]byte("event: error\ndata: {\"error\": \"Unauthorized\"}\n\n"))
 				}
 			}))
 			defer server.Close()
@@ -141,7 +146,7 @@ func TestStreamableHTTPDetection_WithAuth(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != "POST" {
+				if r.Method != httpMethodPOST {
 					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 					return
 				}
@@ -178,12 +183,12 @@ func TestTransportDetection_PreferStreamableHTTP(t *testing.T) {
 	// Create a server that supports both protocols
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
-		case "POST":
+		case httpMethodPOST:
 			// Streamable HTTP
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
-		case "GET":
+		case httpMethodGET:
 			// SSE
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.WriteHeader(http.StatusOK)
@@ -219,20 +224,20 @@ func TestTransportDetection_PreferStreamableHTTP(t *testing.T) {
 // TestTransportDetection_AuthRequired tests full detection flow with auth-required servers
 func TestTransportDetection_AuthRequired(t *testing.T) {
 	tests := []struct {
-		name             string
-		setupServer      func() *httptest.Server
+		name              string
+		setupServer       func() *httptest.Server
 		expectedTransport TransportType
-		description      string
+		description       string
 	}{
 		{
 			name: "SSE only server with auth",
 			setupServer: func() *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					switch r.Method {
-					case "POST":
+					case httpMethodPOST:
 						// Reject POST (SSE doesn't use POST)
 						http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-					case "GET":
+					case httpMethodGET:
 						// SSE with auth required
 						w.Header().Set("Content-Type", "text/event-stream")
 						w.Header().Set("WWW-Authenticate", "Bearer realm=\"MCP SSE Server\"")
@@ -242,13 +247,13 @@ func TestTransportDetection_AuthRequired(t *testing.T) {
 				}))
 			},
 			expectedTransport: TransportSSE,
-			description:      "Should detect SSE when POST is rejected and GET returns SSE with 401",
+			description:       "Should detect SSE when POST is rejected and GET returns SSE with 401",
 		},
 		{
 			name: "Streamable HTTP only with auth",
 			setupServer: func() *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					if r.Method != "POST" {
+					if r.Method != httpMethodPOST {
 						http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 						return
 					}
@@ -260,7 +265,7 @@ func TestTransportDetection_AuthRequired(t *testing.T) {
 				}))
 			},
 			expectedTransport: TransportStreamableHTTP,
-			description:      "Should detect Streamable HTTP with 401 auth response",
+			description:       "Should detect Streamable HTTP with 401 auth response",
 		},
 	}
 
