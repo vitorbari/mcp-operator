@@ -309,6 +309,57 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				metrics.UpdateMCPServerMetrics(mcpServer)
 			}
 		}
+	} else {
+		// Handle validation state when not actively validating
+		validationEnabled := true
+		if mcpServer.Spec.Validation != nil && mcpServer.Spec.Validation.Enabled != nil {
+			validationEnabled = *mcpServer.Spec.Validation.Enabled
+		}
+
+		if !validationEnabled {
+			// Validation is explicitly disabled - set state to Disabled if not already set
+			// IMPORTANT: Protocol detection still happens even when validation is disabled
+			// (needed for Service configuration and operational purposes)
+			if mcpServer.Status.Validation == nil {
+				mcpServer.Status.Validation = &mcpv1.ValidationStatus{}
+			}
+
+			// Set state to Disabled
+			stateChanged := mcpServer.Status.Validation.State != mcpv1.ValidationStateDisabled
+			mcpServer.Status.Validation.State = mcpv1.ValidationStateDisabled
+			mcpServer.Status.Validation.Compliant = false    // Unknown
+			mcpServer.Status.Validation.RequiresAuth = false // Unknown
+
+			// Perform lightweight protocol detection (without full validation)
+			// Run this if: state just changed to Disabled, OR protocol not yet detected
+			shouldDetect := stateChanged || mcpServer.Status.Validation.Protocol == ""
+			if shouldDetect && mcpServer.Status.Phase == mcpv1.MCPServerPhaseRunning && r.arePodsReady(ctx, mcpServer) {
+				r.detectProtocolOnly(ctx, mcpServer)
+			}
+
+			if stateChanged || shouldDetect {
+				if err := r.updateStatus(ctx, mcpServer); err != nil {
+					log.Error(err, "Failed to update validation status to Disabled")
+				}
+			}
+		} else if mcpServer.Status.Phase != mcpv1.MCPServerPhaseRunning || !r.arePodsReady(ctx, mcpServer) {
+			// Server not ready for validation yet - set state to Pending if not in a terminal state
+			if mcpServer.Status.Validation == nil ||
+				(mcpServer.Status.Validation.State != mcpv1.ValidationStateValidated &&
+					mcpServer.Status.Validation.State != mcpv1.ValidationStateAuthRequired &&
+					mcpServer.Status.Validation.State != mcpv1.ValidationStateFailed &&
+					mcpServer.Status.Validation.State != mcpv1.ValidationStateDisabled) {
+				if mcpServer.Status.Validation == nil {
+					mcpServer.Status.Validation = &mcpv1.ValidationStatus{}
+				}
+				if mcpServer.Status.Validation.State != mcpv1.ValidationStatePending {
+					mcpServer.Status.Validation.State = mcpv1.ValidationStatePending
+					if err := r.updateStatus(ctx, mcpServer); err != nil {
+						log.Error(err, "Failed to update validation status to Pending")
+					}
+				}
+			}
+		}
 	}
 
 	// Calculate retry interval for failed validations (returns 0 if validation succeeded)
@@ -845,7 +896,12 @@ func (r *MCPServerReconciler) shouldResetValidationForRecovery(mcpServer *mcpv1.
 
 	// Also reset if currently in Degraded state (non-strict mode failure)
 	// This allows recovery from non-compliant state
-	if !mcpServer.Status.Validation.Compliant {
+	// IMPORTANT: Don't trigger recovery for Disabled, Pending, or AuthRequired states
+	// where Compliant=false is expected/normal
+	if !mcpServer.Status.Validation.Compliant &&
+		mcpServer.Status.Validation.State != mcpv1.ValidationStateDisabled &&
+		mcpServer.Status.Validation.State != mcpv1.ValidationStatePending &&
+		mcpServer.Status.Validation.State != mcpv1.ValidationStateAuthRequired {
 		return true
 	}
 
@@ -889,8 +945,15 @@ func (r *MCPServerReconciler) shouldValidate(ctx context.Context, mcpServer *mcp
 		return true
 	}
 
+	// Validate if in Pending state (pods became ready after being unavailable)
+	// Pending means "waiting for pods to be ready", so when we reach here (pods are ready), we should validate
+	if mcpServer.Status.Validation.State == mcpv1.ValidationStatePending {
+		return true
+	}
+
 	// Don't re-validate if validation passed (no periodic validation)
-	if mcpServer.Status.Validation.State == mcpv1.ValidationStatePassed {
+	if mcpServer.Status.Validation.State == mcpv1.ValidationStateValidated ||
+		mcpServer.Status.Validation.State == mcpv1.ValidationStateAuthRequired {
 		return false
 	}
 
@@ -1074,6 +1137,50 @@ func (r *MCPServerReconciler) validateServer(ctx context.Context, mcpServer *mcp
 	return result
 }
 
+// detectProtocolOnly performs lightweight protocol detection without full validation
+// This is used when validation is explicitly disabled but we still need to detect
+// the protocol for Service configuration and operational purposes
+func (r *MCPServerReconciler) detectProtocolOnly(ctx context.Context, mcpServer *mcpv1.MCPServer) {
+	log := logf.FromContext(ctx)
+
+	// Build the endpoint URL from the service
+	endpoint := r.buildValidationEndpoint(mcpServer)
+	if endpoint == "" {
+		log.V(1).Info("Cannot determine endpoint for protocol detection")
+		return
+	}
+
+	// Get configured path if specified
+	configuredPath := ""
+	if mcpServer.Spec.Transport != nil &&
+		mcpServer.Spec.Transport.Config != nil &&
+		mcpServer.Spec.Transport.Config.HTTP != nil &&
+		mcpServer.Spec.Transport.Config.HTTP.Path != "" {
+		configuredPath = mcpServer.Spec.Transport.Config.HTTP.Path
+	}
+
+	// Use the transport detector to detect protocol
+	timeout := 10 * time.Second
+	detector := validator.NewTransportDetector(timeout)
+
+	transportType, fullEndpoint, err := detector.DetectTransport(ctx, endpoint, configuredPath)
+	if err != nil {
+		log.V(1).Info("Protocol detection failed (validation disabled)",
+			"error", err,
+			"endpoint", endpoint)
+		return
+	}
+
+	// Update validation status with detected protocol info
+	if mcpServer.Status.Validation != nil {
+		mcpServer.Status.Validation.Protocol = string(transportType)
+		mcpServer.Status.Validation.Endpoint = fullEndpoint
+		log.Info("Protocol detected (validation disabled)",
+			"protocol", transportType,
+			"endpoint", fullEndpoint)
+	}
+}
+
 // buildValidationEndpoint constructs the base URL for validation
 // Returns base URL without path (e.g., "http://service:8080") to allow auto-detection
 func (r *MCPServerReconciler) buildValidationEndpoint(mcpServer *mcpv1.MCPServer) string {
@@ -1128,7 +1235,13 @@ func (r *MCPServerReconciler) updateValidationStatus(ctx context.Context, mcpSer
 
 	if isCompliant {
 		// Validation succeeded
-		state = mcpv1.ValidationStatePassed
+		if result.RequiresAuth {
+			// Server requires authentication
+			state = mcpv1.ValidationStateAuthRequired
+		} else {
+			// Server is validated and compliant
+			state = mcpv1.ValidationStateValidated
+		}
 	} else {
 		// Validation failed - determine if it's permanent or transient
 		if r.isPermanentError(result, hasMismatch) {
@@ -1193,13 +1306,12 @@ func (r *MCPServerReconciler) updateValidationStatus(ctx context.Context, mcpSer
 
 	// Emit events based on validation state and attempts
 	switch state {
-	case mcpv1.ValidationStatePassed:
-		authStatus := "no auth"
-		if result.RequiresAuth {
-			authStatus = "requires auth"
-		}
+	case mcpv1.ValidationStateValidated:
 		r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "ValidationPassed",
-			fmt.Sprintf("MCP protocol validation succeeded (transport: %s, %s)", result.DetectedTransport, authStatus))
+			fmt.Sprintf("MCP protocol validation succeeded (transport: %s)", result.DetectedTransport))
+	case mcpv1.ValidationStateAuthRequired:
+		r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "ValidationAuthRequired",
+			fmt.Sprintf("MCP server requires authentication (transport: %s)", result.DetectedTransport))
 	case mcpv1.ValidationStateValidating:
 		// Validation is still in progress (transient error or first permanent error attempt)
 		isPermanent := r.isPermanentError(result, hasMismatch)
@@ -1450,11 +1562,12 @@ func (r *MCPServerReconciler) isStrictModeEnabled(mcpServer *mcpv1.MCPServer) bo
 }
 
 // getValidationRetryInterval calculates retry interval for failed validations using progressive backoff
-// Returns 0 if validation should not be retried (terminal states: Passed or Failed)
+// Returns 0 if validation should not be retried (terminal states: Validated, AuthRequired, or Failed)
 func (r *MCPServerReconciler) getValidationRetryInterval(mcpServer *mcpv1.MCPServer) time.Duration {
 	// If validation passed, don't retry (no periodic validation)
 	if mcpServer.Status.Validation != nil &&
-		mcpServer.Status.Validation.State == mcpv1.ValidationStatePassed {
+		(mcpServer.Status.Validation.State == mcpv1.ValidationStateValidated ||
+			mcpServer.Status.Validation.State == mcpv1.ValidationStateAuthRequired) {
 		return 0
 	}
 

@@ -115,6 +115,15 @@ var (
 		[]string{"namespace", "name"},
 	)
 
+	// Validation state tracking
+	mcpServerValidationState = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mcpserver_validation_state",
+			Help: "Current validation state of MCPServer (1=current state, 0=not current state)",
+		},
+		[]string{"namespace", "name", "state"},
+	)
+
 	// Validation duration histogram
 	validationDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -184,6 +193,7 @@ func init() {
 		reconcileTotal,
 		mcpServerPhase,
 		mcpServerValidationCompliant,
+		mcpServerValidationState,
 		validationDuration,
 		validationTotal,
 		validationIssues,
@@ -253,6 +263,16 @@ func UpdateMCPServerMetrics(mcpServer *mcpv1.MCPServer) {
 			complianceValue = 1.0
 		}
 		mcpServerValidationCompliant.WithLabelValues(labels...).Set(complianceValue)
+
+		// Track validation state
+		validationStates := []string{"Pending", "Validating", "Validated", "AuthRequired", "Failed", "Disabled"}
+		for _, state := range validationStates {
+			stateValue := 0.0
+			if string(mcpServer.Status.Validation.State) == state {
+				stateValue = 1.0
+			}
+			mcpServerValidationState.WithLabelValues(mcpServer.Namespace, mcpServer.Name, state).Set(stateValue)
+		}
 
 		// Track protocol version
 		supportedVersions := []string{"2024-11-05", "2025-03-26"}
@@ -350,6 +370,12 @@ func DeleteMCPServerMetrics(mcpServer *mcpv1.MCPServer) {
 	// Remove validation metrics
 	mcpServerValidationCompliant.DeleteLabelValues(labels...)
 	mcpServerLastValidation.DeleteLabelValues(labels...)
+
+	// Remove validation state metrics
+	validationStates := []string{"Pending", "Validating", "Validated", "AuthRequired", "Failed", "Disabled"}
+	for _, state := range validationStates {
+		mcpServerValidationState.DeleteLabelValues(mcpServer.Namespace, mcpServer.Name, state)
+	}
 
 	// Remove protocol version metrics
 	supportedVersions := []string{"2024-11-05", "2025-03-26"}

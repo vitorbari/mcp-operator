@@ -5,9 +5,58 @@ This document describes how the MCP operator validates protocol compliance, dete
 ## Overview
 
 The validator performs three key functions:
-1. **Protocol Detection**: Identifies which MCP transport protocol the server implements
+1. **Protocol Detection**: Identifies which MCP transport protocol the server implements (always runs, even when validation is disabled)
 2. **Authentication Detection**: Determines if the server requires authentication
 3. **Capabilities Discovery**: Lists the server's advertised capabilities (tools, resources, prompts)
+
+## Validation States
+
+The validation system uses the following states:
+
+| State | Meaning | Phase | Deployment Behavior |
+|-------|---------|-------|---------------------|
+| **Pending** | Validation hasn't started yet | Creating/Running | Continues normally |
+| **Validating** | Validation in progress (may retry) | Running | Continues normally |
+| **Validated** | Successfully validated and compliant | Running | Continues normally |
+| **AuthRequired** | Server requires authentication | Running | **Continues normally** (even in strict mode) |
+| **Failed** | Validation found compliance issues | Failed (strict) / Running | Stops deployment in strict mode |
+| **Disabled** | User disabled validation | Running | Continues normally (protocol still detected) |
+
+### Validation States in kubectl Output
+
+Here's what each validation state looks like when you run `kubectl get mcpserver`:
+
+```bash
+# Validated - server is compliant
+NAME        PHASE     REPLICAS   READY   PROTOCOL          VALIDATION   CAPABILITIES                      AGE
+wikipedia   Running   1          1       sse               Validated    ["tools","resources","prompts"]   5m
+
+# Validating - validation in progress
+NAME        PHASE     REPLICAS   READY   PROTOCOL          VALIDATION   CAPABILITIES   AGE
+wikipedia   Running   1          1       sse               Validating                  30s
+
+# AuthRequired - server needs authentication (not a failure!)
+NAME        PHASE     REPLICAS   READY   PROTOCOL          VALIDATION     CAPABILITIES   AGE
+auth-srv    Running   1          1       streamable-http   AuthRequired                  2m
+
+# Failed - validation found issues (strict mode)
+NAME        PHASE     REPLICAS   READY   PROTOCOL   VALIDATION   CAPABILITIES   AGE
+broken      Failed    0          0                  Failed                      1m
+
+# Disabled - validation explicitly disabled
+NAME        PHASE     REPLICAS   READY   PROTOCOL   VALIDATION   CAPABILITIES   AGE
+dev-srv     Running   1          1       sse        Disabled                    10m
+
+# Pending - waiting for pods to be ready
+NAME        PHASE      REPLICAS   READY   PROTOCOL   VALIDATION   CAPABILITIES   AGE
+new-srv     Creating   0          0                  Pending                     5s
+```
+
+### Important Notes:
+
+- **AuthRequired is NOT a failure state**: When a server requires authentication, the operator cannot verify compliance, but this doesn't mean the server is non-compliant. Deployment continues normally even in strict mode.
+- **Protocol detection always happens**: Even when validation is explicitly disabled (`validation.enabled: false`), protocol detection still runs to determine Service configuration.
+- **No periodic re-validation**: Validation only runs on creation or spec changes (when `metadata.generation` increments).
 
 ## Default Behavior
 
@@ -195,7 +244,57 @@ spec:
 
 ---
 
-### Case 7: spec.validation with requiredCapabilities
+### Case 7: Server requiring authentication (AuthRequired state)
+
+```yaml
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: auth-required-example
+spec:
+  image: "mcp-server-with-auth:latest"
+  validation:
+    enabled: true
+    strictMode: true  # Even with strict mode, deployment continues!
+```
+
+**Expected Behavior (when server returns 401/403):**
+- ✅ Validation: **ENABLED**
+- ✅ Protocol Detection: **AUTO** (successfully detects protocol)
+- ✅ Auth Detection: **DETECTED** (401/403 response)
+- ❌ Capabilities Discovery: **SKIPPED** (requires auth)
+- ✅ StrictMode: **TRUE** - but deployment CONTINUES (AuthRequired is not a failure!)
+- ✅ Status:
+  - state: **AuthRequired**
+  - compliant: **true** (successfully detected auth requirement)
+  - requiresAuth: **true**
+  - protocol: **"streamable-http"** (or "sse")
+  - capabilities: **[]** (couldn't discover without auth)
+  - phase: **Running** (NOT Failed!)
+  - replicas: **> 0** (deployment continues)
+- ⚠️ Event: "ValidationAuthRequired: MCP server requires authentication"
+
+**Use Case:** Servers that require OAuth, Bearer tokens, or Basic auth. The operator can detect the protocol but cannot verify full compliance without credentials.
+
+**CRITICAL:** AuthRequired NEVER causes Phase=Failed, even with strictMode=true. The server may be fully compliant; we just can't verify without credentials.
+
+**Example kubectl output:**
+
+```bash
+kubectl get mcpserver -A
+```
+
+```
+NAMESPACE         NAME                        PHASE     REPLICAS   READY   PROTOCOL          VALIDATION     CAPABILITIES   AGE
+validator-tests   test-auth-sse               Running   1          1       sse               AuthRequired                  14h
+validator-tests   test-auth-streamable-http   Running   1          1       streamable-http   AuthRequired                  17h
+```
+
+Notice both servers show `VALIDATION: AuthRequired` but remain in `PHASE: Running` with replicas active.
+
+---
+
+### Case 8: spec.validation with requiredCapabilities
 
 ```yaml
 apiVersion: mcp.mcp-operator.io/v1
@@ -227,7 +326,7 @@ spec:
 
 ---
 
-### Case 8: spec.validation with enabled: false (Explicit Disable)
+### Case 9: spec.validation with enabled: false (Explicit Disable)
 
 ```yaml
 apiVersion: mcp.mcp-operator.io/v1
@@ -241,18 +340,26 @@ spec:
 ```
 
 **Expected Behavior:**
-- ❌ Validation: **DISABLED**
-- ❌ Protocol Detection: **SKIPPED**
+- ❌ Validation: **DISABLED** (no Initialize call, no compliance checking)
+- ✅ Protocol Detection: **STILL RUNS** (needed for Service configuration)
 - ❌ Auth Detection: **SKIPPED**
 - ❌ Capabilities Discovery: **SKIPPED**
 - ❌ StrictMode: **N/A**
-- ❌ Status Fields: status.validation is **nil**
+- ✅ Status Fields:
+  - state: **Disabled**
+  - protocol: **"streamable-http"** (or "sse") - detected!
+  - endpoint: **"http://service:8080/mcp"** - detected!
+  - capabilities: **[]**
+  - compliant: **false** (unknown)
+  - requiresAuth: **false** (unknown)
 
 **Use Case:** Development environments, servers under construction, or non-MCP HTTP servers
 
+**Note:** Even with validation disabled, the operator still detects which protocol the server uses. This is necessary for proper Service and networking configuration.
+
 ---
 
-### Case 9: Protocol Mismatch with strictMode: false
+### Case 10: Protocol Mismatch with strictMode: false
 
 ```yaml
 apiVersion: mcp.mcp-operator.io/v1
@@ -287,7 +394,7 @@ spec:
 
 ---
 
-### Case 10: Protocol Mismatch with strictMode: true
+### Case 11: Protocol Mismatch with strictMode: true
 
 ```yaml
 apiVersion: mcp.mcp-operator.io/v1
@@ -377,35 +484,38 @@ All validation results are stored in `status.validation`:
 ```yaml
 status:
   validation:
-    state: "Passed" | "Failed" | "Validating" | "Pending"
+    state: "Pending" | "Validating" | "Validated" | "AuthRequired" | "Failed" | "Disabled"
     compliant: true | false
     protocol: "streamable-http" | "sse"
-    authentication: true | false
+    requiresAuth: true | false
     capabilities: ["tools", "resources", "prompts"]
+    protocolVersion: "2024-11-05" | "2025-03-26"
+    endpoint: "http://service-name.namespace.svc:8080/mcp"
     attempts: 3
     lastAttemptTime: "2025-01-06T10:30:00Z"
-    lastSuccessTime: "2025-01-06T10:30:00Z"
+    lastValidated: "2025-01-06T10:30:00Z"
     validatedGeneration: 5
     issues:
-      - level: "error" | "warning"
-        code: "PROTOCOL_MISMATCH" | "MISSING_CAPABILITY" | ...
+      - level: "error" | "warning" | "info"
+        code: "PROTOCOL_MISMATCH" | "MISSING_CAPABILITY" | "AUTH_REQUIRED" | ...
         message: "Detailed error message"
 ```
 
 ## Test Case Summary
 
-| Case | spec.validation | spec.transport.protocol | Validation | Protocol Detection | StrictMode | Mismatch Behavior |
-|------|----------------|------------------------|------------|-------------------|------------|------------------|
-| 1 | nil | nil | ENABLED | AUTO | false | N/A |
-| 2 | nil | auto | ENABLED | AUTO | false | Accepts both |
+| Case | spec.validation | spec.transport.protocol | Validation | Protocol Detection | StrictMode | Special Behavior |
+|------|----------------|------------------------|------------|-------------------|------------|-----------------|
+| 1 | nil | nil | ENABLED | AUTO | false | Default behavior |
+| 2 | nil | auto | ENABLED | AUTO | false | Accepts both protocols |
 | 3 | nil | sse | ENABLED | AUTO | false | Warning if mismatch |
 | 4 | nil | streamable-http | ENABLED | AUTO | false | Warning if mismatch |
-| 5 | enabled: true | nil | ENABLED | AUTO | false | N/A |
-| 6 | strictMode: true | nil | ENABLED | AUTO | true | Fails deployment |
-| 7 | requiredCapabilities | nil | ENABLED | AUTO | true | Checks capabilities |
-| 8 | enabled: false | any | DISABLED | SKIPPED | N/A | N/A |
-| 9 | strictMode: false | sse (mismatch) | ENABLED | AUTO | false | Runs + Warning |
-| 10 | strictMode: true | sse (mismatch) | ENABLED | AUTO | true | Fails + Error |
+| 5 | enabled: true | nil | ENABLED | AUTO | false | Explicit enable |
+| 6 | strictMode: true | nil | ENABLED | AUTO | true | Fails on non-compliance |
+| 7 | strictMode: true | - | ENABLED | AUTO | true | **AuthRequired: Continues!** |
+| 8 | requiredCapabilities | nil | ENABLED | AUTO | varies | Checks capabilities |
+| 9 | enabled: false | any | DISABLED | **STILL RUNS** | N/A | Protocol detected only |
+| 10 | strictMode: false | sse (mismatch) | ENABLED | AUTO | false | Runs + Warning |
+| 11 | strictMode: true | sse (mismatch) | ENABLED | AUTO | true | Fails + Error |
 
 ## Migration Guide
 

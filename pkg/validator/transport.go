@@ -263,19 +263,21 @@ func (d *TransportDetector) trySSE(ctx context.Context, endpoint string) bool {
 		"contentType", resp.Header.Get("Content-Type"))
 
 	// Check if endpoint returns SSE
-	// Should return 200 OK and content-type should be text/event-stream
-	if resp.StatusCode != http.StatusOK {
-		log.Info("SSE endpoint did not return 200 OK",
-			"endpoint", endpoint,
-			"status", resp.StatusCode)
-		return false
-	}
-
+	// Check content-type first - should be text/event-stream
 	contentType := resp.Header.Get("Content-Type")
 	if !strings.Contains(contentType, "text/event-stream") {
 		log.Info("SSE endpoint did not return event-stream content-type",
 			"endpoint", endpoint,
 			"contentType", contentType)
+		return false
+	}
+
+	// Accept both 200 OK and 401 Unauthorized (auth required) as valid SSE responses
+	// This allows protocol detection to work even when authentication is required
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusUnauthorized {
+		log.Info("SSE endpoint returned unexpected status",
+			"endpoint", endpoint,
+			"status", resp.StatusCode)
 		return false
 	}
 

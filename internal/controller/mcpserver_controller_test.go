@@ -768,6 +768,7 @@ var _ = Describe("MCPServer Controller", func() {
 			// Simulate detected SSE (different from configured streamable-http)
 			mcpserver.Status.Phase = mcpv1.MCPServerPhaseRunning
 			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				State:               mcpv1.ValidationStateFailed,
 				Compliant:           false, // Not compliant due to mismatch
 				ProtocolVersion:     "2024-11-05",
 				Protocol:            "sse", // Server actually uses SSE
@@ -813,6 +814,9 @@ var _ = Describe("MCPServer Controller", func() {
 			Expect(mcpserver.Status.Validation.Issues).To(HaveLen(1))
 			Expect(mcpserver.Status.Validation.Issues[0].Code).To(Equal("PROTOCOL_MISMATCH"))
 			Expect(mcpserver.Status.Validation.Issues[0].Level).To(Equal("error"))
+
+			By("Verifying validation state is Failed (protocol mismatch)")
+			Expect(mcpserver.Status.Validation.State).To(Equal(mcpv1.ValidationStateFailed))
 		})
 
 		It("should detect protocol mismatch in strict mode", func() {
@@ -846,6 +850,7 @@ var _ = Describe("MCPServer Controller", func() {
 			mcpserver.Status.Phase = mcpv1.MCPServerPhaseFailed
 			mcpserver.Status.Message = "Protocol validation failed in strict mode"
 			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				State:               mcpv1.ValidationStateFailed,
 				Compliant:           false,
 				ProtocolVersion:     "2024-11-05",
 				Protocol:            "sse",
@@ -915,6 +920,7 @@ var _ = Describe("MCPServer Controller", func() {
 			// Auto-detection detected SSE - no mismatch
 			mcpserver.Status.Phase = mcpv1.MCPServerPhaseRunning
 			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				State:               mcpv1.ValidationStateValidated,
 				Compliant:           true, // Compliant - no mismatch with auto
 				ProtocolVersion:     "2024-11-05",
 				Protocol:            "sse", // Auto-detected SSE
@@ -949,6 +955,10 @@ var _ = Describe("MCPServer Controller", func() {
 
 			By("Verifying no validation issues")
 			Expect(mcpserver.Status.Validation.Issues).To(BeEmpty())
+
+			By("Verifying validation state is Validated or AuthRequired")
+			Expect(mcpserver.Status.Validation.State).To(
+				Or(Equal(mcpv1.ValidationStateValidated), Equal(mcpv1.ValidationStateAuthRequired)))
 		})
 
 		It("should not retry validation on protocol mismatch", func() {
@@ -1016,6 +1026,7 @@ var _ = Describe("MCPServer Controller", func() {
 
 			mcpserver.Status.Phase = mcpv1.MCPServerPhaseRunning
 			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				State:               mcpv1.ValidationStateFailed,
 				Compliant:           false,
 				Protocol:            "sse",
 				ValidatedGeneration: mcpserver.Generation,
@@ -1052,6 +1063,7 @@ var _ = Describe("MCPServer Controller", func() {
 
 			// Generation incremented, validation re-runs and succeeds
 			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				State:               mcpv1.ValidationStateValidated,
 				Compliant:           true, // Now compliant
 				Protocol:            "sse",
 				ValidatedGeneration: mcpserver.Generation,
@@ -1081,6 +1093,254 @@ var _ = Describe("MCPServer Controller", func() {
 			By("Verifying validation is now compliant")
 			Expect(mcpserver.Status.Validation.Compliant).To(BeTrue())
 			Expect(mcpserver.Status.Validation.Issues).To(BeEmpty())
+
+			By("Verifying validation state is Validated")
+			// State should be Validated if no auth required, or AuthRequired if auth is needed
+			Expect(mcpserver.Status.Validation.State).To(
+				Or(Equal(mcpv1.ValidationStateValidated), Equal(mcpv1.ValidationStateAuthRequired)))
+		})
+	})
+
+	Context("When handling validation states", func() {
+		const (
+			resourceNamespace = "default"
+			timeout           = time.Second * 10
+			interval          = time.Millisecond * 250
+		)
+
+		ctx := context.Background()
+		var resourceName string
+		var typeNamespacedName types.NamespacedName
+		var mcpserver *mcpv1.MCPServer
+
+		BeforeEach(func() {
+			resourceName = "test-mcpserver-state-" + RandStringRunes(8)
+			typeNamespacedName = types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+		})
+
+		AfterEach(func() {
+			resource := &mcpv1.MCPServer{}
+			err := k8sClient.Get(ctx, typeNamespacedName, resource)
+			if err == nil {
+				By("Cleanup: Deleting the MCPServer")
+				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			}
+		})
+
+		It("should set state to AuthRequired when server requires authentication", func() {
+			By("Creating MCPServer with HTTP transport")
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "test-server:latest",
+					Replicas: ptr(int32(1)),
+					Transport: &mcpv1.MCPServerTransport{
+						Type:     mcpv1.MCPTransportHTTP,
+						Protocol: mcpv1.MCPProtocolSSE,
+					},
+					Validation: &mcpv1.ValidationSpec{
+						Enabled: ptr(true),
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			By("Setting validation status with RequiresAuth=true")
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+			}, timeout, interval).Should(Succeed())
+
+			mcpserver.Status.Phase = mcpv1.MCPServerPhaseRunning
+			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				State:               mcpv1.ValidationStateAuthRequired,
+				Compliant:           true, // Can be compliant but require auth
+				RequiresAuth:        true,
+				Protocol:            "sse",
+				ProtocolVersion:     "2024-11-05",
+				ValidatedGeneration: mcpserver.Generation,
+				Issues:              []mcpv1.ValidationIssue{},
+			}
+			Expect(k8sClient.Status().Update(ctx, mcpserver)).To(Succeed())
+
+			By("Verifying state is AuthRequired")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+				if err != nil {
+					return false
+				}
+				return mcpserver.Status.Validation != nil &&
+					mcpserver.Status.Validation.State == mcpv1.ValidationStateAuthRequired
+			}, timeout, interval).Should(BeTrue())
+
+			By("Verifying RequiresAuth field is true")
+			Expect(mcpserver.Status.Validation.RequiresAuth).To(BeTrue())
+
+			By("Verifying server can be compliant even with auth required")
+			Expect(mcpserver.Status.Validation.Compliant).To(BeTrue())
+		})
+
+		It("should set state to Disabled when validation is explicitly disabled", func() {
+			By("Creating MCPServer with validation disabled")
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "test-server:latest",
+					Replicas: ptr(int32(1)),
+					Transport: &mcpv1.MCPServerTransport{
+						Type: mcpv1.MCPTransportHTTP,
+					},
+					Validation: &mcpv1.ValidationSpec{
+						Enabled: ptr(false), // Explicitly disabled
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			By("Waiting for reconciliation")
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+			}, timeout, interval).Should(Succeed())
+
+			By("Simulating controller setting Disabled state")
+			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				State: mcpv1.ValidationStateDisabled,
+			}
+			Expect(k8sClient.Status().Update(ctx, mcpserver)).To(Succeed())
+
+			By("Verifying state is Disabled")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+				if err != nil {
+					return false
+				}
+				return mcpserver.Status.Validation != nil &&
+					mcpserver.Status.Validation.State == mcpv1.ValidationStateDisabled
+			}, timeout, interval).Should(BeTrue())
+
+			By("Verifying no validation fields are set")
+			Expect(mcpserver.Status.Validation.Protocol).To(BeEmpty())
+			Expect(mcpserver.Status.Validation.ProtocolVersion).To(BeEmpty())
+			Expect(mcpserver.Status.Validation.Capabilities).To(BeEmpty())
+		})
+
+		It("should set state to Pending when server is not yet ready", func() {
+			By("Creating MCPServer")
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "test-server:latest",
+					Replicas: ptr(int32(1)),
+					Transport: &mcpv1.MCPServerTransport{
+						Type: mcpv1.MCPTransportHTTP,
+					},
+					Validation: &mcpv1.ValidationSpec{
+						Enabled: ptr(true),
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			By("Setting server to Creating phase (not ready)")
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+			}, timeout, interval).Should(Succeed())
+
+			mcpserver.Status.Phase = mcpv1.MCPServerPhaseCreating
+			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				State: mcpv1.ValidationStatePending,
+			}
+			Expect(k8sClient.Status().Update(ctx, mcpserver)).To(Succeed())
+
+			By("Verifying state is Pending")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+				if err != nil {
+					return false
+				}
+				return mcpserver.Status.Validation != nil &&
+					mcpserver.Status.Validation.State == mcpv1.ValidationStatePending
+			}, timeout, interval).Should(BeTrue())
+
+			By("Verifying phase is Creating (not ready for validation)")
+			Expect(mcpserver.Status.Phase).To(Equal(mcpv1.MCPServerPhaseCreating))
+		})
+
+		It("should transition from Pending to Validated when server becomes ready", func() {
+			By("Creating MCPServer in Pending state")
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "test-server:latest",
+					Replicas: ptr(int32(1)),
+					Transport: &mcpv1.MCPServerTransport{
+						Type: mcpv1.MCPTransportHTTP,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			By("Setting initial Pending state")
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+			}, timeout, interval).Should(Succeed())
+
+			mcpserver.Status.Phase = mcpv1.MCPServerPhaseCreating
+			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				State: mcpv1.ValidationStatePending,
+			}
+			Expect(k8sClient.Status().Update(ctx, mcpserver)).To(Succeed())
+
+			By("Verifying initial state is Pending")
+			Expect(mcpserver.Status.Validation.State).To(Equal(mcpv1.ValidationStatePending))
+
+			By("Transitioning to Running phase with successful validation")
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+			}, timeout, interval).Should(Succeed())
+
+			mcpserver.Status.Phase = mcpv1.MCPServerPhaseRunning
+			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				State:               mcpv1.ValidationStateValidated,
+				Compliant:           true,
+				RequiresAuth:        false,
+				Protocol:            "sse",
+				ProtocolVersion:     "2024-11-05",
+				ValidatedGeneration: mcpserver.Generation,
+				Capabilities:        []string{"tools", "resources"},
+				Issues:              []mcpv1.ValidationIssue{},
+			}
+			Expect(k8sClient.Status().Update(ctx, mcpserver)).To(Succeed())
+
+			By("Verifying state transitioned to Validated")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+				if err != nil {
+					return false
+				}
+				return mcpserver.Status.Phase == mcpv1.MCPServerPhaseRunning &&
+					mcpserver.Status.Validation != nil &&
+					mcpserver.Status.Validation.State == mcpv1.ValidationStateValidated
+			}, timeout, interval).Should(BeTrue())
+
+			By("Verifying validation details are populated")
+			Expect(mcpserver.Status.Validation.Compliant).To(BeTrue())
+			Expect(mcpserver.Status.Validation.Protocol).To(Equal("sse"))
+			Expect(mcpserver.Status.Validation.Capabilities).To(ContainElement("tools"))
 		})
 	})
 
