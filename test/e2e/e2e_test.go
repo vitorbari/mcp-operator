@@ -188,8 +188,8 @@ var _ = Describe("Manager", Ordered, func() {
 	SetDefaultEventuallyPollingInterval(time.Second)
 
 	Context("MCPServer CRD Tests", func() {
-		It("should create MCPServer and bring it to Running phase", func() {
-			mcpServerName := "test-basic-mcpserver"
+		It("should create MCPServer with complete resource verification", func() {
+			mcpServerName := "test-basic-complete"
 			mcpServerYAML := fmt.Sprintf(`
 apiVersion: mcp.mcp-operator.io/v1
 kind: MCPServer
@@ -212,7 +212,7 @@ spec:
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(Equal("Running"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
 
 			By("verifying Deployment was created with correct specs")
 			cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
@@ -243,27 +243,9 @@ spec:
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(Equal("Running"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
-		})
+			}, 2*time.Minute, 1*time.Second).Should(Succeed())
 
-		It("should maintain accurate status conditions", func() {
-			mcpServerName := "test-status-conditions"
-			mcpServerYAML := fmt.Sprintf(`
-apiVersion: mcp.mcp-operator.io/v1
-kind: MCPServer
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  image: nginxinc/nginx-unprivileged:latest
-  replicas: 1
-`, mcpServerName, testNamespace)
-
-			By("creating MCPServer")
-			err := applyMCPServerYAML(mcpServerYAML)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("verifying Ready condition becomes True when pods are running")
+			By("verifying status conditions are accurate")
 			Eventually(func(g Gomega) {
 				result, err := getMCPServerStatus(mcpServerName)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -274,7 +256,7 @@ spec:
 				readyCond := findCondition(status, "Ready")
 				g.Expect(readyCond).NotTo(BeNil(), "Ready condition should exist")
 				g.Expect(readyCond["status"]).To(Equal("True"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
 
 			By("verifying Available condition is set")
 			result, err := getMCPServerStatus(mcpServerName)
@@ -294,102 +276,47 @@ spec:
 			generation := metadata["generation"]
 			observedGeneration := status["observedGeneration"]
 			Expect(observedGeneration).To(Equal(generation), "ObservedGeneration should match Generation")
-		})
 
-		It("should set correct owner references on child resources", func() {
-			mcpServerName := "test-ownership"
-			mcpServerYAML := fmt.Sprintf(`
-apiVersion: mcp.mcp-operator.io/v1
-kind: MCPServer
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  image: nginxinc/nginx-unprivileged:latest
-  replicas: 1
-`, mcpServerName, testNamespace)
-
-			By("creating MCPServer")
-			err := applyMCPServerYAML(mcpServerYAML)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("waiting for resources to be created")
-			Eventually(func() error {
-				cmd := exec.Command("kubectl", "get", "deployment", mcpServerName, "-n", testNamespace)
-				_, err := utils.Run(cmd)
-				return err
-			}, 30*time.Second, 2*time.Second).Should(Succeed())
-
-			By("verifying Deployment has owner reference")
-			cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
+			By("verifying owner references on all child resources")
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
 				"-n", testNamespace, "-o", "jsonpath={.metadata.ownerReferences[0].name}")
-			output, err := utils.Run(cmd)
+			output, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(Equal(mcpServerName))
 
-			By("verifying owner reference kind is MCPServer")
 			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
 				"-n", testNamespace, "-o", "jsonpath={.metadata.ownerReferences[0].kind}")
 			output, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(Equal("MCPServer"))
 
-			By("verifying Service has owner reference")
 			cmd = exec.Command("kubectl", "get", "service", mcpServerName,
 				"-n", testNamespace, "-o", "jsonpath={.metadata.ownerReferences[0].name}")
 			output, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(Equal(mcpServerName))
 
-			By("verifying ServiceAccount has owner reference")
 			cmd = exec.Command("kubectl", "get", "serviceaccount", mcpServerName,
 				"-n", testNamespace, "-o", "jsonpath={.metadata.ownerReferences[0].name}")
 			output, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(Equal(mcpServerName))
-		})
-
-		It("should propagate labels correctly to all resources", func() {
-			mcpServerName := "test-labels"
-			mcpServerYAML := fmt.Sprintf(`
-apiVersion: mcp.mcp-operator.io/v1
-kind: MCPServer
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  image: nginxinc/nginx-unprivileged:latest
-  replicas: 1
-`, mcpServerName, testNamespace)
-
-			By("creating MCPServer")
-			err := applyMCPServerYAML(mcpServerYAML)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("waiting for Deployment to be created")
-			Eventually(func() error {
-				cmd := exec.Command("kubectl", "get", "deployment", mcpServerName, "-n", testNamespace)
-				_, err := utils.Run(cmd)
-				return err
-			}, 30*time.Second, 2*time.Second).Should(Succeed())
 
 			By("verifying standard labels on Deployment")
-			cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
+			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
 				"-n", testNamespace, "-o", "json")
-			output, err := utils.Run(cmd)
+			output, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
 			var deploymentData map[string]interface{}
 			err = json.Unmarshal([]byte(output), &deploymentData)
 			Expect(err).NotTo(HaveOccurred())
 
-			metadata, ok := deploymentData["metadata"].(map[string]interface{})
+			depMetadata, ok := deploymentData["metadata"].(map[string]interface{})
 			Expect(ok).To(BeTrue())
 
-			labels, ok := metadata["labels"].(map[string]interface{})
+			labels, ok := depMetadata["labels"].(map[string]interface{})
 			Expect(ok).To(BeTrue())
-
-			fmt.Println(metadata, labels)
 
 			Expect(labels["app"]).To(Equal(mcpServerName))
 			Expect(labels["app.kubernetes.io/name"]).To(Equal("mcpserver"))
@@ -397,8 +324,8 @@ spec:
 			Expect(labels["app.kubernetes.io/managed-by"]).To(Equal("mcp-operator"))
 		})
 
-		It("should configure container settings (command, args, resources, environment)", func() {
-			mcpServerName := "test-container-config"
+		It("should configure complete pod and container specifications", func() {
+			mcpServerName := "test-pod-config-complete"
 			mcpServerYAML := fmt.Sprintf(`
 apiVersion: mcp.mcp-operator.io/v1
 kind: MCPServer
@@ -424,9 +351,27 @@ spec:
       value: "8080"
     - name: CUSTOM_VAR
       value: "test-value"
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+  healthCheck:
+    enabled: true
+    path: "/"
+    port: 8080
+  podTemplate:
+    labels:
+      custom-label: "test-value"
+      app-version: "1.0.0"
+    annotations:
+      prometheus.io/scrape: "true"
+      custom-annotation: "test"
+    nodeSelector:
+      kubernetes.io/os: linux
 `, mcpServerName, testNamespace)
 
-			By("creating MCPServer with container configuration")
+			By("creating MCPServer with complete pod configuration")
 			err := applyMCPServerYAML(mcpServerYAML)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -437,55 +382,12 @@ spec:
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(Equal("Running"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
 
-			By("verifying Deployment has custom command")
+			By("fetching Deployment configuration once for all verifications")
 			cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].command}")
-			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("/bin/sh"))
-			Expect(output).To(ContainSubstring("-c"))
-
-			By("verifying Deployment has custom args")
-			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].args}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("Custom command executed"))
-
-			By("verifying Deployment has CPU requests")
-			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].resources.requests.cpu}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("100m"))
-
-			By("verifying Deployment has memory requests")
-			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].resources.requests.memory}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("128Mi"))
-
-			By("verifying Deployment has CPU limits")
-			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].resources.limits.cpu}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("500m"))
-
-			By("verifying Deployment has memory limits")
-			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.containers[0].resources.limits.memory}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("512Mi"))
-
-			By("verifying Deployment has environment variables")
-			cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
 				"-n", testNamespace, "-o", "json")
-			output, err = utils.Run(cmd)
+			output, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
 			var deploymentData map[string]interface{}
@@ -497,6 +399,26 @@ spec:
 			podSpec := template["spec"].(map[string]interface{})
 			containers := podSpec["containers"].([]interface{})
 			container := containers[0].(map[string]interface{})
+
+			By("verifying container command and args")
+			command := container["command"].([]interface{})
+			Expect(command).To(ContainElement("/bin/sh"))
+			Expect(command).To(ContainElement("-c"))
+
+			args := container["args"].([]interface{})
+			Expect(args[0].(string)).To(ContainSubstring("Custom command executed"))
+
+			By("verifying container resources")
+			resources := container["resources"].(map[string]interface{})
+			requests := resources["requests"].(map[string]interface{})
+			limits := resources["limits"].(map[string]interface{})
+
+			Expect(requests["cpu"]).To(Equal("100m"))
+			Expect(requests["memory"]).To(Equal("128Mi"))
+			Expect(limits["cpu"]).To(Equal("500m"))
+			Expect(limits["memory"]).To(Equal("512Mi"))
+
+			By("verifying environment variables")
 			env := container["env"].([]interface{})
 
 			logLevelFound := false
@@ -519,11 +441,45 @@ spec:
 			Expect(logLevelFound).To(BeTrue(), "LOG_LEVEL environment variable should be set")
 			Expect(mcpPortFound).To(BeTrue(), "MCP_PORT environment variable should be set")
 			Expect(customVarFound).To(BeTrue(), "CUSTOM_VAR environment variable should be set")
+
+			By("verifying security context")
+			securityContext := container["securityContext"].(map[string]interface{})
+			Expect(securityContext["runAsUser"]).To(BeNumerically("==", 1000))
+			Expect(securityContext["runAsGroup"]).To(BeNumerically("==", 1000))
+			Expect(securityContext["runAsNonRoot"]).To(BeTrue())
+			Expect(securityContext["allowPrivilegeEscalation"]).To(BeFalse())
+
+			By("verifying health probes")
+			livenessProbe := container["livenessProbe"].(map[string]interface{})
+			livenessHTTP := livenessProbe["httpGet"].(map[string]interface{})
+			Expect(livenessHTTP["path"]).To(Equal("/"))
+			Expect(livenessHTTP["port"]).To(BeNumerically("==", 8080))
+
+			readinessProbe := container["readinessProbe"].(map[string]interface{})
+			readinessHTTP := readinessProbe["httpGet"].(map[string]interface{})
+			Expect(readinessHTTP["path"]).To(Equal("/"))
+			Expect(readinessHTTP["port"]).To(BeNumerically("==", 8080))
+
+			By("verifying pod template customizations")
+			podMetadata := template["metadata"].(map[string]interface{})
+
+			podLabels := podMetadata["labels"].(map[string]interface{})
+			Expect(podLabels["custom-label"]).To(Equal("test-value"))
+			Expect(podLabels["app-version"]).To(Equal("1.0.0"))
+
+			podAnnotations := podMetadata["annotations"].(map[string]interface{})
+			Expect(podAnnotations["prometheus.io/scrape"]).To(Equal("true"))
+			Expect(podAnnotations["custom-annotation"]).To(Equal("test"))
+
+			nodeSelector := podSpec["nodeSelector"].(map[string]interface{})
+			Expect(nodeSelector["kubernetes.io/os"]).To(Equal("linux"))
 		})
 
-		It("should apply security context settings", func() {
-			mcpServerName := "test-security"
-			mcpServerYAML := fmt.Sprintf(`
+		It("should configure and update transport and service settings", func() {
+			mcpServerName := "test-transport-service"
+
+			// First create MCPServer without sessionManagement
+			mcpServerYAMLWithoutSession := fmt.Sprintf(`
 apiVersion: mcp.mcp-operator.io/v1
 kind: MCPServer
 metadata:
@@ -532,40 +488,83 @@ metadata:
 spec:
   image: nginxinc/nginx-unprivileged:latest
   replicas: 1
-  security:
-    runAsUser: 1000
-    runAsGroup: 1000
-    runAsNonRoot: true
-    allowPrivilegeEscalation: false
+  transport:
+    type: http
+    config:
+      http:
+        port: 3001
+        path: "/mcp"
+        sessionManagement: false
+  service:
+    type: ClusterIP
+    port: 3001
+    protocol: TCP
+    annotations:
+      custom-annotation: "test-value"
+      prometheus.io/scrape: "true"
 `, mcpServerName, testNamespace)
 
-			By("creating MCPServer with security context")
-			err := applyMCPServerYAML(mcpServerYAML)
+			By("creating MCPServer with initial transport configuration")
+			err := applyMCPServerYAML(mcpServerYAMLWithoutSession)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("waiting for MCPServer to reach Running phase")
-			waitForMCPServerRunning(mcpServerName)
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
 
-			By("verifying Deployment has runAsUser")
-			Expect(getDeploymentField(mcpServerName,
-				".spec.template.spec.containers[0].securityContext.runAsUser")).To(Equal("1000"))
+			By("verifying initial service configuration")
+			cmd := exec.Command("kubectl", "get", "service", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.ports[0].port}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("3001"))
 
-			By("verifying Deployment has runAsGroup")
-			Expect(getDeploymentField(mcpServerName,
-				".spec.template.spec.containers[0].securityContext.runAsGroup")).To(Equal("1000"))
+			cmd = exec.Command("kubectl", "get", "service", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.sessionAffinity}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("None"))
 
-			By("verifying Deployment has runAsNonRoot")
-			Expect(getDeploymentField(mcpServerName,
-				".spec.template.spec.containers[0].securityContext.runAsNonRoot")).To(Equal("true"))
+			By("verifying status reports correct transport type")
+			cmd = exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.status.transportType}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("http"))
 
-			By("verifying Deployment has allowPrivilegeEscalation set to false")
-			Expect(getDeploymentField(mcpServerName,
-				".spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation")).To(Equal("false"))
-		})
+			By("verifying Service type and protocol")
+			cmd = exec.Command("kubectl", "get", "service", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.type}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("ClusterIP"))
 
-		It("should configure transport and service settings", func() {
-			mcpServerName := "test-transport-service"
-			mcpServerYAML := fmt.Sprintf(`
+			cmd = exec.Command("kubectl", "get", "service", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.spec.ports[0].protocol}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("TCP"))
+
+			By("verifying Service has custom annotations")
+			cmd = exec.Command("kubectl", "get", "service", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.metadata.annotations.custom-annotation}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("test-value"))
+
+			cmd = exec.Command("kubectl", "get", "service", mcpServerName,
+				"-n", testNamespace, "-o", "jsonpath={.metadata.annotations.prometheus\\.io/scrape}")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("true"))
+
+			// Now update to enable sessionManagement
+			mcpServerYAMLWithSession := fmt.Sprintf(`
 apiVersion: mcp.mcp-operator.io/v1
 kind: MCPServer
 metadata:
@@ -588,129 +587,6 @@ spec:
     annotations:
       custom-annotation: "test-value"
       prometheus.io/scrape: "true"
-`, mcpServerName, testNamespace)
-
-			By("creating MCPServer with transport and service configuration")
-			err := applyMCPServerYAML(mcpServerYAML)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("waiting for MCPServer to reach Running phase")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
-					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Running"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
-
-			By("verifying Service has correct port configuration")
-			cmd := exec.Command("kubectl", "get", "service", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.ports[0].port}")
-			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("3001"))
-
-			By("verifying Service has session affinity for SSE")
-			cmd = exec.Command("kubectl", "get", "service", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.sessionAffinity}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("ClientIP"))
-
-			By("verifying status reports correct transport type")
-			cmd = exec.Command("kubectl", "get", "mcpserver", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.status.transportType}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("http"))
-
-			By("verifying Service type")
-			cmd = exec.Command("kubectl", "get", "service", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.type}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("ClusterIP"))
-
-			By("verifying Service protocol")
-			cmd = exec.Command("kubectl", "get", "service", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.ports[0].protocol}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("TCP"))
-
-			By("verifying Service has custom annotations")
-			cmd = exec.Command("kubectl", "get", "service", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.metadata.annotations.custom-annotation}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("test-value"))
-
-			cmd = exec.Command("kubectl", "get", "service", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.metadata.annotations.prometheus\\.io/scrape}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("true"))
-		})
-
-		It("should update Service sessionAffinity when sessionManagement changes", func() {
-			mcpServerName := "test-session-update"
-
-			// First create MCPServer without sessionManagement
-			mcpServerYAMLWithoutSession := fmt.Sprintf(`
-apiVersion: mcp.mcp-operator.io/v1
-kind: MCPServer
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  image: nginxinc/nginx-unprivileged:latest
-  replicas: 1
-  transport:
-    type: http
-    config:
-      http:
-        port: 3001
-        path: "/mcp"
-        sessionManagement: false
-`, mcpServerName, testNamespace)
-
-			By("creating MCPServer without sessionManagement")
-			err := applyMCPServerYAML(mcpServerYAMLWithoutSession)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("waiting for MCPServer to reach Running phase")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
-					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Running"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
-
-			By("verifying Service has sessionAffinity None initially")
-			cmd := exec.Command("kubectl", "get", "service", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.spec.sessionAffinity}")
-			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("None"))
-
-			// Now update to enable sessionManagement
-			mcpServerYAMLWithSession := fmt.Sprintf(`
-apiVersion: mcp.mcp-operator.io/v1
-kind: MCPServer
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  image: nginxinc/nginx-unprivileged:latest
-  replicas: 1
-  transport:
-    type: http
-    config:
-      http:
-        port: 3001
-        path: "/mcp"
-        sessionManagement: true
 `, mcpServerName, testNamespace)
 
 			By("updating MCPServer to enable sessionManagement")
@@ -852,123 +728,6 @@ spec:
 			output, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(Equal("3"), "Operator should not override HPA-managed replica count")
-		})
-
-		It("should configure health check probes", func() {
-			mcpServerName := "test-healthcheck"
-			mcpServerYAML := fmt.Sprintf(`
-apiVersion: mcp.mcp-operator.io/v1
-kind: MCPServer
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  image: nginxinc/nginx-unprivileged:latest
-  replicas: 1
-  healthCheck:
-    enabled: true
-    path: "/"
-    port: 8080
-`, mcpServerName, testNamespace)
-
-			By("creating MCPServer with health check configuration")
-			err := applyMCPServerYAML(mcpServerYAML)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("waiting for MCPServer to reach Running phase")
-			waitForMCPServerRunning(mcpServerName)
-
-			By("verifying Deployment has liveness probe")
-			Expect(getDeploymentField(mcpServerName,
-				".spec.template.spec.containers[0].livenessProbe.httpGet.path")).To(Equal("/"))
-
-			By("verifying liveness probe port")
-			Expect(getDeploymentField(mcpServerName,
-				".spec.template.spec.containers[0].livenessProbe.httpGet.port")).To(Equal("8080"))
-
-			By("verifying Deployment has readiness probe")
-			Expect(getDeploymentField(mcpServerName,
-				".spec.template.spec.containers[0].readinessProbe.httpGet.path")).To(Equal("/"))
-
-			By("verifying readiness probe port")
-			Expect(getDeploymentField(mcpServerName,
-				".spec.template.spec.containers[0].readinessProbe.httpGet.port")).To(Equal("8080"))
-		})
-
-		It("should apply pod template customizations", func() {
-			mcpServerName := "test-podtemplate"
-			mcpServerYAML := fmt.Sprintf(`
-apiVersion: mcp.mcp-operator.io/v1
-kind: MCPServer
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  image: nginxinc/nginx-unprivileged:latest
-  replicas: 1
-  podTemplate:
-    labels:
-      custom-label: "test-value"
-      app-version: "1.0.0"
-    annotations:
-      prometheus.io/scrape: "true"
-      custom-annotation: "test"
-    nodeSelector:
-      kubernetes.io/os: linux
-`, mcpServerName, testNamespace)
-
-			By("creating MCPServer with pod template customizations")
-			err := applyMCPServerYAML(mcpServerYAML)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("waiting for MCPServer to reach Running phase")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
-					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Running"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
-
-			By("waiting for Pod to be created")
-			Eventually(func() error {
-				cmd := exec.Command("kubectl", "get", "pods", "-l", "app="+mcpServerName, "-n", testNamespace)
-				_, err := utils.Run(cmd)
-				return err
-			}, 30*time.Second, 2*time.Second).Should(Succeed())
-
-			By("verifying Pod has custom labels")
-			cmd := exec.Command("kubectl", "get", "pods", "-l", "app="+mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.items[0].metadata.labels.custom-label}")
-			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("test-value"))
-
-			cmd = exec.Command("kubectl", "get", "pods", "-l", "app="+mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.items[0].metadata.labels.app-version}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("1.0.0"))
-
-			By("verifying Pod has custom annotations")
-			cmd = exec.Command("kubectl", "get", "pods", "-l", "app="+mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.items[0].metadata.annotations.prometheus\\.io/scrape}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("true"))
-
-			cmd = exec.Command("kubectl", "get", "pods", "-l", "app="+mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.items[0].metadata.annotations.custom-annotation}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("test"))
-
-			By("verifying Pod has node selector")
-			cmd = exec.Command("kubectl", "get", "pods", "-l", "app="+mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.items[0].spec.nodeSelector.kubernetes\\.io/os}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("linux"))
 		})
 
 		It("should properly clean up resources on deletion", func() {
@@ -1311,8 +1070,8 @@ spec:
 			_, _ = utils.Run(cmd)
 		})
 
-		It("should fail deployment when strict mode is enabled and validation fails", func() {
-			mcpServerName := "test-validation-strict-fail"
+		It("should handle validation failures in strict and non-strict modes", func() {
+			mcpServerName := "test-validation-modes"
 			mcpServerYAML := fmt.Sprintf(`
 apiVersion: mcp.mcp-operator.io/v1
 kind: MCPServer
@@ -1339,21 +1098,20 @@ spec:
     allowPrivilegeEscalation: false
 `, mcpServerName, testNamespace)
 
-			By("creating non-MCP server with strict mode")
+			By("creating non-MCP server with strict mode enabled")
 			err := applyMCPServerYAML(mcpServerYAML)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("waiting for validation to fail and phase to become ValidationFailed " +
-				"due to strict mode (3 attempts in E2E ~1.5min)")
+			By("waiting for validation to fail in strict mode")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
 					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(Equal("ValidationFailed"))
-			}, 3*time.Minute, 5*time.Second).Should(Succeed())
+			}, 3*time.Minute, 2*time.Second).Should(Succeed())
 
-			By("verifying validation status shows non-compliant")
+			By("verifying validation status shows non-compliant in strict mode")
 			result, err := getMCPServerStatus(mcpServerName)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -1365,21 +1123,12 @@ spec:
 			Expect(ok).To(BeTrue())
 			Expect(compliant).To(BeFalse())
 
-			By("verifying status message indicates validation failure")
 			message, ok := status["message"].(string)
 			Expect(ok).To(BeTrue())
 			Expect(message).To(ContainSubstring("validation"))
 
-			By("cleaning up")
-			cmd := exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
-				"-n", testNamespace, "--timeout=120s")
-			_, _ = utils.Run(cmd)
-		})
-
-		It("should not fail deployment when strict mode is disabled and validation fails", func() {
-			mcpServerName := "test-validation-non-strict"
-			// Wrong port: 8080
-			mcpServerYAML := fmt.Sprintf(`
+			By("updating to disable strict mode")
+			mcpServerYAMLNonStrict := fmt.Sprintf(`
 apiVersion: mcp.mcp-operator.io/v1
 kind: MCPServer
 metadata:
@@ -1394,7 +1143,7 @@ spec:
     config:
       http:
         port: 8080
-        path: "/sse"
+        path: "/mcp"
   validation:
     enabled: true
     strictMode: false
@@ -1405,20 +1154,19 @@ spec:
     allowPrivilegeEscalation: false
 `, mcpServerName, testNamespace)
 
-			By("creating non-MCP server without strict mode")
-			err := applyMCPServerYAML(mcpServerYAML)
+			err = applyMCPServerYAML(mcpServerYAMLNonStrict)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("waiting for server to reach Running phase")
+			By("waiting for phase to become Running despite validation failure")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
 					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(Equal("Running"))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
 
-			By("waiting for validation to complete (3 attempts in E2E)")
+			By("verifying validation status still shows non-compliant but state is Failed")
 			Eventually(func(g Gomega) {
 				result, err := getMCPServerStatus(mcpServerName)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -1429,33 +1177,17 @@ spec:
 				validation, hasValidation := status["validation"].(map[string]interface{})
 				g.Expect(hasValidation).To(BeTrue(), "Validation status should exist")
 
-				// Wait for validation to reach Failed state
 				state, ok := validation["state"].(string)
 				g.Expect(ok).To(BeTrue())
 				g.Expect(state).To(Equal("Failed"))
-			}, 3*time.Minute, 5*time.Second).Should(Succeed())
 
-			By("verifying server remains in Running phase despite failed validation")
-			cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
-				"-n", testNamespace, "-o", "jsonpath={.status.phase}")
-			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal("Running"))
-
-			By("verifying validation status shows non-compliant")
-			result, err := getMCPServerStatus(mcpServerName)
-			Expect(err).NotTo(HaveOccurred())
-
-			status := result["status"].(map[string]interface{})
-			validation, ok := status["validation"].(map[string]interface{})
-			Expect(ok).To(BeTrue())
-
-			compliant, ok := validation["compliant"].(bool)
-			Expect(ok).To(BeTrue())
-			Expect(compliant).To(BeFalse())
+				compliant, ok := validation["compliant"].(bool)
+				g.Expect(ok).To(BeTrue())
+				g.Expect(compliant).To(BeFalse())
+			}, 3*time.Minute, 2*time.Second).Should(Succeed())
 
 			By("cleaning up")
-			cmd = exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
+			cmd := exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
 				"-n", testNamespace, "--timeout=120s")
 			_, _ = utils.Run(cmd)
 		})
