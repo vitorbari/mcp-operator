@@ -2110,23 +2110,3 @@ func waitForEvent(g Gomega, mcpServerName, eventReason, errorMsg string) {
 	}
 	g.Expect(foundEvent).To(BeTrue(), errorMsg)
 }
-
-// waitForMCPServerRunning waits for MCPServer to reach Running phase
-func waitForMCPServerRunning(mcpServerName string) {
-	Eventually(func(g Gomega) {
-		cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
-			"-n", testNamespace, "-o", "jsonpath={.status.phase}")
-		output, err := utils.Run(cmd)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(output).To(Equal("Running"))
-	}, 2*time.Minute, 5*time.Second).Should(Succeed())
-}
-
-// getDeploymentField gets a specific field from a deployment using jsonpath
-func getDeploymentField(deploymentName, jsonPath string) string {
-	cmd := exec.Command("kubectl", "get", "deployment", deploymentName,
-		"-n", testNamespace, "-o", fmt.Sprintf("jsonpath={%s}", jsonPath))
-	output, err := utils.Run(cmd)
-	Expect(err).NotTo(HaveOccurred())
-	return output
-}
