@@ -18,13 +18,449 @@ data:
           }
         ]
       },
-      "description": "Essential monitoring for MCP Operator",
+      "description": "MCP Operator - Production-Ready Monitoring with Protocol Intelligence",
       "editable": true,
       "fiscalYearStartMonth": 0,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": 1,
       "links": [],
       "panels": [
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "id": 100,
+          "panels": [],
+          "title": "Operator Performance & Health",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 3,
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 0.5
+                  },
+                  {
+                    "color": "red",
+                    "value": 2
+                  }
+                ]
+              },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 0,
+            "y": 1
+          },
+          "id": 101,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "value",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(mcpserver_reconcile_duration_seconds_bucket[5m])) by (le))",
+              "refId": "A"
+            }
+          ],
+          "title": "Reconcile Latency (P95)",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 4,
+            "y": 1
+          },
+          "id": 102,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "value",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "expr": "sum(rate(mcpserver_reconcile_total[5m]))",
+              "refId": "A"
+            }
+          ],
+          "title": "Reconcile Rate",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 8,
+            "y": 1
+          },
+          "id": 103,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "value",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "expr": "sum(rate(mcpserver_reconcile_total{result=\"error\"}[5m])) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "title": "Reconcile Errors",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 1
+          },
+          "id": 104,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull",
+                "mean",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum(rate(mcpserver_reconcile_duration_seconds_bucket[5m])) by (le))",
+              "legendFormat": "P50",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(mcpserver_reconcile_duration_seconds_bucket[5m])) by (le))",
+              "legendFormat": "P95",
+              "refId": "B"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(mcpserver_reconcile_duration_seconds_bucket[5m])) by (le))",
+              "legendFormat": "P99",
+              "refId": "C"
+            }
+          ],
+          "title": "Operator Reconciliation Performance",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "ops"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "success"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "green",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "error"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "red",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 12,
+            "x": 0,
+            "y": 5
+          },
+          "id": 105,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "expr": "sum by (result) (rate(mcpserver_reconcile_total[5m]))",
+              "legendFormat": "{{result}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Operator Reconciliation Rate by Result",
+          "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 9
+          },
+          "id": 200,
+          "panels": [],
+          "title": "MCP Server Fleet Overview",
+          "type": "row"
+        },
         {
           "datasource": {
             "type": "prometheus",
@@ -51,11 +487,11 @@ data:
           },
           "gridPos": {
             "h": 4,
-            "w": 3,
+            "w": 4,
             "x": 0,
-            "y": 0
+            "y": 10
           },
-          "id": 1,
+          "id": 201,
           "options": {
             "colorMode": "background",
             "graphMode": "none",
@@ -113,11 +549,11 @@ data:
           },
           "gridPos": {
             "h": 4,
-            "w": 3,
-            "x": 3,
-            "y": 0
+            "w": 4,
+            "x": 4,
+            "y": 10
           },
-          "id": 2,
+          "id": 202,
           "options": {
             "colorMode": "background",
             "graphMode": "area",
@@ -138,13 +574,11 @@ data:
           "pluginVersion": "12.1.1",
           "targets": [
             {
-              "editorMode": "code",
               "expr": "sum(mcpserver_ready_total) or vector(0)",
-              "range": true,
               "refId": "A"
             }
           ],
-          "title": "Ready",
+          "title": "Ready Servers",
           "type": "stat"
         },
         {
@@ -162,12 +596,8 @@ data:
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "red",
+                    "color": "blue",
                     "value": 0
-                  },
-                  {
-                    "color": "green",
-                    "value": 1
                   }
                 ]
               },
@@ -177,13 +607,13 @@ data:
           },
           "gridPos": {
             "h": 4,
-            "w": 3,
-            "x": 6,
-            "y": 0
+            "w": 4,
+            "x": 8,
+            "y": 10
           },
-          "id": 3,
+          "id": 204,
           "options": {
-            "colorMode": "background",
+            "colorMode": "value",
             "graphMode": "area",
             "justifyMode": "auto",
             "orientation": "auto",
@@ -202,13 +632,11 @@ data:
           "pluginVersion": "12.1.1",
           "targets": [
             {
-              "editorMode": "code",
-              "expr": "count(mcpserver_validation_compliant == 1) or vector(0)",
-              "range": true,
+              "expr": "sum(mcpserver_replicas) or vector(0)",
               "refId": "A"
             }
           ],
-          "title": "Protocol Compliant",
+          "title": "Total Replicas",
           "type": "stat"
         },
         {
@@ -241,75 +669,11 @@ data:
           },
           "gridPos": {
             "h": 4,
-            "w": 3,
-            "x": 9,
-            "y": 0
-          },
-          "id": 4,
-          "options": {
-            "colorMode": "background",
-            "graphMode": "area",
-            "justifyMode": "auto",
-            "orientation": "auto",
-            "percentChangeColorMode": "standard",
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "showPercentChange": false,
-            "textMode": "value",
-            "wideLayout": true
-          },
-          "pluginVersion": "12.1.1",
-          "targets": [
-            {
-              "editorMode": "code",
-              "expr": "count(mcpserver_validation_compliant == 0) or vector(0)",
-              "range": true,
-              "refId": "A"
-            }
-          ],
-          "title": "Non-Compliant",
-          "type": "stat"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "thresholds"
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": 0
-                  },
-                  {
-                    "color": "red",
-                    "value": 1
-                  }
-                ]
-              },
-              "unit": "short"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 4,
-            "w": 3,
+            "w": 4,
             "x": 12,
-            "y": 0
+            "y": 10
           },
-          "id": 5,
+          "id": 203,
           "options": {
             "colorMode": "background",
             "graphMode": "area",
@@ -330,13 +694,11 @@ data:
           "pluginVersion": "12.1.1",
           "targets": [
             {
-              "editorMode": "code",
               "expr": "sum(mcpserver_phase{phase=\"Failed\"}) or vector(0)",
-              "range": true,
               "refId": "A"
             }
           ],
-          "title": "Failed",
+          "title": "Failed Servers",
           "type": "stat"
         },
         {
@@ -350,173 +712,6 @@ data:
                 "mode": "thresholds"
               },
               "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": 0
-                  },
-                  {
-                    "color": "red",
-                    "value": 1
-                  }
-                ]
-              },
-              "unit": "short"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 4,
-            "w": 3,
-            "x": 15,
-            "y": 0
-          },
-          "id": 13,
-          "options": {
-            "colorMode": "background",
-            "graphMode": "area",
-            "justifyMode": "auto",
-            "orientation": "auto",
-            "percentChangeColorMode": "standard",
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "showPercentChange": false,
-            "textMode": "value",
-            "wideLayout": true
-          },
-          "pluginVersion": "12.1.1",
-          "targets": [
-            {
-              "editorMode": "code",
-              "expr": "sum(mcpserver_phase{phase=\"ValidationFailed\"}) or vector(0)",
-              "range": true,
-              "refId": "A"
-            }
-          ],
-          "title": "Failed",
-          "type": "stat"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "thresholds"
-              },
-              "decimals": 3,
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": 0
-                  },
-                  {
-                    "color": "yellow",
-                    "value": 0.5
-                  },
-                  {
-                    "color": "red",
-                    "value": 2
-                  }
-                ]
-              },
-              "unit": "s"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 4,
-            "w": 3,
-            "x": 18,
-            "y": 0
-          },
-          "id": 8,
-          "options": {
-            "colorMode": "background",
-            "graphMode": "area",
-            "justifyMode": "auto",
-            "orientation": "auto",
-            "percentChangeColorMode": "standard",
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "showPercentChange": false,
-            "textMode": "value",
-            "wideLayout": true
-          },
-          "pluginVersion": "12.1.1",
-          "targets": [
-            {
-              "expr": "histogram_quantile(0.95, sum(rate(mcpserver_reconcile_duration_seconds_bucket[5m])) by (le))",
-              "refId": "A"
-            }
-          ],
-          "title": "Reconciliation Latency (P95)",
-          "type": "stat"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "axisBorderShow": false,
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "barWidthFactor": 0.6,
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "insertNulls": false,
-                "lineInterpolation": "linear",
-                "lineWidth": 2,
-                "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showPoints": "never",
-                "spanNulls": false,
-                "stacking": {
-                  "group": "A",
-                  "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              },
-              "decimals": 0,
-              "fieldMinMax": false,
-              "mappings": [],
-              "min": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -529,172 +724,110 @@ data:
                     "value": 80
                   }
                 ]
-              },
-              "unit": "short"
-            },
-            "overrides": [
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "Compliant"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "fixedColor": "green",
-                      "mode": "fixed"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "Non-Compliant"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "fixedColor": "red",
-                      "mode": "fixed"
-                    }
-                  }
-                ]
               }
-            ]
+            },
+            "overrides": []
           },
           "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 0,
-            "y": 4
+            "h": 4,
+            "w": 4,
+            "x": 16,
+            "y": 10
           },
-          "id": 9,
+          "id": 206,
           "options": {
-            "legend": {
-              "calcs": [],
-              "displayMode": "list",
-              "placement": "bottom",
-              "showLegend": true
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
             },
-            "tooltip": {
-              "hideZeros": false,
-              "mode": "multi",
-              "sort": "none"
-            }
+            "showPercentChange": false,
+            "textMode": "auto",
+            "wideLayout": true
           },
           "pluginVersion": "12.1.1",
           "targets": [
             {
               "editorMode": "code",
-              "expr": "count(mcpserver_validation_compliant == 1)",
-              "legendFormat": "Compliant",
+              "expr": "count(mcpserver_hpa_enabled == 1)",
+              "legendFormat": "__auto",
               "range": true,
               "refId": "A"
+            }
+          ],
+          "title": "HPA Enabled",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
             },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 20,
+            "y": 10
+          },
+          "id": 311,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
             {
               "editorMode": "code",
-              "expr": "count(mcpserver_validation_compliant == 0)",
-              "legendFormat": "Non-Compliant",
+              "expr": "count(mcpserver_hpa_enabled == 0)",
+              "legendFormat": "__auto",
               "range": true,
               "refId": "B"
             }
           ],
-          "title": "Compliance Over Time",
-          "type": "timeseries"
-        },
-        {
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "axisBorderShow": false,
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "barWidthFactor": 0.6,
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "insertNulls": false,
-                "lineInterpolation": "linear",
-                "lineWidth": 2,
-                "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showPoints": "never",
-                "spanNulls": false,
-                "stacking": {
-                  "group": "A",
-                  "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              },
-              "mappings": [],
-              "min": 0,
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": 0
-                  },
-                  {
-                    "color": "red",
-                    "value": 80
-                  }
-                ]
-              },
-              "unit": "ops"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 12,
-            "y": 4
-          },
-          "id": 10,
-          "options": {
-            "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "displayMode": "table",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": {
-              "hideZeros": false,
-              "mode": "multi",
-              "sort": "desc"
-            }
-          },
-          "pluginVersion": "12.1.1",
-          "targets": [
-            {
-              "expr": "sum by (code) (rate(mcpserver_validation_issues_total{level=\"error\"}[5m]))",
-              "legendFormat": "{{code}}",
-              "refId": "A"
-            }
-          ],
-          "title": "Validation Issues",
-          "type": "timeseries"
+          "title": "HPA Disabled",
+          "type": "stat"
         },
         {
           "datasource": {
@@ -724,9 +857,6 @@ data:
                 },
                 "insertNulls": false,
                 "lineInterpolation": "linear",
-                "lineStyle": {
-                  "fill": "solid"
-                },
                 "lineWidth": 2,
                 "pointSize": 5,
                 "scaleDistribution": {
@@ -751,10 +881,6 @@ data:
                   {
                     "color": "green",
                     "value": 0
-                  },
-                  {
-                    "color": "red",
-                    "value": 80
                   }
                 ]
               },
@@ -805,27 +931,44 @@ data:
                     }
                   }
                 ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "ValidationFailed"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "orange",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
               }
             ]
           },
           "gridPos": {
-            "h": 8,
-            "w": 12,
+            "h": 10,
+            "w": 24,
             "x": 0,
-            "y": 12
+            "y": 14
           },
-          "id": 11,
+          "id": 207,
           "options": {
             "legend": {
-              "calcs": [],
-              "displayMode": "list",
-              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "right",
               "showLegend": true
             },
             "tooltip": {
               "hideZeros": false,
               "mode": "multi",
-              "sort": "none"
+              "sort": "desc"
             }
           },
           "pluginVersion": "12.1.1",
@@ -836,10 +979,528 @@ data:
               "refId": "A"
             }
           ],
-          "title": "Phase Distribution",
+          "title": "Server Phase Distribution Over Time",
           "type": "timeseries"
         },
         {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 24
+          },
+          "id": 300,
+          "panels": [],
+          "title": "MCP Protocol Validation & Intelligence",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": 0
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 0,
+            "y": 25
+          },
+          "id": 301,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "value",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "expr": "count(mcpserver_validation_compliant == 1) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "title": "Protocol Compliant",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 4,
+            "y": 25
+          },
+          "id": 302,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "value",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "expr": "count(mcpserver_validation_compliant == 0) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "title": "Non-Compliant",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 8,
+            "y": 25
+          },
+          "id": 303,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "value",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "expr": "sum(mcpserver_phase{phase=\"ValidationFailed\"}) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "title": "Validation Failed",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 3,
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 2
+                  },
+                  {
+                    "color": "red",
+                    "value": 5
+                  }
+                ]
+              },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 12,
+            "y": 25
+          },
+          "id": 304,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "value",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(mcp_validator_duration_seconds_bucket[5m])) by (le))",
+              "refId": "A"
+            }
+          ],
+          "title": "Validation Latency (P95)",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 16,
+            "y": 25
+          },
+          "id": 305,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "value",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "expr": "sum(rate(mcp_validator_validations_total[5m]))",
+              "refId": "A"
+            }
+          ],
+          "title": "Validation Rate",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 20,
+            "y": 25
+          },
+          "id": 306,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "value",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "expr": "sum(rate(mcp_validator_errors_total[5m]))",
+              "refId": "A"
+            }
+          ],
+          "title": "Validation Errors",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "decimals": 0,
+              "mappings": [],
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Compliant"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "green",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Non-Compliant"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "red",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 29
+          },
+          "id": 307,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "expr": "count(mcpserver_validation_compliant == 1)",
+              "legendFormat": "Compliant",
+              "refId": "A"
+            },
+            {
+              "expr": "count(mcpserver_validation_compliant == 0)",
+              "legendFormat": "Non-Compliant",
+              "refId": "B"
+            }
+          ],
+          "title": "Protocol Compliance Over Time",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -886,14 +1547,10 @@ data:
                   {
                     "color": "green",
                     "value": 0
-                  },
-                  {
-                    "color": "red",
-                    "value": 80
                   }
                 ]
               },
-              "unit": "s"
+              "unit": "ops"
             },
             "overrides": []
           },
@@ -901,45 +1558,171 @@ data:
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 12
+            "y": 29
           },
-          "id": 12,
+          "id": 308,
           "options": {
             "legend": {
               "calcs": [
                 "lastNotNull",
                 "mean"
               ],
-              "displayMode": "list",
+              "displayMode": "table",
               "placement": "bottom",
               "showLegend": true
             },
             "tooltip": {
               "hideZeros": false,
               "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "expr": "sum by (code) (rate(mcpserver_validation_issues_total[5m]))",
+              "legendFormat": "{{code}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Validation Issues by Code",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                }
+              },
+              "mappings": []
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 37
+          },
+          "id": 309,
+          "options": {
+            "displayLabels": [
+              "percent",
+              "value"
+            ],
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "values": [
+                "value",
+                "percent"
+              ]
+            },
+            "pieType": "donut",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
               "sort": "none"
             }
           },
           "pluginVersion": "12.1.1",
           "targets": [
             {
-              "expr": "histogram_quantile(0.50, sum(rate(mcpserver_reconcile_duration_seconds_bucket[5m])) by (le))",
-              "legendFormat": "P50",
+              "expr": "count by (version) (mcpserver_protocol_version == 1)",
+              "legendFormat": "{{version}}",
               "refId": "A"
-            },
-            {
-              "expr": "histogram_quantile(0.95, sum(rate(mcpserver_reconcile_duration_seconds_bucket[5m])) by (le))",
-              "legendFormat": "P95",
-              "refId": "B"
-            },
-            {
-              "expr": "histogram_quantile(0.99, sum(rate(mcpserver_reconcile_duration_seconds_bucket[5m])) by (le))",
-              "legendFormat": "P99",
-              "refId": "C"
             }
           ],
-          "title": "Reconciliation Performance",
-          "type": "timeseries"
+          "title": "Protocol Version Distribution",
+          "type": "piechart"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "decimals": 0,
+              "mappings": [],
+              "max": 10,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 37
+          },
+          "id": 310,
+          "options": {
+            "displayMode": "gradient",
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "maxVizHeight": 300,
+            "minVizHeight": 16,
+            "minVizWidth": 8,
+            "namePlacement": "auto",
+            "orientation": "horizontal",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showUnfilled": true,
+            "sizing": "auto",
+            "valueMode": "color"
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "expr": "count by (capability) (mcpserver_capabilities == 1)",
+              "legendFormat": "{{capability}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Servers with Each Capability",
+          "type": "bargauge"
         }
       ],
       "preload": false,
@@ -947,13 +1730,15 @@ data:
       "schemaVersion": 41,
       "tags": [
         "mcp",
-        "operator"
+        "operator",
+        "protocol",
+        "validation"
       ],
       "templating": {
         "list": []
       },
       "time": {
-        "from": "now-15m",
+        "from": "now-24h",
         "to": "now"
       },
       "timepicker": {
@@ -967,9 +1752,9 @@ data:
         ]
       },
       "timezone": "browser",
-      "title": "MCP Operator",
+      "title": "MCP Operator - Protocol Intelligence",
       "uid": "mcp-operator-overview",
-      "version": 1
+      "version": 4
     }
 kind: ConfigMap
 metadata:

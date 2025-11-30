@@ -35,12 +35,9 @@ spec:
     - jsonPath: .status.validation.protocol
       name: Protocol
       type: string
-    - jsonPath: .status.validation.requiresAuth
-      name: Auth
-      type: boolean
-    - jsonPath: .status.validation.compliant
-      name: Compliant
-      type: boolean
+    - jsonPath: .status.validation.state
+      name: Validation
+      type: string
     - jsonPath: .status.validation.capabilities
       name: Capabilities
       type: string
@@ -3610,18 +3607,14 @@ spec:
                     description: RequiresAuth indicates if the server requires authentication
                     type: boolean
                   state:
-                    allOf:
-                    - enum:
-                      - Pending
-                      - Validating
-                      - Passed
-                      - Failed
-                    - enum:
-                      - Pending
-                      - Validating
-                      - Passed
-                      - Failed
-                    description: State represents the current validation state
+                    description: State represents the overall validation state
+                    enum:
+                    - Pending
+                    - Validating
+                    - Validated
+                    - AuthRequired
+                    - Failed
+                    - Disabled
                     type: string
                   validatedGeneration:
                     description: |-
@@ -3980,7 +3973,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/vitorbari/mcp-operator:v0.1.0-alpha.10
+        image: ghcr.io/vitorbari/mcp-operator:v0.1.0-alpha.11
         livenessProbe:
           httpGet:
             path: /healthz
