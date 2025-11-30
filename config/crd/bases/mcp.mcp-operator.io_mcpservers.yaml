@@ -3599,22 +3599,14 @@ spec:
                     description: RequiresAuth indicates if the server requires authentication
                     type: boolean
                   state:
-                    allOf:
-                    - enum:
-                      - Pending
-                      - Validating
-                      - Validated
-                      - AuthRequired
-                      - Failed
-                      - Disabled
-                    - enum:
-                      - Pending
-                      - Validating
-                      - Validated
-                      - AuthRequired
-                      - Failed
-                      - Disabled
                     description: State represents the overall validation state
+                    enum:
+                    - Pending
+                    - Validating
+                    - Validated
+                    - AuthRequired
+                    - Failed
+                    - Disabled
                     type: string
                   validatedGeneration:
                     description: |-

@@ -512,7 +512,6 @@ type ValidationSpec struct {
 // ValidationStatus represents the MCP protocol validation status
 type ValidationStatus struct {
 	// State represents the overall validation state
-	// +kubebuilder:validation:Enum=Pending;Validating;Validated;AuthRequired;Failed;Disabled
 	// +optional
 	State ValidationState `json:"state,omitempty"`
 
