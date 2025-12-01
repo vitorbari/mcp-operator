@@ -4,6 +4,7 @@
 [![Tests](https://github.com/vitorbari/mcp-operator/actions/workflows/test.yml/badge.svg)](https://github.com/vitorbari/mcp-operator/actions/workflows/test.yml)
 [![E2E Tests](https://github.com/vitorbari/mcp-operator/actions/workflows/test-e2e.yml/badge.svg)](https://github.com/vitorbari/mcp-operator/actions/workflows/test-e2e.yml)
 [![Release](https://github.com/vitorbari/mcp-operator/actions/workflows/release.yml/badge.svg)](https://github.com/vitorbari/mcp-operator/actions/workflows/release.yml)
+[![Awesome MCP](https://awesome.re/mentioned-badge.svg)](https://github.com/punkpeye/awesome-mcp-devtools)
 
 > **⚠️ Alpha Software - Not Production Ready**
 >
