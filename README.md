@@ -50,16 +50,11 @@ metadata:
   name: wikipedia
 spec:
   image: "mcp/wikipedia-mcp:latest"
-  args: ["--transport", "sse", "--port", "3001", "--host", "0.0.0.0"]
+  command: ["python", "-m", "wikipedia_mcp"]
+  args: ["--transport", "sse", "--port", "8080", "--host", "0.0.0.0"]
 
-  transport:
-    type: http
-    protocol: auto  # Automatically detects the protocol
-    config:
-      http:
-        port: 3001
-        path: "/sse"
-        sessionManagement: true
+  # Also supports: validation, healthChecks,
+  # resource limits, and more
 ```
 
 Apply it:
@@ -138,68 +133,27 @@ spec:
 
 ## Protocol Validation
 
-The operator automatically validates your MCP servers to ensure they're working correctly. Here's what it checks:
+The operator automatically validates your MCP servers to ensure they're protocol-compliant. It checks transport connectivity, protocol version, authentication requirements, and available capabilities.
 
-- **Transport Detection** - Verifies the server responds on the configured endpoint
-- **Protocol Version** - Detects which MCP protocol version the server uses
-- **Authentication** - Identifies if the server requires auth
-- **Capabilities** - Discovers what the server can do (tools, resources, prompts)
-
-Check validation status:
-
-```sh
-kubectl get mcpserver my-server -o jsonpath='{.status.validation}' | jq
-```
-
-Example output:
-
-```json
-{
-  "state": "Validated",
-  "compliant": true,
-  "protocol": "sse",
-  "protocolVersion": "2024-11-05",
-  "endpoint": "http://my-server.default.svc:3001/sse",
-  "requiresAuth": false,
-  "capabilities": ["tools", "resources", "prompts"],
-  "lastValidated": "2025-11-29T10:30:00Z",
-  "validatedGeneration": 1
-}
-```
-
-### Strict Mode
-
-Want to ensure only compliant servers run? Enable strict mode:
+Enable strict mode to fail deployments that don't pass validation:
 
 ```yaml
 spec:
   validation:
-    enabled: true
-    strictMode: true  # Deployment deleted if validation fails
-    requiredCapabilities:
-      - "tools"
-      - "resources"
+    strictMode: true
 ```
 
-## Monitoring (Optional)
+For detailed validation behavior, see the [Validation Behavior Guide](docs/validation-behavior.md).
 
-If you have Prometheus Operator installed, you can enable metrics and dashboards:
+## Monitoring
+
+Enable Prometheus metrics and Grafana dashboards:
 
 ```sh
 kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/monitoring.yaml
 ```
 
-<img width="3452" height="3726" alt="localhost_3000_d_mcp-operator-overview_mcp-operator-protocol-intelligence_orgId=1 from=now-15m to=now timezone=browser refresh=30s" src="https://github.com/user-attachments/assets/f81ed38e-a03d-4a3b-aa72-727487e6c2ff" />
-
-This gives you:
-- **Prometheus metrics** - Track server health, phase distribution, replica counts
-- **Grafana dashboard** - Pre-built dashboard with essential metrics
-
-**Key Metrics:**
-- `mcpserver_ready_total` - Number of ready servers
-- `mcpserver_phase` - Current phase (Running, Creating, Failed, etc.)
-- `mcpserver_validation_compliant` - Compliance status
-- `mcpserver_replicas` - Replica counts by transport type
+Requires [Prometheus Operator](https://prometheus-operator.dev/). See the [Monitoring Guide](docs/monitoring.md) for details on available metrics, dashboards, and alerting.
 
 ## Transport Configuration
 
@@ -230,66 +184,27 @@ Most of the time, `auto` works great and saves you from having to figure out whi
 
 ## Documentation
 
-- **[Getting Started Guide](GETTING_STARTED.md)** - 5-minute walkthrough
-- **[Installation Guide](docs/installation.md)** - Detailed installation instructions
-- **[API Reference](README.md#api-reference)** - Complete CRD documentation
-- **[Configuration Examples](config/samples/)** - Real-world examples
+### Getting Started
+- [Getting Started Guide](GETTING_STARTED.md) - 5-minute walkthrough
+- [Installation Guide](docs/installation.md) - Detailed installation options
 
-## API Reference
+### Configuration
+- [Configuration Guide](docs/configuration-guide.md) - Complete configuration patterns and examples
+- [Environment Variables](docs/environment-variables.md) - Configuring environment variables
+- [Configuration Examples](config/samples/) - Real-world YAML examples
 
-### MCPServer Spec
+### Reference
+- [API Reference](docs/api-reference.md) - Complete CRD field documentation
+- [Validation Behavior](docs/validation-behavior.md) - Protocol validation deep dive
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `image` | string | **Required.** Container image for the MCP server |
-| `replicas` | int32 | Number of desired replicas (default: 1) |
-| `transport` | object | Transport configuration (defaults to HTTP auto-detection) |
-| `validation` | object | Protocol validation configuration |
-| `resources` | object | CPU and memory resource requirements |
-| `hpa` | object | Horizontal Pod Autoscaler configuration |
-| `security` | object | Pod security context settings |
-| `service` | object | Service exposure configuration |
-| `healthCheck` | object | Health check probe configuration |
-| `environment` | []object | Environment variables |
+### Operations
+- [Troubleshooting Guide](docs/troubleshooting.md) - Common issues and solutions
+- [Monitoring Guide](docs/monitoring.md) - Metrics, dashboards, and alerts
 
-### MCPServer Status
+### Advanced Topics
+- [Release Process](docs/release-process.md) - For maintainers
+- [Contributing](CONTRIBUTING.md) - Development and contribution guidelines
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `phase` | string | Current phase: Creating, Running, Scaling, Failed, ValidationFailed, Terminating |
-| `replicas` | int32 | Total replica count |
-| `readyReplicas` | int32 | Number of ready replicas |
-| `validation` | object | Validation results with protocol, auth, and capabilities info |
-| `serviceEndpoint` | string | Service endpoint URL |
-| `conditions` | []object | Detailed status conditions |
-
-See `config/samples/` for complete examples showing all available fields.
-
-## Security
-
-The operator automatically applies secure defaults compliant with Kubernetes [Pod Security Standards (Restricted)](https://kubernetes.io/docs/concepts/security/pod-security-standards/):
-
-**Default Security Context:**
-- `runAsNonRoot: true` - Containers must run as non-root
-- `runAsUser: 1000` - Default non-root user ID
-- `runAsGroup: 1000` - Default group ID
-- `fsGroup: 1000` - File system group for volume permissions
-- `allowPrivilegeEscalation: false` - No privilege escalation
-- `capabilities: drop: ["ALL"]` - All Linux capabilities dropped
-- `seccompProfile: RuntimeDefault` - Default seccomp profile
-
-These defaults are applied automatically when `spec.security` is not specified. You only need to specify security settings if you want to override the defaults:
-
-```yaml
-spec:
-  security:
-    runAsUser: 2000              # Override default user
-    runAsGroup: 2000             # Override default group
-    fsGroup: 2000                # Override default fsGroup
-    readOnlyRootFilesystem: true # Add read-only root filesystem
-```
-
-**Note:** Partial configurations are supported - unspecified fields will use the secure defaults.
 
 ## Examples and Samples
 
