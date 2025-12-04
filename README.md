@@ -12,7 +12,7 @@
 >
 > **We'd love your feedback!** Please open issues for bugs, feature requests, or questions.
 
-Run [Model Context Protocol](https://modelcontextprotocol.io) (MCP) servers on Kubernetes with automatic protocol validation, horizontal scaling, and built-in observability.
+Deploy your MCP servers on Kubernetes with automatic protocol validation, horizontal scaling, and built-in observability.
 
 ![demo](https://github.com/user-attachments/assets/81a95736-11fe-450b-bb57-ad4d2db2a9ac)
 
@@ -47,14 +47,10 @@ Create a file called `my-server.yaml`:
 apiVersion: mcp.mcp-operator.io/v1
 kind: MCPServer
 metadata:
-  name: wikipedia
+  name: customer-data-mcp
 spec:
-  image: "mcp/wikipedia-mcp:latest"
-  command: ["python", "-m", "wikipedia_mcp"]
-  args: ["--transport", "sse", "--port", "8080", "--host", "0.0.0.0"]
-
-  # Also supports: validation, healthChecks,
-  # resource limits, and more
+  image: "your-registry.company.com/customer-data-mcp:v1.2.0"
+  # Operator handles validation, scaling, monitoring
 ```
 
 Apply it:
