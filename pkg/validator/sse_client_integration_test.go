@@ -44,7 +44,7 @@ func TestSSEClientConnect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client := NewSSEClient(endpoint, 30*time.Second)
+	client := NewSSEClient(endpoint, 30*time.Second, nil)
 	defer func() {
 		_ = client.Close()
 	}()
@@ -70,7 +70,7 @@ func TestSSEClientInitialize(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client := NewSSEClient(endpoint, 30*time.Second)
+	client := NewSSEClient(endpoint, 30*time.Second, nil)
 	defer func() {
 		_ = client.Close()
 	}()
@@ -114,7 +114,7 @@ func TestSSEClientEndpointDiscovery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client := NewSSEClient(endpoint, 30*time.Second)
+	client := NewSSEClient(endpoint, 30*time.Second, nil)
 	defer func() {
 		_ = client.Close()
 	}()
@@ -144,7 +144,7 @@ func TestSSEClientMultipleRequests(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	client := NewSSEClient(endpoint, 60*time.Second)
+	client := NewSSEClient(endpoint, 60*time.Second, nil)
 	defer func() {
 		_ = client.Close()
 	}()
@@ -184,7 +184,7 @@ func TestSSEClientTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 	defer cancel()
 
-	client := NewSSEClient(endpoint, 1*time.Millisecond)
+	client := NewSSEClient(endpoint, 1*time.Millisecond, nil)
 	defer func() {
 		_ = client.Close()
 	}()
@@ -207,7 +207,7 @@ func TestSSEClientInvalidEndpoint(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	client := NewSSEClient(invalidEndpoint, 5*time.Second)
+	client := NewSSEClient(invalidEndpoint, 5*time.Second, nil)
 	defer func() {
 		_ = client.Close()
 	}()
@@ -227,7 +227,7 @@ func TestSSEClientProtocolVersions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client := NewSSEClient(endpoint, 30*time.Second)
+	client := NewSSEClient(endpoint, 30*time.Second, nil)
 	defer func() {
 		_ = client.Close()
 	}()
@@ -273,7 +273,7 @@ func BenchmarkSSEClientInitialize(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		client := NewSSEClient(endpoint, 30*time.Second)
+		client := NewSSEClient(endpoint, 30*time.Second, nil)
 
 		err := client.Connect(ctx)
 		if err != nil {
