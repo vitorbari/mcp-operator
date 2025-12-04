@@ -68,8 +68,8 @@ kubectl get mcpservers -w
 You should see something like:
 
 ```
-NAME        PHASE     REPLICAS   READY   PROTOCOL   VALIDATION   CAPABILITIES                      AGE
-wikipedia   Running   1          1       sse        Validated    ["tools","resources","prompts"]   109s
+NAME              PHASE     REPLICAS   READY   PROTOCOL   VALIDATION   CAPABILITIES                      AGE
+customer-data-mcp Running   1          1       sse        Validated    ["tools","resources","prompts"]   109s
 ```
 
 That's it! Your MCP server is running, validated, and ready to use.
