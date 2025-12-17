@@ -1,0 +1,63 @@
+apiVersion: v2
+name: mcp-operator
+description: Production-ready Kubernetes operator for Model Context Protocol (MCP) servers with protocol intelligence and auto-discovery
+type: application
+
+# Chart version (SemVer)
+version: 0.1.0-alpha.12
+
+# Application version (operator version)
+appVersion: "0.1.0-alpha.12"
+
+# Keywords for searchability
+keywords:
+  - mcp
+  - model-context-protocol
+  - operator
+  - kubernetes
+  - ai
+  - llm
+  - claude
+  - anthropic
+
+# Project URLs
+home: https://github.com/vitorbari/mcp-operator
+sources:
+  - https://github.com/vitorbari/mcp-operator
+
+# Maintainers
+maintainers:
+  - name: Vitor Bari Buccianti
+    url: https://github.com/vitorbari
+
+# Artifact Hub annotations
+annotations:
+  # License
+  artifacthub.io/license: Apache-2.0
+  
+  # Operator-specific
+  artifacthub.io/operator: "true"
+  artifacthub.io/operatorCapabilities: Full Lifecycle
+  
+  # Links
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://github.com/vitorbari/mcp-operator/blob/main/README.md
+    - name: Source Code
+      url: https://github.com/vitorbari/mcp-operator
+    - name: MCP Specification
+      url: https://modelcontextprotocol.io
+  
+  # Security updates
+  artifacthub.io/containsSecurityUpdates: "false"
+  
+  # CRDs info
+  artifacthub.io/crds: |
+    - kind: MCPServer
+      version: v1
+      name: mcpservers.mcp.mcp-operator.io
+      displayName: MCP Server
+      description: Manages Model Context Protocol server deployments
+  
+  # Recommended Kubernetes version
+  artifacthub.io/kubeVersion: ">=1.24.0-0"

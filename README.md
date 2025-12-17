@@ -31,13 +31,25 @@ MCP Operator makes it easy to run MCP servers in Kubernetes. Just define your se
 
 > 📖 **New to MCP Operator?** Check out the [Getting Started Guide](GETTING_STARTED.md) for a complete walkthrough.
 
-### Installation
+### Installation Options
 
-Install the operator using kubectl:
+Choose your preferred installation method:
+
+#### Option 1: Install via Helm (Recommended)
+
+```sh
+helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --namespace mcp-operator-system \
+  --create-namespace
+```
+
+#### Option 2: Install via kubectl
 
 ```sh
 kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/install.yaml
 ```
+
+**Use Helm** for easier configuration and upgrades. **Use kubectl** for minimal dependencies.
 
 ### Your First MCP Server
 
@@ -145,6 +157,16 @@ For detailed validation behavior, see the [Validation Behavior Guide](docs/valid
 
 Enable Prometheus metrics and Grafana dashboards:
 
+**With Helm:**
+```sh
+helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --namespace mcp-operator-system \
+  --create-namespace \
+  --set prometheus.enable=true \
+  --set grafana.enabled=true
+```
+
+**With kubectl:**
 ```sh
 kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/monitoring.yaml
 ```

@@ -62,6 +62,47 @@ jobs:
           make manifests generate
           make build-installer-all IMG=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
 
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: '3.14.0'
+
+      - name: Update Helm chart versions
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Remove 'v' prefix for chart version
+          CHART_VERSION="${VERSION#v}"
+
+          # Update Chart.yaml
+          sed -i "s/^version:.*/version: ${CHART_VERSION}/" dist/chart/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${CHART_VERSION}\"/" dist/chart/Chart.yaml
+
+          # Update values.yaml image tag
+          sed -i "s/tag: .*/tag: ${VERSION}/" dist/chart/values.yaml
+
+          echo "Chart version updated to: ${CHART_VERSION}"
+          echo "App version updated to: ${CHART_VERSION}"
+          echo "Image tag updated to: ${VERSION}"
+
+      - name: Regenerate Helm chart
+        run: make helm
+
+      - name: Package Helm chart
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          CHART_VERSION="${VERSION#v}"
+          helm package dist/chart --version "${CHART_VERSION}" --app-version "${CHART_VERSION}"
+
+      - name: Login to GHCR for Helm
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+
+      - name: Push Helm chart to GHCR
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          CHART_VERSION="${VERSION#v}"
+          helm push mcp-operator-${CHART_VERSION}.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}
+
       - name: Commit manifests to main branch
         run: |
           git config user.name "github-actions[bot]"
@@ -74,17 +115,30 @@ jobs:
 
       - name: Create release notes
         run: |
-          cat > notes.md << 'EOF'
+          VERSION="${{ steps.version.outputs.version }}"
+          CHART_VERSION="${VERSION#v}"
+          cat > notes.md << EOF
           ## Installation
 
-          ```bash
-          kubectl apply -f https://raw.githubusercontent.com/${{ github.repository }}/${{ steps.version.outputs.version }}/dist/install.yaml
-          ```
+          ### Option 1: Helm (Recommended)
 
-          **Image:** `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}`
+          \`\`\`bash
+          helm install mcp-operator oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/mcp-operator --version ${CHART_VERSION}
+          \`\`\`
+
+          ### Option 2: kubectl
+
+          \`\`\`bash
+          kubectl apply -f https://raw.githubusercontent.com/${{ github.repository }}/${VERSION}/dist/install.yaml
+          \`\`\`
+
+          ## Details
+
+          **Docker Image:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}\`
+          **Helm Chart:** \`oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/mcp-operator:${CHART_VERSION}\`
           **Platforms:** linux/amd64, linux/arm64
 
-          [Getting Started](https://github.com/${{ github.repository }}/blob/${{ steps.version.outputs.version }}/GETTING_STARTED.md) · [Documentation](https://github.com/${{ github.repository }}/blob/${{ steps.version.outputs.version }}/README.md)
+          [Getting Started](https://github.com/${{ github.repository }}/blob/${VERSION}/GETTING_STARTED.md) · [Documentation](https://github.com/${{ github.repository }}/blob/${VERSION}/README.md)
           EOF
 
       - uses: softprops/action-gh-release@v2

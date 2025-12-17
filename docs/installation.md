@@ -2,9 +2,173 @@
 
 ## Overview
 
-MCP Operator has a modular installation approach with optional monitoring capabilities.
+MCP Operator has a modular installation approach with optional monitoring capabilities. You can install using Helm (recommended for production) or kubectl (for minimal dependencies).
 
-## Core Installation
+## Helm Installation (Recommended)
+
+Helm provides the easiest way to install, configure, and upgrade the operator.
+
+### Prerequisites
+
+- Kubernetes 1.24+
+- Helm 3.8+
+
+**Install Helm (if needed):**
+```bash
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+helm version
+```
+
+### Basic Installation
+
+Install the operator from GitHub Container Registry (automatically installs the latest version):
+
+```bash
+helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --namespace mcp-operator-system \
+  --create-namespace
+```
+
+This creates the `mcp-operator-system` namespace and installs the chart there.
+
+> **Note:** To install a specific version, add `--version X.Y.Z`. Check [releases](https://github.com/vitorbari/mcp-operator/releases) for available versions.
+
+**Verify installation:**
+
+```bash
+# Check Helm release
+helm list -n mcp-operator-system
+
+# Check operator pods
+kubectl get pods -n mcp-operator-system
+
+# Check CRD is installed
+kubectl get crd mcpservers.mcp.mcp-operator.io
+```
+
+### Custom Configuration
+
+#### Enable Prometheus Monitoring
+
+```bash
+helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --namespace mcp-operator-system \
+  --create-namespace \
+  --set prometheus.enable=true \
+  --set grafana.enabled=true
+```
+
+#### Custom Resource Limits
+
+```bash
+helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --namespace mcp-operator-system \
+  --create-namespace \
+  --set controllerManager.container.resources.limits.cpu=1000m \
+  --set controllerManager.container.resources.limits.memory=512Mi
+```
+
+#### Using a Values File
+
+Create a `values.yaml` file:
+
+```yaml
+controllerManager:
+  replicas: 2
+  container:
+    image:
+      repository: ghcr.io/vitorbari/mcp-operator
+      tag: 0.1.0-alpha.12
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+
+prometheus:
+  enable: true
+  additionalLabels:
+    release: monitoring
+
+grafana:
+  enabled: true
+```
+
+Install with your values:
+
+```bash
+helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --namespace mcp-operator-system \
+  --create-namespace \
+  -f values.yaml
+```
+
+### Key Configuration Options
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `controllerManager.replicas` | Number of operator replicas | `1` |
+| `controllerManager.container.image.repository` | Container image repository | `ghcr.io/vitorbari/mcp-operator` |
+| `controllerManager.container.image.tag` | Container image tag | `0.1.0-alpha.12` |
+| `controllerManager.container.resources` | Resource limits and requests | See values.yaml |
+| `prometheus.enable` | Enable ServiceMonitor for Prometheus | `true` |
+| `prometheus.additionalLabels` | Additional labels for ServiceMonitor | `release: monitoring` |
+| `metrics.enable` | Enable metrics endpoint | `true` |
+| `grafana.enabled` | Create Grafana dashboard ConfigMap | `true` |
+| `crd.enable` | Install CRDs | `true` |
+| `crd.keep` | Keep CRDs on uninstall | `true` |
+| `rbac.enable` | Create RBAC resources | `true` |
+
+For all available options, see `dist/chart/values.yaml` in the repository.
+
+### Upgrading
+
+Upgrade to the latest version:
+
+```bash
+helm upgrade mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --namespace mcp-operator-system \
+  --reuse-values
+```
+
+Upgrade with new configuration:
+
+```bash
+helm upgrade mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --namespace mcp-operator-system \
+  --reuse-values \
+  --set prometheus.enable=true \
+  --set grafana.enabled=true
+```
+
+To upgrade to a specific version:
+
+```bash
+helm upgrade mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --namespace mcp-operator-system \
+  --version X.Y.Z \
+  --reuse-values
+```
+
+### Uninstalling
+
+Remove the operator:
+
+```bash
+helm uninstall mcp-operator --namespace mcp-operator-system
+```
+
+**Note:** By default, CRDs are kept even after uninstalling (controlled by `crd.keep: true`). To also remove CRDs:
+
+```bash
+kubectl delete crd mcpservers.mcp.mcp-operator.io
+```
+
+## kubectl Installation
+
+### Core Installation
 
 The core operator provides all essential functionality:
 - MCPServer CRD (Custom Resource Definition)
@@ -87,24 +251,52 @@ kubectl get servicemonitor -n mcp-operator-system
 kubectl get configmap mcp-operator-grafana-dashboard -n mcp-operator-system
 ```
 
-## Installation Options
+## Comparison: Helm vs kubectl
 
-### Option 1: Core Only (No Monitoring)
+| Feature | Helm | kubectl |
+|---------|------|---------|
+| **Ease of Installation** | ✅ Single command | ✅ Single command |
+| **Configuration** | ✅ Values file or --set flags | ❌ Must edit YAML |
+| **Upgrades** | ✅ `helm upgrade` with version management | ⚠️ Manual kubectl apply |
+| **Rollback** | ✅ `helm rollback` to previous version | ❌ Manual process |
+| **Monitoring Setup** | ✅ Enable with `--set prometheus.enable=true` | ⚠️ Separate manifest |
+| **Custom Resources** | ✅ Override any value | ⚠️ Edit manifests |
+| **Dependencies** | Requires Helm CLI | ✅ Only kubectl |
+| **Best For** | Production, teams, customization | CI/CD, minimal deps |
 
-Perfect for:
-- Development environments
-- Clusters without Prometheus Operator
-- Minimal installations
+**Recommendation:** Use Helm for production environments. Use kubectl for quick testing or CI/CD pipelines with minimal dependencies.
+
+## Installation Options Summary
+
+### Option 1: Helm (Recommended)
+
+**Best for:** Production, development, any environment needing customization
+
+```bash
+# Basic installation (latest version)
+helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --namespace mcp-operator-system \
+  --create-namespace
+
+# With monitoring
+helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --namespace mcp-operator-system \
+  --create-namespace \
+  --set prometheus.enable=true \
+  --set grafana.enabled=true
+```
+
+### Option 2: kubectl - Core Only
+
+**Best for:** Minimal installations, CI/CD, quick testing
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/install.yaml
 ```
 
-### Option 2: Core + Monitoring
+### Option 3: kubectl - Core + Monitoring
 
-Perfect for:
-- Production environments with monitoring infrastructure
-- Clusters with Prometheus Operator installed
+**Best for:** Production with existing Prometheus Operator
 
 ```bash
 # Install core
@@ -150,19 +342,31 @@ The operator watches all namespaces and manages MCPServer resources wherever the
 
 ## Uninstallation
 
-### Remove Monitoring (Optional)
+### Using Helm
 
-If you installed monitoring resources:
-
-```bash
-kubectl delete -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/monitoring.yaml
-```
-
-### Remove Core Operator
+If you installed with Helm:
 
 ```bash
 # Delete all MCPServer resources first
 kubectl delete mcpserver --all --all-namespaces
+
+# Uninstall the operator
+helm uninstall mcp-operator --namespace mcp-operator-system
+
+# Optionally remove CRDs (they're kept by default)
+kubectl delete crd mcpservers.mcp.mcp-operator.io
+```
+
+### Using kubectl
+
+If you installed with kubectl:
+
+```bash
+# Delete all MCPServer resources first
+kubectl delete mcpserver --all --all-namespaces
+
+# Remove monitoring (if installed)
+kubectl delete -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/monitoring.yaml
 
 # Uninstall the operator
 kubectl delete -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/install.yaml
