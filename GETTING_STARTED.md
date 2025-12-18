@@ -42,10 +42,11 @@ Choose your preferred installation method. Both options work the same - **use He
 
 ### Option A: Install with Helm
 
-Install MCP Operator using Helm (automatically installs the latest version):
+Install MCP Operator using Helm. Check [releases](https://github.com/vitorbari/mcp-operator/releases) for the latest version:
 
 ```bash
 helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --version 0.1.0-alpha.13 \
   --namespace mcp-operator-system \
   --create-namespace
 ```

@@ -38,7 +38,9 @@ Choose your preferred installation method:
 #### Option 1: Install via Helm (Recommended)
 
 ```sh
+# See https://github.com/vitorbari/mcp-operator/releases for latest version
 helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --version 0.1.0-alpha.13 \
   --namespace mcp-operator-system \
   --create-namespace
 ```
@@ -160,6 +162,7 @@ Enable Prometheus metrics and Grafana dashboards:
 **With Helm:**
 ```sh
 helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --version 0.1.0-alpha.13 \
   --namespace mcp-operator-system \
   --create-namespace \
   --set prometheus.enable=true \

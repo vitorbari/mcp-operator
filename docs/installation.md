@@ -21,17 +21,18 @@ helm version
 
 ### Basic Installation
 
-Install the operator from GitHub Container Registry (automatically installs the latest version):
+Install the operator from GitHub Container Registry. Check [releases](https://github.com/vitorbari/mcp-operator/releases) for available versions:
 
 ```bash
 helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --version 0.1.0-alpha.13 \
   --namespace mcp-operator-system \
   --create-namespace
 ```
 
 This creates the `mcp-operator-system` namespace and installs the chart there.
 
-> **Note:** To install a specific version, add `--version X.Y.Z`. Check [releases](https://github.com/vitorbari/mcp-operator/releases) for available versions.
+> **Note:** OCI registries require explicit versions for reproducible deployments. Always specify `--version` for production use.
 
 **Verify installation:**
 
@@ -52,6 +53,7 @@ kubectl get crd mcpservers.mcp.mcp-operator.io
 
 ```bash
 helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --version 0.1.0-alpha.13 \
   --namespace mcp-operator-system \
   --create-namespace \
   --set prometheus.enable=true \
@@ -62,6 +64,7 @@ helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
 
 ```bash
 helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --version 0.1.0-alpha.13 \
   --namespace mcp-operator-system \
   --create-namespace \
   --set controllerManager.container.resources.limits.cpu=1000m \
@@ -100,6 +103,7 @@ Install with your values:
 
 ```bash
 helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --version 0.1.0-alpha.13 \
   --namespace mcp-operator-system \
   --create-namespace \
   -f values.yaml
@@ -125,10 +129,11 @@ For all available options, see `dist/chart/values.yaml` in the repository.
 
 ### Upgrading
 
-Upgrade to the latest version:
+Upgrade to a new version (check [releases](https://github.com/vitorbari/mcp-operator/releases) for available versions):
 
 ```bash
 helm upgrade mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --version 0.1.0-alpha.14 \
   --namespace mcp-operator-system \
   --reuse-values
 ```
@@ -137,19 +142,11 @@ Upgrade with new configuration:
 
 ```bash
 helm upgrade mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --version 0.1.0-alpha.14 \
   --namespace mcp-operator-system \
   --reuse-values \
   --set prometheus.enable=true \
   --set grafana.enabled=true
-```
-
-To upgrade to a specific version:
-
-```bash
-helm upgrade mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
-  --namespace mcp-operator-system \
-  --version X.Y.Z \
-  --reuse-values
 ```
 
 ### Uninstalling
