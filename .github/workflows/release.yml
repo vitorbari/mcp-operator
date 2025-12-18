@@ -84,9 +84,6 @@ jobs:
           echo "App version updated to: ${CHART_VERSION}"
           echo "Image tag updated to: ${VERSION}"
 
-      - name: Regenerate Helm chart
-        run: make helm
-
       - name: Package Helm chart
         run: |
           VERSION="${{ steps.version.outputs.version }}"
