@@ -38,6 +38,11 @@ jobs:
           make docker-build IMG=mcp-operator:${{ env.TEST_IMAGE_TAG }}
           kind load docker-image mcp-operator:${{ env.TEST_IMAGE_TAG }}
 
+      - name: Verify image loaded in Kind
+        run: |
+          echo "Images available in Kind cluster:"
+          docker exec kind-control-plane crictl images | grep mcp-operator || echo "Warning: mcp-operator image not found!"
+
       - name: Install Helm
         run: |
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
@@ -60,6 +65,7 @@ jobs:
           helm install my-release ./dist/chart \
             --create-namespace \
             --namespace mcp-operator-system \
+            --set controllerManager.container.image.repository=mcp-operator \
             --set controllerManager.container.image.tag=${{ env.TEST_IMAGE_TAG }} \
             --set prometheus.enable=true \
             --set grafana.enabled=true
@@ -69,10 +75,29 @@ jobs:
           helm status my-release --namespace mcp-operator-system
 
       - name: Wait for operator deployment
+        id: wait-deployment
         run: |
           kubectl wait --for=condition=available --timeout=120s \
             deployment/mcp-operator-controller-manager \
             -n mcp-operator-system
+
+      - name: Debug - Get pod status (on failure)
+        if: failure() && steps.wait-deployment.conclusion == 'failure'
+        run: |
+          echo "=== Pods in mcp-operator-system ==="
+          kubectl get pods -n mcp-operator-system
+
+          echo -e "\n=== Deployment description ==="
+          kubectl describe deployment mcp-operator-controller-manager -n mcp-operator-system
+
+          echo -e "\n=== Pod descriptions ==="
+          kubectl describe pods -n mcp-operator-system
+
+          echo -e "\n=== Pod logs ==="
+          kubectl logs -n mcp-operator-system -l control-plane=controller-manager --all-containers --tail=100 || true
+
+          echo -e "\n=== Recent events ==="
+          kubectl get events -n mcp-operator-system --sort-by='.lastTimestamp'
 
       - name: Check ServiceMonitor creation
         run: |
