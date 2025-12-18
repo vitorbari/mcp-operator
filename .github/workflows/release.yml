@@ -109,7 +109,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
           git checkout main
-          git add dist/install.yaml dist/monitoring.yaml
+          git add dist/install.yaml dist/monitoring.yaml dist/chart/Chart.yaml dist/chart/values.yaml
           git diff-index --quiet HEAD || git commit -m "Update installation manifests for ${{ steps.version.outputs.version }}"
           git push origin main
 
