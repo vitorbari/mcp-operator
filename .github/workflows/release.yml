@@ -92,7 +92,7 @@ jobs:
 
       - name: Login to GHCR for Helm
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+          echo "${{ secrets.GHCR_TOKEN }}" | helm registry login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
 
       - name: Push Helm chart to GHCR
         run: |
