@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: ghcr.io/vitorbari/mcp-operator
-  newTag: v0.1.0-alpha.12
+  newTag: v0.1.0-alpha.13
