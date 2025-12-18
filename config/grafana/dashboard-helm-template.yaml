@@ -1,0 +1,18 @@
+{{- if .Values.grafana.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+  name: mcp-operator-grafana-dashboard
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    grafana.io/folder: "MCP Operator"
+data:
+{{- $root := . }}
+{{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+  {{ base $path }}: |-
+{{ $root.Files.Get $path | nindent 4 }}
+{{- end }}
+{{- end }}

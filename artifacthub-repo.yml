@@ -1,0 +1,30 @@
+# ArtifactHub repository metadata
+# See https://artifacthub.io/docs/topics/repositories/
+
+# Repository ID (must be unique across ArtifactHub)
+repositoryID: 7b5c3f9d-4e8a-4b7c-9f6d-3a8e7c9f1b2d
+
+# Display name for your repository
+name: MCP Operator
+
+# Repository URL on ArtifactHub (will be assigned after registration)
+# url: https://artifacthub.io/packages/helm/mcp-operator
+
+# OCI registry information
+ociRegistry:
+  # URL to your OCI registry
+  url: oci://ghcr.io/vitorbari
+
+# Repository owners (GitHub usernames)
+owners:
+  - name: vitorbari
+    email: vitorbari@gmail.com
+
+# Links
+links:
+  - name: GitHub
+    url: https://github.com/vitorbari/mcp-operator
+  - name: Documentation
+    url: https://github.com/vitorbari/mcp-operator/blob/main/README.md
+  - name: Getting Started
+    url: https://github.com/vitorbari/mcp-operator/blob/main/GETTING_STARTED.md

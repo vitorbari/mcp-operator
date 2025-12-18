@@ -6,6 +6,8 @@ cliVersion: 4.7.1
 domain: mcp-operator.io
 layout:
 - go.kubebuilder.io/v4
+plugins:
+  helm.kubebuilder.io/v1-alpha: {}
 projectName: mcp-operator
 repo: github.com/vitorbari/mcp-operator
 resources:

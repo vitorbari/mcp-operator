@@ -285,3 +285,11 @@ license-check: ## Check if all files have license headers
 	else \
 		echo "All files have proper license headers."; \
 	fi
+
+.PHONY: helm
+helm: manifests ## Generate Helm chart
+	@echo "Generating Helm chart with Kubebuilder plugin..."
+	kubebuilder edit --plugins=helm.kubebuilder.io/v1-alpha
+	@./scripts/add-grafana-to-helm.sh
+	@./scripts/patch-servicemonitor-labels.sh
+	@echo "✅ Helm chart generated at dist/chart/"

@@ -1,0 +1,28 @@
+{{- if .Values.rbac.enable }}
+# This rule is not used by the project mcp-operator itself.
+# It is provided to allow the cluster admin to help manage permissions for users.
+#
+# Grants full permissions ('*') over mcp.mcp-operator.io.
+# This role is intended for users authorized to modify roles and bindings within the cluster,
+# enabling them to delegate specific permissions to other users or groups as needed.
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+  name: mcpserver-admin-role
+rules:
+- apiGroups:
+  - mcp.mcp-operator.io
+  resources:
+  - mcpservers
+  verbs:
+  - '*'
+- apiGroups:
+  - mcp.mcp-operator.io
+  resources:
+  - mcpservers/status
+  verbs:
+  - get
+{{- end -}}

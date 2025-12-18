@@ -38,7 +38,35 @@ minikube start
 
 ## Step 1: Install the Operator
 
-Install MCP Operator in your cluster:
+Choose your preferred installation method. Both options work the same - **use Helm for easier customization**.
+
+### Option A: Install with Helm
+
+Install MCP Operator using Helm (automatically installs the latest version):
+
+```bash
+helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --namespace mcp-operator-system \
+  --create-namespace
+```
+
+Wait for it to be ready:
+
+```bash
+kubectl wait --for=condition=available --timeout=300s \
+  deployment/mcp-operator-controller-manager \
+  -n mcp-operator-system
+```
+
+Verify it's running:
+
+```bash
+kubectl get pods -n mcp-operator-system
+```
+
+### Option B: Install with kubectl
+
+Install MCP Operator using kubectl:
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/install.yaml
@@ -57,6 +85,8 @@ Verify it's running:
 ```bash
 kubectl get pods -n mcp-operator-system
 ```
+
+### Verification
 
 You should see something like:
 
@@ -187,8 +217,18 @@ This opens a web interface where you can:
 
 ### Add Monitoring
 
-If you have Prometheus Operator installed:
+If you have Prometheus Operator installed, enable monitoring:
 
+**With Helm (if you used Helm to install):**
+```bash
+helm upgrade mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --namespace mcp-operator-system \
+  --reuse-values \
+  --set prometheus.enable=true \
+  --set grafana.enabled=true
+```
+
+**With kubectl (if you used kubectl to install):**
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/monitoring.yaml
 ```
@@ -257,6 +297,12 @@ kubectl delete mcpserver wikipedia
 
 Uninstall the operator:
 
+**If you used Helm:**
+```bash
+helm uninstall mcp-operator --namespace mcp-operator-system
+```
+
+**If you used kubectl:**
 ```bash
 kubectl delete -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/install.yaml
 ```
