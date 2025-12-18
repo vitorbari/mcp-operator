@@ -7,6 +7,8 @@ metadata:
     grafana_dashboard: "1"
   name: mcp-operator-grafana-dashboard
   namespace: {{ .Release.Namespace }}
+  annotations:
+    grafana.io/folder: "MCP Operator"
 data:
 {{- $root := . }}
 {{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
