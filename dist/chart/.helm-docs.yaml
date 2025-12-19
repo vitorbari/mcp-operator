@@ -1,0 +1,15 @@
+# Configuration for helm-docs
+# See: https://github.com/norwoodj/helm-docs
+
+# Generate values schema
+jsonSchema:
+  enabled: true
+  draft: 7
+
+# Template for README
+readme:
+  # Don't regenerate README.md - we maintain it manually
+  enabled: false
+
+# Sort values alphabetically in schema
+sort-values-order: file

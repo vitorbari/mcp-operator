@@ -1,87 +1,109 @@
 # [MANAGER]: Manager Deployment Configurations
 controllerManager:
+  # -- Number of operator replicas to run
   replicas: 1
   container:
     image:
+      # -- Container image repository
       repository: ghcr.io/vitorbari/mcp-operator
+      # -- Container image tag (should match operator version)
       tag: v0.1.0-alpha.13
+    # -- Command-line arguments for the controller manager
     args:
       - "--leader-elect"
       - "--metrics-bind-address=:8443"
       - "--health-probe-bind-address=:8081"
       - "--zap-log-level=info"
+    # -- Container resource requests and limits
     resources:
       limits:
+        # -- CPU limit
         cpu: 500m
+        # -- Memory limit
         memory: 128Mi
       requests:
+        # -- CPU request
         cpu: 10m
+        # -- Memory request
         memory: 64Mi
+    # -- Liveness probe configuration
     livenessProbe:
+      # -- Initial delay before starting liveness probes (seconds)
       initialDelaySeconds: 15
+      # -- How often to perform the probe (seconds)
       periodSeconds: 20
       httpGet:
         path: /healthz
         port: 8081
+    # -- Readiness probe configuration
     readinessProbe:
+      # -- Initial delay before starting readiness probes (seconds)
       initialDelaySeconds: 5
+      # -- How often to perform the probe (seconds)
       periodSeconds: 10
       httpGet:
         path: /readyz
         port: 8081
+    # -- Container security context
     securityContext:
+      # -- Whether to allow privilege escalation
       allowPrivilegeEscalation: false
       capabilities:
         drop:
           - "ALL"
+  # -- Pod security context
   securityContext:
+    # -- Whether to run as non-root user
     runAsNonRoot: true
     seccompProfile:
+      # -- Seccomp profile type
       type: RuntimeDefault
+  # -- Grace period for pod termination (seconds)
   terminationGracePeriodSeconds: 10
+  # -- ServiceAccount name to use
   serviceAccountName: mcp-operator-controller-manager
 
 # [RBAC]: To enable RBAC (Permissions) configurations
 rbac:
+  # -- Enable RBAC resources creation
   enable: true
 
 # [CRDs]: To enable the CRDs
 crd:
-  # This option determines whether the CRDs are included
-  # in the installation process.
+  # -- Include CRDs in installation
   enable: true
 
-  # Enabling this option adds the "helm.sh/resource-policy": keep
-  # annotation to the CRD, ensuring it remains installed even when
-  # the Helm release is uninstalled.
-  # NOTE: Removing the CRDs will also remove all cert-manager CR(s)
-  # (Certificates, Issuers, ...) due to garbage collection.
+  # -- Keep CRDs when uninstalling the chart (adds helm.sh/resource-policy: keep annotation)
+  # NOTE: Removing the CRDs will also remove all MCPServer resources due to garbage collection.
   keep: true
 
 # [METRICS]: Set to true to generate manifests for exporting metrics.
 # To disable metrics export set false, and ensure that the
 # ControllerManager argument "--metrics-bind-address=:8443" is removed.
 metrics:
+  # -- Enable metrics endpoint
   enable: true
 
 # [PROMETHEUS]: To enable a ServiceMonitor to export metrics to Prometheus set true
 prometheus:
+  # -- Create ServiceMonitor resource for Prometheus Operator
   enable: false
-  # Additional labels for ServiceMonitor to match Prometheus serviceMonitorSelector
-  # Example: If Prometheus has serviceMonitorSelector.matchLabels.release=monitoring
-  # then set: additionalLabels: { release: monitoring }
+  # -- Additional labels for ServiceMonitor (must match Prometheus serviceMonitorSelector)
+  # Example: If Prometheus has serviceMonitorSelector.matchLabels.release=monitoring then set: {release: monitoring}
   additionalLabels:
     release: monitoring
 
 # [CERT-MANAGER]: To enable cert-manager injection to webhooks set true
 certmanager:
+  # -- Enable cert-manager injection to webhooks
   enable: false
 
 # [NETWORK POLICIES]: To enable NetworkPolicies set true
 networkPolicy:
+  # -- Enable NetworkPolicy resources
   enable: false
 
 # [GRAFANA] Grafana Dashboard Configurations
 grafana:
-  # -- Enable creation of grafana dashboards. Can be disabled if not using grafana in your cluster.
+  # -- Enable creation of Grafana dashboard ConfigMap for MCP Operator metrics
   enabled: false
