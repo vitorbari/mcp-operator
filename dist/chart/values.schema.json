@@ -1,0 +1,304 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MCP Operator Helm Chart Values",
+  "description": "Configuration values for MCP Operator Helm chart",
+  "type": "object",
+  "properties": {
+    "controllerManager": {
+      "type": "object",
+      "description": "Controller manager deployment configuration",
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "description": "Number of operator replicas to run",
+          "minimum": 1,
+          "default": 1
+        },
+        "container": {
+          "type": "object",
+          "description": "Container configuration for the controller manager",
+          "properties": {
+            "image": {
+              "type": "object",
+              "description": "Container image settings",
+              "properties": {
+                "repository": {
+                  "type": "string",
+                  "description": "Container image repository",
+                  "default": "ghcr.io/vitorbari/mcp-operator"
+                },
+                "tag": {
+                  "type": "string",
+                  "description": "Container image tag",
+                  "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?$",
+                  "default": "v0.1.0-alpha.12"
+                }
+              }
+            },
+            "args": {
+              "type": "array",
+              "description": "Command-line arguments for the controller manager",
+              "items": {
+                "type": "string"
+              },
+              "default": [
+                "--leader-elect",
+                "--metrics-bind-address=:8443",
+                "--health-probe-bind-address=:8081",
+                "--zap-log-level=info"
+              ]
+            },
+            "resources": {
+              "type": "object",
+              "description": "Container resource requests and limits",
+              "properties": {
+                "limits": {
+                  "type": "object",
+                  "description": "Resource limits",
+                  "properties": {
+                    "cpu": {
+                      "type": "string",
+                      "description": "CPU limit",
+                      "default": "500m"
+                    },
+                    "memory": {
+                      "type": "string",
+                      "description": "Memory limit",
+                      "default": "128Mi"
+                    }
+                  }
+                },
+                "requests": {
+                  "type": "object",
+                  "description": "Resource requests",
+                  "properties": {
+                    "cpu": {
+                      "type": "string",
+                      "description": "CPU request",
+                      "default": "10m"
+                    },
+                    "memory": {
+                      "type": "string",
+                      "description": "Memory request",
+                      "default": "64Mi"
+                    }
+                  }
+                }
+              }
+            },
+            "livenessProbe": {
+              "type": "object",
+              "description": "Liveness probe configuration",
+              "properties": {
+                "initialDelaySeconds": {
+                  "type": "integer",
+                  "description": "Initial delay before starting liveness probes",
+                  "minimum": 0,
+                  "default": 15
+                },
+                "periodSeconds": {
+                  "type": "integer",
+                  "description": "How often to perform the probe",
+                  "minimum": 1,
+                  "default": 20
+                },
+                "httpGet": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "default": "/healthz"
+                    },
+                    "port": {
+                      "type": "integer",
+                      "default": 8081
+                    }
+                  }
+                }
+              }
+            },
+            "readinessProbe": {
+              "type": "object",
+              "description": "Readiness probe configuration",
+              "properties": {
+                "initialDelaySeconds": {
+                  "type": "integer",
+                  "description": "Initial delay before starting readiness probes",
+                  "minimum": 0,
+                  "default": 5
+                },
+                "periodSeconds": {
+                  "type": "integer",
+                  "description": "How often to perform the probe",
+                  "minimum": 1,
+                  "default": 10
+                },
+                "httpGet": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "default": "/readyz"
+                    },
+                    "port": {
+                      "type": "integer",
+                      "default": 8081
+                    }
+                  }
+                }
+              }
+            },
+            "securityContext": {
+              "type": "object",
+              "description": "Container security context",
+              "properties": {
+                "allowPrivilegeEscalation": {
+                  "type": "boolean",
+                  "description": "Whether to allow privilege escalation",
+                  "default": false
+                },
+                "capabilities": {
+                  "type": "object",
+                  "properties": {
+                    "drop": {
+                      "type": "array",
+                      "description": "Capabilities to drop",
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": ["ALL"]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "securityContext": {
+          "type": "object",
+          "description": "Pod security context",
+          "properties": {
+            "runAsNonRoot": {
+              "type": "boolean",
+              "description": "Whether to run as non-root user",
+              "default": true
+            },
+            "seccompProfile": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["RuntimeDefault", "Localhost", "Unconfined"],
+                  "default": "RuntimeDefault"
+                }
+              }
+            }
+          }
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "description": "Grace period for pod termination",
+          "minimum": 0,
+          "default": 10
+        },
+        "serviceAccountName": {
+          "type": "string",
+          "description": "ServiceAccount name to use",
+          "default": "mcp-operator-controller-manager"
+        }
+      }
+    },
+    "rbac": {
+      "type": "object",
+      "description": "RBAC configuration",
+      "properties": {
+        "enable": {
+          "type": "boolean",
+          "description": "Enable RBAC resources creation",
+          "default": true
+        }
+      }
+    },
+    "crd": {
+      "type": "object",
+      "description": "CRD configuration",
+      "properties": {
+        "enable": {
+          "type": "boolean",
+          "description": "Include CRDs in installation",
+          "default": true
+        },
+        "keep": {
+          "type": "boolean",
+          "description": "Keep CRDs when uninstalling the chart (adds helm.sh/resource-policy: keep annotation)",
+          "default": true
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "description": "Metrics endpoint configuration",
+      "properties": {
+        "enable": {
+          "type": "boolean",
+          "description": "Enable metrics endpoint",
+          "default": true
+        }
+      }
+    },
+    "prometheus": {
+      "type": "object",
+      "description": "Prometheus integration configuration",
+      "properties": {
+        "enable": {
+          "type": "boolean",
+          "description": "Create ServiceMonitor resource for Prometheus Operator",
+          "default": false
+        },
+        "additionalLabels": {
+          "type": "object",
+          "description": "Additional labels for ServiceMonitor (must match Prometheus serviceMonitorSelector). Example: {release: monitoring}",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {
+            "release": "monitoring"
+          }
+        }
+      }
+    },
+    "certmanager": {
+      "type": "object",
+      "description": "Cert-manager integration configuration",
+      "properties": {
+        "enable": {
+          "type": "boolean",
+          "description": "Enable cert-manager injection to webhooks",
+          "default": false
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "description": "NetworkPolicy configuration",
+      "properties": {
+        "enable": {
+          "type": "boolean",
+          "description": "Enable NetworkPolicy resources",
+          "default": false
+        }
+      }
+    },
+    "grafana": {
+      "type": "object",
+      "description": "Grafana dashboard configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Create Grafana dashboard ConfigMap for MCP Operator metrics",
+          "default": false
+        }
+      }
+    }
+  }
+}
