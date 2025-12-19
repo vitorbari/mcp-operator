@@ -4,7 +4,7 @@ controllerManager:
   container:
     image:
       repository: ghcr.io/vitorbari/mcp-operator
-      tag: v0.1.0-alpha.12
+      tag: v0.1.0-alpha.13
     args:
       - "--leader-elect"
       - "--metrics-bind-address=:8443"
