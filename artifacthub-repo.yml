@@ -1,30 +1,11 @@
-# ArtifactHub repository metadata
-# See https://artifacthub.io/docs/topics/repositories/
+# Artifact Hub repository metadata file
+# This enables the "Verified Publisher" badge on Artifact Hub
+# See: https://artifacthub.io/docs/topics/repositories/#verified-publisher
 
-# Repository ID (must be unique across ArtifactHub)
-repositoryID: 7b5c3f9d-4e8a-4b7c-9f6d-3a8e7c9f1b2d
+# Repository ID from Artifact Hub control panel
+repositoryID: a1e70b8e-4df0-4549-9118-8e1b735e9ce0
 
-# Display name for your repository
-name: MCP Operator
-
-# Repository URL on ArtifactHub (will be assigned after registration)
-# url: https://artifacthub.io/packages/helm/mcp-operator
-
-# OCI registry information
-ociRegistry:
-  # URL to your OCI registry
-  url: oci://ghcr.io/vitorbari
-
-# Repository owners (GitHub usernames)
+# Repository owners (for ownership claim)
 owners:
-  - name: vitorbari
+  - name: Vitor Bari Buccianti
     email: vitorbari@gmail.com
-
-# Links
-links:
-  - name: GitHub
-    url: https://github.com/vitorbari/mcp-operator
-  - name: Documentation
-    url: https://github.com/vitorbari/mcp-operator/blob/main/README.md
-  - name: Getting Started
-    url: https://github.com/vitorbari/mcp-operator/blob/main/GETTING_STARTED.md
