@@ -201,7 +201,7 @@ Install the core operator:
 VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
 
 # Install
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/install.yaml
+kubectl apply -f https://github.com/vitorbari/mcp-operator/releases/download/${VERSION}/install.yaml
 ```
 
 This will:
@@ -261,7 +261,7 @@ Once Prometheus Operator is installed:
 VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
 
 # Install monitoring
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/monitoring.yaml
+kubectl apply -f https://github.com/vitorbari/mcp-operator/releases/download/${VERSION}/monitoring.yaml
 ```
 
 This creates:
@@ -322,7 +322,7 @@ helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
 VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
 
 # Install
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/install.yaml
+kubectl apply -f https://github.com/vitorbari/mcp-operator/releases/download/${VERSION}/install.yaml
 ```
 
 ### Option 3: kubectl - Core + Monitoring
@@ -334,10 +334,10 @@ kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERS
 VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
 
 # Install core
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/install.yaml
+kubectl apply -f https://github.com/vitorbari/mcp-operator/releases/download/${VERSION}/install.yaml
 
 # Install monitoring
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/monitoring.yaml
+kubectl apply -f https://github.com/vitorbari/mcp-operator/releases/download/${VERSION}/monitoring.yaml
 ```
 
 ## Namespace Strategy
@@ -403,10 +403,10 @@ kubectl delete mcpserver --all --all-namespaces
 VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
 
 # Remove monitoring (if installed)
-kubectl delete -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/monitoring.yaml
+kubectl delete -f https://github.com/vitorbari/mcp-operator/releases/download/${VERSION}/monitoring.yaml
 
 # Uninstall the operator
-kubectl delete -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/install.yaml
+kubectl delete -f https://github.com/vitorbari/mcp-operator/releases/download/${VERSION}/install.yaml
 ```
 
 ## Building from Source

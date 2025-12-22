@@ -310,7 +310,7 @@ The operator follows semantic versioning with pre-release identifiers (alpha, be
 **Via git tag (kubectl):**
 ```bash
 VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/install.yaml
+kubectl apply -f https://github.com/vitorbari/mcp-operator/releases/download/${VERSION}/install.yaml
 ```
 
 **Via Helm:**

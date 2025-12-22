@@ -78,7 +78,7 @@ Install MCP Operator using kubectl:
 VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
 
 # Install
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/install.yaml
+kubectl apply -f https://github.com/vitorbari/mcp-operator/releases/download/${VERSION}/install.yaml
 ```
 
 Wait for it to be ready:
@@ -248,7 +248,7 @@ helm upgrade mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
 VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
 
 # Install monitoring
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/monitoring.yaml
+kubectl apply -f https://github.com/vitorbari/mcp-operator/releases/download/${VERSION}/monitoring.yaml
 ```
 
 This adds a Grafana dashboard showing all your MCP servers' health and performance.

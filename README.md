@@ -54,8 +54,8 @@ helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
 # Get latest version
 VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
 
-# Install
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/install.yaml
+# Install from release assets
+kubectl apply -f https://github.com/vitorbari/mcp-operator/releases/download/${VERSION}/install.yaml
 ```
 
 **Use Helm** for easier configuration and upgrades. **Use kubectl** for minimal dependencies.
@@ -185,8 +185,8 @@ helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
 # Get latest version
 VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
 
-# Install monitoring
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/monitoring.yaml
+# Install monitoring from release assets
+kubectl apply -f https://github.com/vitorbari/mcp-operator/releases/download/${VERSION}/monitoring.yaml
 ```
 
 <img width="3452" height="3726" alt="localhost_3000_d_mcp-operator-overview_mcp-operator-protocol-intelligence_orgId=1 from=now-15m to=now timezone=browser refresh=30s" src="https://github.com/user-attachments/assets/f81ed38e-a03d-4a3b-aa72-727487e6c2ff" />
