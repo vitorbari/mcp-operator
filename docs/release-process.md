@@ -21,6 +21,9 @@ Releases are automated via GitHub Actions. When you push a git tag, the workflow
 
 ## Release Workflow
 
+> **💡 Quick Start:** You can use `make release VERSION=v0.1.0-alpha.X` to automate steps 1-3 below.
+> See [Quick Reference](#quick-reference) for details.
+
 ### Step 1: Update Version in Kustomization
 
 Edit `config/manager/kustomization.yaml` and update the `newTag` field:
@@ -331,15 +334,34 @@ git describe --tags
 
 ## Quick Reference
 
+### Option 1: Using Make (Recommended)
+
 ```bash
-# Complete release process
+# Create and push a new release tag
+make release VERSION=v0.1.0-alpha.2
+```
+
+This command will:
+- Validate the version format
+- Update `config/manager/kustomization.yaml`
+- Commit and push the change to main
+- Create and push the git tag
+- Trigger the GitHub Actions release workflow
+
+### Option 2: Manual Process
+
+```bash
+# Update version in kustomization.yaml
 sed -i '' 's/newTag: .*/newTag: v0.1.0-alpha.2/' config/manager/kustomization.yaml
+
+# Commit and push
 git add config/manager/kustomization.yaml
 git commit -m "Bump version to v0.1.0-alpha.2"
 git push origin main
+
+# Create and push tag
 git tag v0.1.0-alpha.2
 git push origin v0.1.0-alpha.2
-gh run watch
 ```
 
 ## Release Checklist

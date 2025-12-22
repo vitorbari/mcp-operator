@@ -178,6 +178,40 @@ build-installer-monitoring: manifests generate kustomize ## Generate monitoring 
 .PHONY: build-installer-all
 build-installer-all: build-installer build-installer-monitoring ## Generate all installation manifests.
 
+##@ Release
+
+.PHONY: release
+release: ## Create a new release tag. Usage: make release VERSION=v0.1.0-alpha.15
+	@if [ -z "$(VERSION)" ]; then \
+		echo "ERROR: VERSION is required. Usage: make release VERSION=v0.1.0-alpha.15"; \
+		exit 1; \
+	fi
+	@if ! echo "$(VERSION)" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-alpha\.[0-9]+|-beta\.[0-9]+|-rc\.[0-9]+)?$$'; then \
+		echo "ERROR: VERSION must be in semver format (e.g., v0.1.0-alpha.15)"; \
+		exit 1; \
+	fi
+	@echo "Creating release $(VERSION)..."
+	@echo "Updating config/manager/kustomization.yaml..."
+	@sed -i '' 's/newTag: .*/newTag: $(VERSION)/' config/manager/kustomization.yaml
+	@echo "Committing changes..."
+	@git add config/manager/kustomization.yaml
+	@git commit -m "Bump version to $(VERSION)"
+	@echo "Pushing to main..."
+	@git push origin main
+	@echo "Creating tag $(VERSION)..."
+	@git tag $(VERSION)
+	@echo "Pushing tag..."
+	@git push origin $(VERSION)
+	@echo ""
+	@echo "✅ Release $(VERSION) created successfully!"
+	@echo "   GitHub Actions will now build and publish:"
+	@echo "   - Docker image: ghcr.io/vitorbari/mcp-operator:$(VERSION)"
+	@echo "   - Helm chart: oci://ghcr.io/vitorbari/mcp-operator:$${VERSION\#v}"
+	@echo "   - Installation manifests attached to release"
+	@echo ""
+	@echo "   Monitor the release workflow at:"
+	@echo "   https://github.com/vitorbari/mcp-operator/actions"
+
 ##@ Deployment
 
 ifndef ignore-not-found
