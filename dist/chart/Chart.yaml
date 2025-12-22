@@ -69,6 +69,48 @@ annotations:
       name: mcpservers.mcp.mcp-operator.io
       displayName: MCP Server
       description: Manages Model Context Protocol server deployments
+      example: |
+        apiVersion: mcp.mcp-operator.io/v1
+        kind: MCPServer
+        metadata:
+          name: wikipedia-http
+          namespace: mcp-tests
+        spec:
+          image: "mcp/wikipedia-mcp:latest"
+
+          # Override command to force SSE transport mode for FastMCP-based container
+          command: ["python", "-m", "wikipedia_mcp"]
+          args: ["--transport", "sse", "--port", "8080", "--host", "0.0.0.0"]
+
+          # SSE transport for Wikipedia MCP server
+          transport:
+            type: "http"
+            protocol: "sse"  # Explicitly specify SSE protocol
+            config:
+              http:
+                port: 8080
+                path: "/sse"
+                sessionManagement: true
+
+          # Health checks - disabled for SSE transport as it doesn't provide /health endpoint
+          healthCheck:
+            enabled: false
+
+          # Resource requirements
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+          # MCP Protocol Validation Configuration
+          validation:
+            enabled: true
+            strictMode: true
+            requiredCapabilities:
+              - "tools"
   
   # Recommended Kubernetes version
   artifacthub.io/kubeVersion: ">=1.24.0-0"

@@ -100,14 +100,15 @@ jobs:
           CHART_VERSION="${VERSION#v}"
           helm push mcp-operator-${CHART_VERSION}.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}
 
-      - name: Commit manifests to main branch
+      - name: Commit chart metadata to main branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
           git checkout main
-          git add dist/install.yaml dist/monitoring.yaml dist/chart/Chart.yaml dist/chart/values.yaml
-          git diff-index --quiet HEAD || git commit -m "Update installation manifests for ${{ steps.version.outputs.version }}"
+          # Only commit chart metadata, not generated YAML bundles
+          git add dist/chart/Chart.yaml dist/chart/values.yaml
+          git diff-index --quiet HEAD || git commit -m "Update Helm chart versions for ${{ steps.version.outputs.version }}"
           git push origin main
 
       - name: Create release notes
