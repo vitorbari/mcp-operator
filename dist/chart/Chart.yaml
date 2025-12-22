@@ -4,10 +4,10 @@ description: Production-ready Kubernetes operator for Model Context Protocol (MC
 type: application
 
 # Chart version (SemVer)
-version: 0.1.0-alpha.14
+version: 0.1.0-alpha.15
 
 # Application version (operator version)
-appVersion: "0.1.0-alpha.14"
+appVersion: "0.1.0-alpha.15"
 
 # Keywords for searchability
 keywords:

@@ -7,7 +7,7 @@ controllerManager:
       # -- Container image repository
       repository: ghcr.io/vitorbari/mcp-operator
       # -- Container image tag (should match operator version)
-      tag: v0.1.0-alpha.14
+      tag: v0.1.0-alpha.15
     # -- Command-line arguments for the controller manager
     args:
       - "--leader-elect"
