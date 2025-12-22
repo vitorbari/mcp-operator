@@ -35,3 +35,8 @@ go.work
 
 # Test MCPServer configurations
 test-servers/
+
+# Generated YAML bundles (attached to releases)
+# Chart files are kept in git
+dist/install.yaml
+dist/monitoring.yaml
