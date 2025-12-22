@@ -206,9 +206,6 @@ release: ## Create a new release tag. Usage: make release VERSION=v0.1.0-alpha.1
 	@echo "✅ Release $(VERSION) created successfully!"
 	@echo "   GitHub Actions will now build and publish:"
 	@echo "   - Docker image: ghcr.io/vitorbari/mcp-operator:$(VERSION)"
-	@echo "   - Helm chart: oci://ghcr.io/vitorbari/mcp-operator:$${VERSION\#v}"
-	@echo "   - Installation manifests attached to release"
-	@echo ""
 	@echo "   Monitor the release workflow at:"
 	@echo "   https://github.com/vitorbari/mcp-operator/actions"
 
