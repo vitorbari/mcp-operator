@@ -38,9 +38,12 @@ Choose your preferred installation method:
 #### Option 1: Install via Helm (Recommended)
 
 ```sh
-# See https://github.com/vitorbari/mcp-operator/releases for latest version
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name' | sed 's/^v//')
+
+# Install
 helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
-  --version 0.1.0-alpha.13 \
+  --version ${VERSION} \
   --namespace mcp-operator-system \
   --create-namespace
 ```
@@ -48,7 +51,11 @@ helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
 #### Option 2: Install via kubectl
 
 ```sh
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/install.yaml
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
+
+# Install
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/install.yaml
 ```
 
 **Use Helm** for easier configuration and upgrades. **Use kubectl** for minimal dependencies.
@@ -161,8 +168,12 @@ Enable Prometheus metrics and Grafana dashboards:
 
 **With Helm:**
 ```sh
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name' | sed 's/^v//')
+
+# Install with monitoring
 helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
-  --version 0.1.0-alpha.13 \
+  --version ${VERSION} \
   --namespace mcp-operator-system \
   --create-namespace \
   --set prometheus.enable=true \
@@ -171,7 +182,11 @@ helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
 
 **With kubectl:**
 ```sh
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/monitoring.yaml
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
+
+# Install monitoring
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/monitoring.yaml
 ```
 
 <img width="3452" height="3726" alt="localhost_3000_d_mcp-operator-overview_mcp-operator-protocol-intelligence_orgId=1 from=now-15m to=now timezone=browser refresh=30s" src="https://github.com/user-attachments/assets/f81ed38e-a03d-4a3b-aa72-727487e6c2ff" />

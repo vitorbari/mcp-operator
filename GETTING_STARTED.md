@@ -42,11 +42,15 @@ Choose your preferred installation method. Both options work the same - **use He
 
 ### Option A: Install with Helm
 
-Install MCP Operator using Helm. Check [releases](https://github.com/vitorbari/mcp-operator/releases) for the latest version:
+Install MCP Operator using Helm:
 
 ```bash
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name' | sed 's/^v//')
+
+# Install
 helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
-  --version 0.1.0-alpha.13 \
+  --version ${VERSION} \
   --namespace mcp-operator-system \
   --create-namespace
 ```
@@ -70,7 +74,11 @@ kubectl get pods -n mcp-operator-system
 Install MCP Operator using kubectl:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/install.yaml
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
+
+# Install
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/install.yaml
 ```
 
 Wait for it to be ready:
@@ -222,7 +230,12 @@ If you have Prometheus Operator installed, enable monitoring:
 
 **With Helm (if you used Helm to install):**
 ```bash
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name' | sed 's/^v//')
+
+# Upgrade with monitoring
 helm upgrade mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
+  --version ${VERSION} \
   --namespace mcp-operator-system \
   --reuse-values \
   --set prometheus.enable=true \
@@ -231,7 +244,11 @@ helm upgrade mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
 
 **With kubectl (if you used kubectl to install):**
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/monitoring.yaml
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
+
+# Install monitoring
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/monitoring.yaml
 ```
 
 This adds a Grafana dashboard showing all your MCP servers' health and performance.

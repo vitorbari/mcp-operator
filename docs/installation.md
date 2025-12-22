@@ -21,18 +21,20 @@ helm version
 
 ### Basic Installation
 
-Install the operator from GitHub Container Registry. Check [releases](https://github.com/vitorbari/mcp-operator/releases) for available versions:
+Install the operator from GitHub Container Registry:
 
 ```bash
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name' | sed 's/^v//')
+
+# Install
 helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
-  --version 0.1.0-alpha.13 \
+  --version ${VERSION} \
   --namespace mcp-operator-system \
   --create-namespace
 ```
 
 This creates the `mcp-operator-system` namespace and installs the chart there.
-
-> **Note:** OCI registries require explicit versions for reproducible deployments. Always specify `--version` for production use.
 
 **Verify installation:**
 
@@ -52,8 +54,12 @@ kubectl get crd mcpservers.mcp.mcp-operator.io
 #### Enable Prometheus Monitoring
 
 ```bash
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name' | sed 's/^v//')
+
+# Install with monitoring
 helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
-  --version 0.1.0-alpha.13 \
+  --version ${VERSION} \
   --namespace mcp-operator-system \
   --create-namespace \
   --set prometheus.enable=true \
@@ -63,8 +69,12 @@ helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
 #### Custom Resource Limits
 
 ```bash
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name' | sed 's/^v//')
+
+# Install with custom resources
 helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
-  --version 0.1.0-alpha.13 \
+  --version ${VERSION} \
   --namespace mcp-operator-system \
   --create-namespace \
   --set controllerManager.container.resources.limits.cpu=1000m \
@@ -102,8 +112,12 @@ grafana:
 Install with your values:
 
 ```bash
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name' | sed 's/^v//')
+
+# Install with values file
 helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
-  --version 0.1.0-alpha.13 \
+  --version ${VERSION} \
   --namespace mcp-operator-system \
   --create-namespace \
   -f values.yaml
@@ -129,11 +143,15 @@ For all available options, see `dist/chart/values.yaml` in the repository.
 
 ### Upgrading
 
-Upgrade to a new version (check [releases](https://github.com/vitorbari/mcp-operator/releases) for available versions):
+Upgrade to a new version:
 
 ```bash
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name' | sed 's/^v//')
+
+# Upgrade
 helm upgrade mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
-  --version 0.1.0-alpha.14 \
+  --version ${VERSION} \
   --namespace mcp-operator-system \
   --reuse-values
 ```
@@ -141,8 +159,12 @@ helm upgrade mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
 Upgrade with new configuration:
 
 ```bash
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name' | sed 's/^v//')
+
+# Upgrade with new config
 helm upgrade mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
-  --version 0.1.0-alpha.14 \
+  --version ${VERSION} \
   --namespace mcp-operator-system \
   --reuse-values \
   --set prometheus.enable=true \
@@ -175,7 +197,11 @@ The core operator provides all essential functionality:
 Install the core operator:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/install.yaml
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
+
+# Install
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/install.yaml
 ```
 
 This will:
@@ -231,7 +257,11 @@ kubectl wait --for=condition=available --timeout=300s \
 Once Prometheus Operator is installed:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/monitoring.yaml
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
+
+# Install monitoring
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/monitoring.yaml
 ```
 
 This creates:
@@ -288,7 +318,11 @@ helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
 **Best for:** Minimal installations, CI/CD, quick testing
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/install.yaml
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
+
+# Install
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/install.yaml
 ```
 
 ### Option 3: kubectl - Core + Monitoring
@@ -296,11 +330,14 @@ kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/d
 **Best for:** Production with existing Prometheus Operator
 
 ```bash
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
+
 # Install core
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/install.yaml
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/install.yaml
 
 # Install monitoring
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/monitoring.yaml
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/monitoring.yaml
 ```
 
 ## Namespace Strategy
@@ -362,11 +399,14 @@ If you installed with kubectl:
 # Delete all MCPServer resources first
 kubectl delete mcpserver --all --all-namespaces
 
+# Get the version you installed
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
+
 # Remove monitoring (if installed)
-kubectl delete -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/monitoring.yaml
+kubectl delete -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/monitoring.yaml
 
 # Uninstall the operator
-kubectl delete -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/dist/install.yaml
+kubectl delete -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/install.yaml
 ```
 
 ## Building from Source
