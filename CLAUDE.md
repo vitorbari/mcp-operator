@@ -257,3 +257,72 @@ See `config/samples/` for comprehensive examples:
 - Transport managers are responsible for protocol-specific resource configuration
 - Health probes are configurable and transport-aware
 - The operator supports both declarative and imperative resource management patterns
+
+## Release Process and Artifacts
+
+### Version Management
+
+The operator follows semantic versioning with pre-release identifiers (alpha, beta, rc).
+
+**Version source of truth:**
+- `config/manager/kustomization.yaml` - Contains the `newTag` field with operator version
+
+### Release Workflow
+
+1. **Update version in main branch:**
+   ```bash
+   sed -i '' 's/newTag: .*/newTag: v0.1.0-alpha.14/' config/manager/kustomization.yaml
+   git commit -am "Bump version to v0.1.0-alpha.14"
+   git push origin main
+   ```
+
+2. **Create and push tag:**
+   ```bash
+   git tag v0.1.0-alpha.14
+   git push origin v0.1.0-alpha.14
+   ```
+
+3. **Automated release (`.github/workflows/release.yml`):**
+   - Builds multi-platform Docker image (linux/amd64, linux/arm64)
+   - Pushes to GHCR: `ghcr.io/vitorbari/mcp-operator:v0.1.0-alpha.14`
+   - Generates installation manifests (`dist/install.yaml`, `dist/monitoring.yaml`)
+   - Updates Helm chart versions (Chart.yaml, values.yaml)
+   - Packages and pushes Helm chart to GHCR
+   - Commits chart metadata back to main branch
+   - Creates GitHub release with manifests as assets
+
+### Deployment Artifacts
+
+**Committed to git:**
+- `dist/chart/` - Complete Helm chart (templates, CRDs, metadata, docs)
+- `config/manager/kustomization.yaml` - Version source of truth
+
+**NOT committed (generated):**
+- `dist/install.yaml` - Generated YAML bundle (available via git tags and release assets)
+- `dist/monitoring.yaml` - Generated monitoring bundle (available via git tags and release assets)
+
+**Published artifacts:**
+- Docker image: `ghcr.io/vitorbari/mcp-operator:v0.1.0-alpha.14`
+- Helm chart: `oci://ghcr.io/vitorbari/mcp-operator:0.1.0-alpha.14` (version without 'v' prefix)
+
+### Installation Methods
+
+**Via git tag (kubectl):**
+```bash
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/${VERSION}/dist/install.yaml
+```
+
+**Via Helm:**
+```bash
+VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name' | sed 's/^v//')
+helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator --version ${VERSION}
+```
+
+### Why This Approach
+
+- **Cleaner git history**: No large generated YAML file commits
+- **Source in git**: Helm chart templates remain browsable and reviewable
+- **Artifacts in releases**: Generated bundles available via tags and release assets
+- **Dynamic installation**: Users fetch latest version via GitHub API
+- **No version hardcoding**: Documentation doesn't need updates on every release
