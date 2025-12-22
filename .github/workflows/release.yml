@@ -127,7 +127,7 @@ jobs:
           ### Option 2: kubectl
 
           \`\`\`bash
-          kubectl apply -f https://raw.githubusercontent.com/${{ github.repository }}/${VERSION}/dist/install.yaml
+          kubectl apply -f https://github.com/${{ github.repository }}/releases/download/${VERSION}/install.yaml
           \`\`\`
 
           ## Details
