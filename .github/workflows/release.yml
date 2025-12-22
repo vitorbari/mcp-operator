@@ -15,6 +15,7 @@ jobs:
     permissions:
       contents: write
       packages: write
+      id-token: write  # Required for Cosign keyless signing
 
     steps:
       - uses: actions/checkout@v4
@@ -99,6 +100,18 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           CHART_VERSION="${VERSION#v}"
           helm push mcp-operator-${CHART_VERSION}.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign Helm chart with Cosign
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          CHART_VERSION="${VERSION#v}"
+          # Sign the chart using keyless signing (OIDC)
+          cosign sign --yes ${{ env.REGISTRY }}/${{ github.repository_owner }}/mcp-operator:${CHART_VERSION}
+        env:
+          COSIGN_EXPERIMENTAL: 1
 
       - name: Commit chart metadata to main branch
         run: |
