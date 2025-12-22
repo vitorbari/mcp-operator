@@ -54,10 +54,6 @@ annotations:
   # Security updates
   artifacthub.io/containsSecurityUpdates: "false"
 
-  # Signing
-  artifacthub.io/signKey: |
-    Signed using Cosign keyless signing with GitHub Actions OIDC
-
   # Changes/Changelog
   artifacthub.io/changes: |
     - kind: added
