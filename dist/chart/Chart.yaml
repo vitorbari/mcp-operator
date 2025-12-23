@@ -54,14 +54,6 @@ annotations:
   # Security updates
   artifacthub.io/containsSecurityUpdates: "false"
 
-  # Changes/Changelog
-  artifacthub.io/changes: |
-    - kind: added
-      description: Initial Helm chart release
-      links:
-        - name: GitHub Release
-          url: https://github.com/vitorbari/mcp-operator/releases
-
   # CRDs info
   artifacthub.io/crds: |
     - kind: MCPServer
