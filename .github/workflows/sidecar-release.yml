@@ -1,12 +1,13 @@
-name: Sidecar CI
+name: Sidecar Release
 
 on:
   push:
-    paths:
-      - 'sidecar/**'
-  pull_request:
-    paths:
-      - 'sidecar/**'
+    tags:
+      - 'sidecar-v*'
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   test:
@@ -34,8 +35,8 @@ jobs:
       - name: Build binary
         run: go build -o mcp-proxy ./cmd/mcp-proxy
 
-  docker-build:
-    name: Docker Build
+  release:
+    name: Release
     runs-on: ubuntu-latest
     needs: test
     steps:
@@ -45,11 +46,29 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/vitorbari/mcp-proxy
+          tags: |
+            type=match,pattern=sidecar-v(.*),group=1
+            type=match,pattern=sidecar-v(\d+\.\d+),group=1
+
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: ./sidecar
-          push: false
-          tags: ghcr.io/vitorbari/mcp-proxy:test
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
