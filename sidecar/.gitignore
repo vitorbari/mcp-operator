@@ -1,0 +1,11 @@
+# Build artifacts
+bin/
+/mcp-proxy
+coverage.out
+coverage.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
