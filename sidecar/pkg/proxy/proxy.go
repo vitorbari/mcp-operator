@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/vitorbari/mcp-operator/sidecar/pkg/metrics"
 )
 
 // Proxy is the MCP reverse proxy that intercepts traffic for metrics collection.
@@ -30,10 +32,18 @@ type Proxy struct {
 
 	// logger is the structured logger for the proxy.
 	logger *slog.Logger
+
+	// recorder is the metrics recorder (optional, can be nil).
+	recorder *metrics.Recorder
 }
 
 // New creates a new Proxy instance.
 func New(listenAddr, targetAddr string, logger *slog.Logger) (*Proxy, error) {
+	return NewWithRecorder(listenAddr, targetAddr, logger, nil)
+}
+
+// NewWithRecorder creates a new Proxy instance with an optional metrics recorder.
+func NewWithRecorder(listenAddr, targetAddr string, logger *slog.Logger, recorder *metrics.Recorder) (*Proxy, error) {
 	// If no scheme is provided, assume http
 	// url.Parse treats "localhost:3001" as scheme "localhost" and opaque "3001"
 	// so we need to check for a valid scheme before parsing
@@ -50,6 +60,7 @@ func New(listenAddr, targetAddr string, logger *slog.Logger) (*Proxy, error) {
 		listenAddr: listenAddr,
 		target:     target,
 		logger:     logger,
+		recorder:   recorder,
 	}
 
 	// Create the reverse proxy
@@ -156,12 +167,24 @@ func getClientIP(req *http.Request) string {
 	return ip
 }
 
-// loggingMiddleware wraps a handler and logs each request.
-func (p *Proxy) loggingMiddleware(next http.Handler) http.Handler {
+// metricsMiddleware wraps a handler and records metrics for each request.
+func (p *Proxy) metricsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		start := time.Now()
 
-		// Wrap the response writer to capture the status code
+		// Track active connections
+		if p.recorder != nil {
+			p.recorder.IncrementConnections()
+			defer p.recorder.DecrementConnections()
+		}
+
+		// Get request size from Content-Length header
+		reqSize := req.ContentLength
+		if reqSize < 0 {
+			reqSize = 0
+		}
+
+		// Wrap the response writer to capture the status code and response size
 		lrw := &loggingResponseWriter{
 			ResponseWriter: w,
 			statusCode:     http.StatusOK,
@@ -181,8 +204,14 @@ func (p *Proxy) loggingMiddleware(next http.Handler) http.Handler {
 			slog.Int("status", lrw.statusCode),
 			slog.Duration("duration", duration),
 			slog.String("client_ip", getClientIP(req)),
-			slog.Int64("bytes_written", lrw.bytesWritten),
+			slog.Int64("request_bytes", reqSize),
+			slog.Int64("response_bytes", lrw.bytesWritten),
 		)
+
+		// Record metrics
+		if p.recorder != nil {
+			p.recorder.RecordRequest(lrw.statusCode, duration, reqSize, lrw.bytesWritten)
+		}
 	})
 }
 
@@ -215,8 +244,8 @@ func (lrw *loggingResponseWriter) Flush() {
 
 // Start starts the proxy server and blocks until the context is cancelled.
 func (p *Proxy) Start(ctx context.Context) error {
-	// Create the HTTP handler with logging middleware
-	handler := p.loggingMiddleware(p.reverseProxy)
+	// Create the HTTP handler with metrics middleware
+	handler := p.metricsMiddleware(p.reverseProxy)
 
 	// Create the HTTP server
 	p.server = &http.Server{

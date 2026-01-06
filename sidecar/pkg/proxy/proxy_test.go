@@ -103,7 +103,7 @@ func TestProxy_SuccessfulForwarding(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	// Serve the request through the proxy's handler
-	handler := p.loggingMiddleware(p.reverseProxy)
+	handler := p.metricsMiddleware(p.reverseProxy)
 	handler.ServeHTTP(rr, req)
 
 	// Check response
@@ -135,7 +135,7 @@ func TestProxy_TargetUnavailable(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	// Serve the request through the proxy's handler
-	handler := p.loggingMiddleware(p.reverseProxy)
+	handler := p.metricsMiddleware(p.reverseProxy)
 	handler.ServeHTTP(rr, req)
 
 	// Should return 502 Bad Gateway
@@ -171,7 +171,7 @@ func TestProxy_HeadersPreserved(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	// Serve the request through the proxy's handler
-	handler := p.loggingMiddleware(p.reverseProxy)
+	handler := p.metricsMiddleware(p.reverseProxy)
 	handler.ServeHTTP(rr, req)
 
 	// Check custom headers are preserved
@@ -239,7 +239,7 @@ func TestProxy_RequestBodyForwarded(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	// Serve the request through the proxy's handler
-	handler := p.loggingMiddleware(p.reverseProxy)
+	handler := p.metricsMiddleware(p.reverseProxy)
 	handler.ServeHTTP(rr, req)
 
 	// Check response
@@ -277,7 +277,7 @@ func TestProxy_XForwardedForChaining(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	// Serve the request through the proxy's handler
-	handler := p.loggingMiddleware(p.reverseProxy)
+	handler := p.metricsMiddleware(p.reverseProxy)
 	handler.ServeHTTP(rr, req)
 
 	// Check X-Forwarded-For is chained correctly
@@ -358,7 +358,7 @@ func TestProxy_ResponseWithDifferentStatusCodes(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/test", nil)
 			rr := httptest.NewRecorder()
 
-			handler := p.loggingMiddleware(p.reverseProxy)
+			handler := p.metricsMiddleware(p.reverseProxy)
 			handler.ServeHTTP(rr, req)
 
 			if rr.Code != tt.expectedStatus {
