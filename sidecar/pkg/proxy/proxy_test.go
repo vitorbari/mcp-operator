@@ -1,0 +1,476 @@
+package proxy
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+)
+
+// newTestLogger creates a logger for testing that discards output.
+func newTestLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func TestNew(t *testing.T) {
+	tests := []struct {
+		name       string
+		listenAddr string
+		targetAddr string
+		wantScheme string
+		wantHost   string
+		wantErr    bool
+	}{
+		{
+			name:       "valid target with scheme",
+			listenAddr: ":8080",
+			targetAddr: "http://localhost:3001",
+			wantScheme: "http",
+			wantHost:   "localhost:3001",
+			wantErr:    false,
+		},
+		{
+			name:       "valid target without scheme",
+			listenAddr: ":8080",
+			targetAddr: "localhost:3001",
+			wantScheme: "http",
+			wantHost:   "localhost:3001",
+			wantErr:    false,
+		},
+		{
+			name:       "https target",
+			listenAddr: ":8080",
+			targetAddr: "https://example.com:443",
+			wantScheme: "https",
+			wantHost:   "example.com:443",
+			wantErr:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := newTestLogger()
+			p, err := New(tt.listenAddr, tt.targetAddr, logger)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("New() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if err != nil {
+				return
+			}
+
+			if p.target.Scheme != tt.wantScheme {
+				t.Errorf("New() scheme = %v, want %v", p.target.Scheme, tt.wantScheme)
+			}
+
+			if p.target.Host != tt.wantHost {
+				t.Errorf("New() host = %v, want %v", p.target.Host, tt.wantHost)
+			}
+
+			if p.listenAddr != tt.listenAddr {
+				t.Errorf("New() listenAddr = %v, want %v", p.listenAddr, tt.listenAddr)
+			}
+		})
+	}
+}
+
+func TestProxy_SuccessfulForwarding(t *testing.T) {
+	// Create a mock target server
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Response-Header", "test-value")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Hello from target"))
+	}))
+	defer targetServer.Close()
+
+	// Create proxy pointing to target
+	logger := newTestLogger()
+	p, err := New(":0", targetServer.URL, logger)
+	if err != nil {
+		t.Fatalf("Failed to create proxy: %v", err)
+	}
+
+	// Create a test request
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rr := httptest.NewRecorder()
+
+	// Serve the request through the proxy's handler
+	handler := p.loggingMiddleware(p.reverseProxy)
+	handler.ServeHTTP(rr, req)
+
+	// Check response
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+
+	body := rr.Body.String()
+	if body != "Hello from target" {
+		t.Errorf("Expected body 'Hello from target', got '%s'", body)
+	}
+
+	// Check response headers are preserved
+	if rr.Header().Get("X-Response-Header") != "test-value" {
+		t.Errorf("Expected X-Response-Header 'test-value', got '%s'", rr.Header().Get("X-Response-Header"))
+	}
+}
+
+func TestProxy_TargetUnavailable(t *testing.T) {
+	// Create proxy pointing to non-existent target
+	logger := newTestLogger()
+	p, err := New(":0", "http://localhost:59999", logger) // Port unlikely to be in use
+	if err != nil {
+		t.Fatalf("Failed to create proxy: %v", err)
+	}
+
+	// Create a test request
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rr := httptest.NewRecorder()
+
+	// Serve the request through the proxy's handler
+	handler := p.loggingMiddleware(p.reverseProxy)
+	handler.ServeHTTP(rr, req)
+
+	// Should return 502 Bad Gateway
+	if rr.Code != http.StatusBadGateway {
+		t.Errorf("Expected status %d, got %d", http.StatusBadGateway, rr.Code)
+	}
+}
+
+func TestProxy_HeadersPreserved(t *testing.T) {
+	var receivedHeaders http.Header
+
+	// Create a mock target server that captures headers
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHeaders = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer targetServer.Close()
+
+	// Create proxy pointing to target
+	logger := newTestLogger()
+	p, err := New(":0", targetServer.URL, logger)
+	if err != nil {
+		t.Fatalf("Failed to create proxy: %v", err)
+	}
+
+	// Create a test request with custom headers
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set("X-Custom-Header", "custom-value")
+	req.Header.Set("Authorization", "Bearer token123")
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "192.168.1.100:12345"
+
+	rr := httptest.NewRecorder()
+
+	// Serve the request through the proxy's handler
+	handler := p.loggingMiddleware(p.reverseProxy)
+	handler.ServeHTTP(rr, req)
+
+	// Check custom headers are preserved
+	if receivedHeaders.Get("X-Custom-Header") != "custom-value" {
+		t.Errorf("Expected X-Custom-Header 'custom-value', got '%s'", receivedHeaders.Get("X-Custom-Header"))
+	}
+
+	if receivedHeaders.Get("Authorization") != "Bearer token123" {
+		t.Errorf("Expected Authorization header to be preserved")
+	}
+
+	if receivedHeaders.Get("Content-Type") != "application/json" {
+		t.Errorf("Expected Content-Type 'application/json', got '%s'", receivedHeaders.Get("Content-Type"))
+	}
+
+	// Check X-Forwarded-For is set
+	xff := receivedHeaders.Get("X-Forwarded-For")
+	if xff == "" {
+		t.Error("Expected X-Forwarded-For header to be set")
+	}
+	if !strings.Contains(xff, "192.168.1.100") {
+		t.Errorf("Expected X-Forwarded-For to contain client IP, got '%s'", xff)
+	}
+
+	// Check X-Forwarded-Proto is set
+	if receivedHeaders.Get("X-Forwarded-Proto") != "http" {
+		t.Errorf("Expected X-Forwarded-Proto 'http', got '%s'", receivedHeaders.Get("X-Forwarded-Proto"))
+	}
+}
+
+func TestProxy_RequestBodyForwarded(t *testing.T) {
+	var receivedBody []byte
+
+	// Create a mock target server that captures the body
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		receivedBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("Failed to read request body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer targetServer.Close()
+
+	// Create proxy pointing to target
+	logger := newTestLogger()
+	p, err := New(":0", targetServer.URL, logger)
+	if err != nil {
+		t.Fatalf("Failed to create proxy: %v", err)
+	}
+
+	// Create a test request with JSON body
+	requestBody := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "tools/call",
+		"params": map[string]string{
+			"name": "test-tool",
+		},
+		"id": 1,
+	}
+	bodyBytes, _ := json.Marshal(requestBody)
+
+	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	// Serve the request through the proxy's handler
+	handler := p.loggingMiddleware(p.reverseProxy)
+	handler.ServeHTTP(rr, req)
+
+	// Check response
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+
+	// Verify the body was forwarded correctly
+	if !bytes.Equal(receivedBody, bodyBytes) {
+		t.Errorf("Request body not forwarded correctly.\nExpected: %s\nGot: %s", string(bodyBytes), string(receivedBody))
+	}
+}
+
+func TestProxy_XForwardedForChaining(t *testing.T) {
+	var receivedXFF string
+
+	// Create a mock target server
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedXFF = r.Header.Get("X-Forwarded-For")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer targetServer.Close()
+
+	// Create proxy pointing to target
+	logger := newTestLogger()
+	p, err := New(":0", targetServer.URL, logger)
+	if err != nil {
+		t.Fatalf("Failed to create proxy: %v", err)
+	}
+
+	// Create a test request with existing X-Forwarded-For header
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set("X-Forwarded-For", "10.0.0.1, 10.0.0.2")
+	req.RemoteAddr = "192.168.1.100:12345"
+	rr := httptest.NewRecorder()
+
+	// Serve the request through the proxy's handler
+	handler := p.loggingMiddleware(p.reverseProxy)
+	handler.ServeHTTP(rr, req)
+
+	// Check X-Forwarded-For is chained correctly
+	if !strings.HasPrefix(receivedXFF, "10.0.0.1, 10.0.0.2, ") {
+		t.Errorf("Expected X-Forwarded-For to start with existing IPs, got '%s'", receivedXFF)
+	}
+}
+
+func TestProxy_StartAndShutdown(t *testing.T) {
+	// Create a mock target server
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	}))
+	defer targetServer.Close()
+
+	// Create proxy
+	logger := newTestLogger()
+	p, err := New("127.0.0.1:0", targetServer.URL, logger)
+	if err != nil {
+		t.Fatalf("Failed to create proxy: %v", err)
+	}
+
+	// Start proxy with a context we can cancel
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Start proxy in goroutine
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- p.Start(ctx)
+	}()
+
+	// Give the server a moment to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Cancel context to trigger shutdown
+	cancel()
+
+	// Wait for shutdown with timeout
+	select {
+	case err := <-errChan:
+		if err != nil && err != context.Canceled {
+			t.Errorf("Unexpected error from Start(): %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("Server did not shut down within timeout")
+	}
+}
+
+func TestProxy_ResponseWithDifferentStatusCodes(t *testing.T) {
+	tests := []struct {
+		name           string
+		targetStatus   int
+		expectedStatus int
+	}{
+		{"OK", http.StatusOK, http.StatusOK},
+		{"Created", http.StatusCreated, http.StatusCreated},
+		{"Bad Request", http.StatusBadRequest, http.StatusBadRequest},
+		{"Not Found", http.StatusNotFound, http.StatusNotFound},
+		{"Internal Server Error", http.StatusInternalServerError, http.StatusInternalServerError},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a mock target server
+			targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.targetStatus)
+			}))
+			defer targetServer.Close()
+
+			// Create proxy
+			logger := newTestLogger()
+			p, err := New(":0", targetServer.URL, logger)
+			if err != nil {
+				t.Fatalf("Failed to create proxy: %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			rr := httptest.NewRecorder()
+
+			handler := p.loggingMiddleware(p.reverseProxy)
+			handler.ServeHTTP(rr, req)
+
+			if rr.Code != tt.expectedStatus {
+				t.Errorf("Expected status %d, got %d", tt.expectedStatus, rr.Code)
+			}
+		})
+	}
+}
+
+func TestGetClientIP(t *testing.T) {
+	tests := []struct {
+		name       string
+		xRealIP    string
+		xff        string
+		remoteAddr string
+		expected   string
+	}{
+		{
+			name:       "X-Real-IP present",
+			xRealIP:    "10.0.0.1",
+			xff:        "",
+			remoteAddr: "192.168.1.1:12345",
+			expected:   "10.0.0.1",
+		},
+		{
+			name:       "X-Forwarded-For single IP",
+			xRealIP:    "",
+			xff:        "10.0.0.2",
+			remoteAddr: "192.168.1.1:12345",
+			expected:   "10.0.0.2",
+		},
+		{
+			name:       "X-Forwarded-For multiple IPs",
+			xRealIP:    "",
+			xff:        "10.0.0.1, 10.0.0.2, 10.0.0.3",
+			remoteAddr: "192.168.1.1:12345",
+			expected:   "10.0.0.1",
+		},
+		{
+			name:       "Fall back to RemoteAddr",
+			xRealIP:    "",
+			xff:        "",
+			remoteAddr: "192.168.1.1:12345",
+			expected:   "192.168.1.1",
+		},
+		{
+			name:       "RemoteAddr without port",
+			xRealIP:    "",
+			xff:        "",
+			remoteAddr: "192.168.1.1",
+			expected:   "192.168.1.1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tt.xRealIP != "" {
+				req.Header.Set("X-Real-IP", tt.xRealIP)
+			}
+			if tt.xff != "" {
+				req.Header.Set("X-Forwarded-For", tt.xff)
+			}
+			req.RemoteAddr = tt.remoteAddr
+
+			got := getClientIP(req)
+			if got != tt.expected {
+				t.Errorf("getClientIP() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestLoggingResponseWriter(t *testing.T) {
+	t.Run("captures status code", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		lrw := &loggingResponseWriter{ResponseWriter: rr, statusCode: http.StatusOK}
+
+		lrw.WriteHeader(http.StatusNotFound)
+
+		if lrw.statusCode != http.StatusNotFound {
+			t.Errorf("Expected status code %d, got %d", http.StatusNotFound, lrw.statusCode)
+		}
+	})
+
+	t.Run("captures bytes written", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		lrw := &loggingResponseWriter{ResponseWriter: rr, statusCode: http.StatusOK}
+
+		data := []byte("Hello, World!")
+		n, err := lrw.Write(data)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if n != len(data) {
+			t.Errorf("Expected %d bytes written, got %d", len(data), n)
+		}
+		if lrw.bytesWritten != int64(len(data)) {
+			t.Errorf("Expected bytesWritten %d, got %d", len(data), lrw.bytesWritten)
+		}
+	})
+
+	t.Run("default status code is 200", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		lrw := &loggingResponseWriter{ResponseWriter: rr, statusCode: http.StatusOK}
+
+		// Write without calling WriteHeader
+		lrw.Write([]byte("test"))
+
+		if lrw.statusCode != http.StatusOK {
+			t.Errorf("Expected default status code %d, got %d", http.StatusOK, lrw.statusCode)
+		}
+	})
+}

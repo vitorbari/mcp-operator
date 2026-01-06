@@ -3,8 +3,15 @@ package proxy
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
+	"net/http/httputil"
 	"net/url"
+	"strings"
+	"time"
 )
 
 // Proxy is the MCP reverse proxy that intercepts traffic for metrics collection.
@@ -15,45 +22,247 @@ type Proxy struct {
 	// target is the URL of the MCP server to proxy requests to.
 	target *url.URL
 
+	// reverseProxy is the underlying HTTP reverse proxy.
+	reverseProxy *httputil.ReverseProxy
+
+	// server is the HTTP server.
+	server *http.Server
+
 	// logger is the structured logger for the proxy.
 	logger *slog.Logger
 }
 
 // New creates a new Proxy instance.
 func New(listenAddr, targetAddr string, logger *slog.Logger) (*Proxy, error) {
+	// If no scheme is provided, assume http
+	// url.Parse treats "localhost:3001" as scheme "localhost" and opaque "3001"
+	// so we need to check for a valid scheme before parsing
+	if !strings.Contains(targetAddr, "://") {
+		targetAddr = "http://" + targetAddr
+	}
+
 	target, err := url.Parse(targetAddr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse target address: %w", err)
 	}
 
-	// If no scheme is provided, assume http
-	if target.Scheme == "" {
-		target.Scheme = "http"
-		target, err = url.Parse(target.Scheme + "://" + targetAddr)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return &Proxy{
+	p := &Proxy{
 		listenAddr: listenAddr,
 		target:     target,
 		logger:     logger,
-	}, nil
+	}
+
+	// Create the reverse proxy
+	p.reverseProxy = p.createReverseProxy()
+
+	return p, nil
+}
+
+// createReverseProxy creates and configures the httputil.ReverseProxy.
+func (p *Proxy) createReverseProxy() *httputil.ReverseProxy {
+	proxy := httputil.NewSingleHostReverseProxy(p.target)
+
+	// Customize the Director to handle headers properly
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		p.modifyRequest(req)
+	}
+
+	// Custom error handler for target unavailable
+	proxy.ErrorHandler = p.errorHandler
+
+	// Custom transport with reasonable timeouts
+	proxy.Transport = &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	return proxy
+}
+
+// modifyRequest modifies the outgoing request to the target.
+func (p *Proxy) modifyRequest(req *http.Request) {
+	// Set the Host header to the target host
+	req.Host = p.target.Host
+
+	// Handle X-Forwarded-For header
+	clientIP := getClientIP(req)
+	if prior := req.Header.Get("X-Forwarded-For"); prior != "" {
+		clientIP = prior + ", " + clientIP
+	}
+	req.Header.Set("X-Forwarded-For", clientIP)
+
+	// Set X-Real-IP if not already set
+	if req.Header.Get("X-Real-IP") == "" {
+		req.Header.Set("X-Real-IP", getClientIP(req))
+	}
+
+	// Set X-Forwarded-Proto
+	scheme := "http"
+	if req.TLS != nil {
+		scheme = "https"
+	}
+	req.Header.Set("X-Forwarded-Proto", scheme)
+
+	// Set X-Forwarded-Host
+	if req.Header.Get("X-Forwarded-Host") == "" {
+		req.Header.Set("X-Forwarded-Host", req.Host)
+	}
+}
+
+// errorHandler handles errors when proxying to the target.
+func (p *Proxy) errorHandler(w http.ResponseWriter, req *http.Request, err error) {
+	p.logger.Error("proxy error",
+		slog.String("method", req.Method),
+		slog.String("path", req.URL.Path),
+		slog.String("error", err.Error()),
+	)
+
+	// Return 502 Bad Gateway for target unavailable
+	w.WriteHeader(http.StatusBadGateway)
+	fmt.Fprintf(w, "proxy error: %v", err)
+}
+
+// getClientIP extracts the client IP from the request.
+func getClientIP(req *http.Request) string {
+	// Try to get IP from X-Real-IP header first
+	if ip := req.Header.Get("X-Real-IP"); ip != "" {
+		return ip
+	}
+
+	// Then try X-Forwarded-For
+	if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take the first IP in the chain
+		if idx := strings.Index(xff, ","); idx != -1 {
+			return strings.TrimSpace(xff[:idx])
+		}
+		return strings.TrimSpace(xff)
+	}
+
+	// Fall back to RemoteAddr
+	ip, _, err := net.SplitHostPort(req.RemoteAddr)
+	if err != nil {
+		return req.RemoteAddr
+	}
+	return ip
+}
+
+// loggingMiddleware wraps a handler and logs each request.
+func (p *Proxy) loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		start := time.Now()
+
+		// Wrap the response writer to capture the status code
+		lrw := &loggingResponseWriter{
+			ResponseWriter: w,
+			statusCode:     http.StatusOK,
+		}
+
+		// Process the request
+		next.ServeHTTP(lrw, req)
+
+		// Calculate duration
+		duration := time.Since(start)
+
+		// Log the request
+		p.logger.Info("request",
+			slog.String("method", req.Method),
+			slog.String("path", req.URL.Path),
+			slog.String("query", req.URL.RawQuery),
+			slog.Int("status", lrw.statusCode),
+			slog.Duration("duration", duration),
+			slog.String("client_ip", getClientIP(req)),
+			slog.Int64("bytes_written", lrw.bytesWritten),
+		)
+	})
+}
+
+// loggingResponseWriter wraps http.ResponseWriter to capture status code and bytes written.
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	statusCode   int
+	bytesWritten int64
+}
+
+// WriteHeader captures the status code.
+func (lrw *loggingResponseWriter) WriteHeader(code int) {
+	lrw.statusCode = code
+	lrw.ResponseWriter.WriteHeader(code)
+}
+
+// Write captures the number of bytes written.
+func (lrw *loggingResponseWriter) Write(b []byte) (int, error) {
+	n, err := lrw.ResponseWriter.Write(b)
+	lrw.bytesWritten += int64(n)
+	return n, err
+}
+
+// Flush implements http.Flusher for streaming support.
+func (lrw *loggingResponseWriter) Flush() {
+	if flusher, ok := lrw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 // Start starts the proxy server and blocks until the context is cancelled.
-// This is a stub implementation that will be expanded in Task 2.
 func (p *Proxy) Start(ctx context.Context) error {
-	p.logger.Info("proxy start requested",
-		slog.String("listen_addr", p.listenAddr),
-		slog.String("target", p.target.String()),
-	)
+	// Create the HTTP handler with logging middleware
+	handler := p.loggingMiddleware(p.reverseProxy)
 
-	// TODO: Implement reverse proxy in Task 2
-	// This stub just waits for context cancellation
-	<-ctx.Done()
-	return ctx.Err()
+	// Create the HTTP server
+	p.server = &http.Server{
+		Addr:         p.listenAddr,
+		Handler:      handler,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	// Channel to capture server errors
+	errChan := make(chan error, 1)
+
+	// Start the server in a goroutine
+	go func() {
+		p.logger.Info("starting HTTP server",
+			slog.String("listen_addr", p.listenAddr),
+			slog.String("target", p.target.String()),
+		)
+		if err := p.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errChan <- err
+		}
+		close(errChan)
+	}()
+
+	// Wait for context cancellation or server error
+	select {
+	case <-ctx.Done():
+		p.logger.Info("shutting down proxy server")
+		// Create a shutdown context with timeout
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if err := p.server.Shutdown(shutdownCtx); err != nil {
+			p.logger.Error("error during server shutdown", slog.String("error", err.Error()))
+			return err
+		}
+		p.logger.Info("proxy server stopped gracefully")
+		return ctx.Err()
+
+	case err := <-errChan:
+		if err != nil {
+			return fmt.Errorf("server error: %w", err)
+		}
+		return nil
+	}
 }
 
 // ListenAddr returns the address the proxy is configured to listen on.
