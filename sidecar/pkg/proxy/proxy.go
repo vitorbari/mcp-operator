@@ -213,22 +213,12 @@ func (p *Proxy) metricsMiddleware(next http.Handler) http.Handler {
 		// Calculate duration
 		duration := time.Since(start)
 
-		// Handle SSE connection close and metrics
+		// Handle SSE connection close metrics (but continue to record request metrics)
 		if sw.isSSE {
 			sw.recordSSEClose()
-			p.logger.Info("sse_connection",
-				slog.String("http_method", req.Method),
-				slog.String("path", req.URL.Path),
-				slog.Int("status", sw.statusCode),
-				slog.Duration("duration", duration),
-				slog.String("client_ip", getClientIP(req)),
-				slog.Int64("request_bytes", reqSize),
-				slog.Int64("response_bytes", sw.bytesWritten),
-			)
-			return
 		}
 
-		// Parse request and response for MCP metrics (non-SSE only)
+		// Parse request for MCP method (always, regardless of SSE)
 		mcpMethod := "unknown"
 		var parsedReq *mcp.ParsedRequest
 		var parsedResp *mcp.ParsedResponse
@@ -245,15 +235,17 @@ func (p *Proxy) metricsMiddleware(next http.Handler) http.Handler {
 			}
 		}
 
-		// Parse response if it's JSON
-		respBody := sw.Body()
-		if len(respBody) > 0 && isJSONContentType(sw.Header().Get("Content-Type")) {
-			var err error
-			parsedResp, err = mcp.ParseResponse(respBody)
-			if err != nil {
-				p.logger.Debug("failed to parse MCP response",
-					slog.String("error", err.Error()),
-				)
+		// Parse response if it's JSON (skip for SSE as body is streamed)
+		if !sw.isSSE {
+			respBody := sw.Body()
+			if len(respBody) > 0 && isJSONContentType(sw.Header().Get("Content-Type")) {
+				var err error
+				parsedResp, err = mcp.ParseResponse(respBody)
+				if err != nil {
+					p.logger.Debug("failed to parse MCP response",
+						slog.String("error", err.Error()),
+					)
+				}
 			}
 		}
 
@@ -268,6 +260,7 @@ func (p *Proxy) metricsMiddleware(next http.Handler) http.Handler {
 			slog.String("client_ip", getClientIP(req)),
 			slog.Int64("request_bytes", reqSize),
 			slog.Int64("response_bytes", sw.bytesWritten),
+			slog.Bool("sse", sw.isSSE),
 		)
 
 		// Record metrics
@@ -287,7 +280,7 @@ func (p *Proxy) metricsMiddleware(next http.Handler) http.Handler {
 				}
 			}
 
-			// Record errors
+			// Record errors (from JSON response only, SSE errors are tracked separately)
 			if parsedResp != nil && parsedResp.IsError {
 				p.recorder.RecordError(ctx, mcpMethod, parsedResp.ErrorCode)
 			}
