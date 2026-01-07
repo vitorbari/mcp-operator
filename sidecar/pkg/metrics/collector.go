@@ -26,7 +26,7 @@ var (
 
 // Instruments holds all OpenTelemetry metric instruments for the MCP proxy.
 type Instruments struct {
-	// RequestsTotal counts total requests by HTTP status code.
+	// RequestsTotal counts total requests by HTTP status code and MCP method.
 	RequestsTotal metric.Int64Counter
 
 	// RequestDuration tracks request duration in seconds.
@@ -40,13 +40,22 @@ type Instruments struct {
 
 	// ActiveConnections tracks the number of active connections.
 	ActiveConnections metric.Int64UpDownCounter
+
+	// ToolCallsTotal counts total tool call requests by tool name.
+	ToolCallsTotal metric.Int64Counter
+
+	// ResourceReadsTotal counts total resource read requests by resource URI.
+	ResourceReadsTotal metric.Int64Counter
+
+	// RequestErrorsTotal counts total JSON-RPC error responses by method and error code.
+	RequestErrorsTotal metric.Int64Counter
 }
 
 // NewInstruments creates all metric instruments using the provided meter.
 func NewInstruments(meter metric.Meter) (*Instruments, error) {
 	requestsTotal, err := meter.Int64Counter(
 		"mcp.requests.total",
-		metric.WithDescription("Total number of HTTP requests by status code."),
+		metric.WithDescription("Total number of HTTP requests by status code and MCP method."),
 		metric.WithUnit("{request}"),
 	)
 	if err != nil {
@@ -92,11 +101,41 @@ func NewInstruments(meter metric.Meter) (*Instruments, error) {
 		return nil, err
 	}
 
+	toolCallsTotal, err := meter.Int64Counter(
+		"mcp.tool_calls.total",
+		metric.WithDescription("Total number of tool call requests by tool name."),
+		metric.WithUnit("{call}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	resourceReadsTotal, err := meter.Int64Counter(
+		"mcp.resource_reads.total",
+		metric.WithDescription("Total number of resource read requests by resource URI."),
+		metric.WithUnit("{read}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	requestErrorsTotal, err := meter.Int64Counter(
+		"mcp.request_errors.total",
+		metric.WithDescription("Total number of JSON-RPC error responses by method and error code."),
+		metric.WithUnit("{error}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Instruments{
-		RequestsTotal:     requestsTotal,
-		RequestDuration:   requestDuration,
-		RequestSize:       requestSize,
-		ResponseSize:      responseSize,
-		ActiveConnections: activeConnections,
+		RequestsTotal:      requestsTotal,
+		RequestDuration:    requestDuration,
+		RequestSize:        requestSize,
+		ResponseSize:       responseSize,
+		ActiveConnections:  activeConnections,
+		ToolCallsTotal:     toolCallsTotal,
+		ResourceReadsTotal: resourceReadsTotal,
+		RequestErrorsTotal: requestErrorsTotal,
 	}, nil
 }
