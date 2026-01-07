@@ -99,11 +99,16 @@ func (r *Recorder) MeterProvider() *sdkmetric.MeterProvider {
 }
 
 // RecordRequest records metrics for a completed HTTP request.
-func (r *Recorder) RecordRequest(ctx context.Context, status int, duration time.Duration, reqSize, respSize int64) {
-	statusAttr := attribute.String("status", strconv.Itoa(status))
+// The method parameter is the MCP JSON-RPC method name (e.g., "tools/call", "initialize").
+// Use "unknown" if the method could not be parsed.
+func (r *Recorder) RecordRequest(ctx context.Context, method string, status int, duration time.Duration, reqSize, respSize int64) {
+	attrs := []attribute.KeyValue{
+		attribute.String("status", strconv.Itoa(status)),
+		attribute.String("method", method),
+	}
 
-	// Record request count by status
-	r.instruments.RequestsTotal.Add(ctx, 1, metric.WithAttributes(statusAttr))
+	// Record request count by status and method
+	r.instruments.RequestsTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
 
 	// Record request duration
 	r.instruments.RequestDuration.Record(ctx, duration.Seconds())
@@ -117,6 +122,28 @@ func (r *Recorder) RecordRequest(ctx context.Context, status int, duration time.
 	if respSize > 0 {
 		r.instruments.ResponseSize.Record(ctx, float64(respSize))
 	}
+}
+
+// RecordToolCall records a tool call request.
+func (r *Recorder) RecordToolCall(ctx context.Context, toolName string) {
+	r.instruments.ToolCallsTotal.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("tool_name", toolName),
+	))
+}
+
+// RecordResourceRead records a resource read request.
+func (r *Recorder) RecordResourceRead(ctx context.Context, resourceURI string) {
+	r.instruments.ResourceReadsTotal.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("resource_uri", resourceURI),
+	))
+}
+
+// RecordError records a JSON-RPC error response.
+func (r *Recorder) RecordError(ctx context.Context, method string, errorCode int) {
+	r.instruments.RequestErrorsTotal.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("method", method),
+		attribute.String("error_code", strconv.Itoa(errorCode)),
+	))
 }
 
 // IncrementConnections increments the active connections counter.

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/vitorbari/mcp-operator/sidecar/pkg/mcp"
 )
 
 func TestNewRecorder(t *testing.T) {
@@ -74,10 +76,10 @@ func TestRecorder_RecordRequest(t *testing.T) {
 	ctx := context.Background()
 
 	// Record some requests
-	recorder.RecordRequest(ctx, 200, 100*time.Millisecond, 1000, 5000)
-	recorder.RecordRequest(ctx, 200, 50*time.Millisecond, 500, 2500)
-	recorder.RecordRequest(ctx, 404, 10*time.Millisecond, 100, 200)
-	recorder.RecordRequest(ctx, 500, 200*time.Millisecond, 1500, 100)
+	recorder.RecordRequest(ctx, mcp.MethodInitialize, 200, 100*time.Millisecond, 1000, 5000)
+	recorder.RecordRequest(ctx, mcp.MethodToolsList, 200, 50*time.Millisecond, 500, 2500)
+	recorder.RecordRequest(ctx, mcp.MethodToolsCall, 404, 10*time.Millisecond, 100, 200)
+	recorder.RecordRequest(ctx, "unknown", 500, 200*time.Millisecond, 1500, 100)
 
 	// Get metrics from the handler
 	req := httptest.NewRequest("GET", "/metrics", nil)
@@ -132,7 +134,7 @@ func TestRecorder_RecordRequest_ZeroSizes(t *testing.T) {
 	ctx := context.Background()
 
 	// Record request with zero sizes (should not observe size histograms)
-	recorder.RecordRequest(ctx, 200, 10*time.Millisecond, 0, 0)
+	recorder.RecordRequest(ctx, mcp.MethodInitialize, 200, 10*time.Millisecond, 0, 0)
 
 	// Get metrics from the handler
 	req := httptest.NewRequest("GET", "/metrics", nil)
@@ -220,7 +222,7 @@ func TestRecorder_HistogramBuckets(t *testing.T) {
 	}
 
 	for _, d := range durations {
-		recorder.RecordRequest(ctx, 200, d, 100, 100)
+		recorder.RecordRequest(ctx, mcp.MethodToolsList, 200, d, 100, 100)
 	}
 
 	// Get metrics
@@ -256,7 +258,7 @@ func TestRecorder_MultipleStatusCodes(t *testing.T) {
 	statusCodes := []int{200, 201, 204, 301, 400, 401, 403, 404, 500, 502, 503}
 
 	for _, status := range statusCodes {
-		recorder.RecordRequest(ctx, status, 10*time.Millisecond, 100, 100)
+		recorder.RecordRequest(ctx, mcp.MethodInitialize, status, 10*time.Millisecond, 100, 100)
 	}
 
 	// Get metrics
@@ -287,8 +289,11 @@ func TestRecorder_MetricsEndpointFormat(t *testing.T) {
 	ctx := context.Background()
 
 	// Record some data
-	recorder.RecordRequest(ctx, 200, 100*time.Millisecond, 1000, 5000)
+	recorder.RecordRequest(ctx, mcp.MethodToolsCall, 200, 100*time.Millisecond, 1000, 5000)
 	recorder.IncrementConnections(ctx)
+	recorder.RecordToolCall(ctx, "get_weather")
+	recorder.RecordResourceRead(ctx, "file:///test.txt")
+	recorder.RecordError(ctx, mcp.MethodToolsCall, -32600)
 
 	// Get metrics
 	req := httptest.NewRequest("GET", "/metrics", nil)
@@ -306,6 +311,9 @@ func TestRecorder_MetricsEndpointFormat(t *testing.T) {
 		"mcp_response_size",
 		"mcp_active_connections",
 		"mcp_proxy_info",
+		"mcp_tool_calls_total",
+		"mcp_resource_reads_total",
+		"mcp_request_errors_total",
 	}
 
 	for _, name := range expectedMetrics {

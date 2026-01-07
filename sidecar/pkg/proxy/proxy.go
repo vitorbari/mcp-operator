@@ -2,9 +2,11 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -13,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vitorbari/mcp-operator/sidecar/pkg/mcp"
 	"github.com/vitorbari/mcp-operator/sidecar/pkg/metrics"
 )
 
@@ -179,41 +182,104 @@ func (p *Proxy) metricsMiddleware(next http.Handler) http.Handler {
 			defer p.recorder.DecrementConnections(ctx)
 		}
 
-		// Get request size from Content-Length header
-		reqSize := req.ContentLength
-		if reqSize < 0 {
-			reqSize = 0
+		// Capture request body for JSON parsing
+		var reqBody []byte
+		var reqSize int64
+		if req.Body != nil && isJSONContentType(req.Header.Get("Content-Type")) {
+			bodyBytes, err := io.ReadAll(req.Body)
+			if err == nil {
+				reqBody = bodyBytes
+				reqSize = int64(len(bodyBytes))
+				// Restore the body for the reverse proxy
+				req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			}
+		} else {
+			// Use Content-Length for non-JSON requests
+			reqSize = req.ContentLength
+			if reqSize < 0 {
+				reqSize = 0
+			}
 		}
 
-		// Wrap the response writer to capture the status code and response size
-		lrw := &loggingResponseWriter{
-			ResponseWriter: w,
-			statusCode:     http.StatusOK,
-		}
+		// Wrap the response writer to capture the status code and response body
+		rc := newResponseCapture(w, DefaultMaxBodyCapture)
 
 		// Process the request
-		next.ServeHTTP(lrw, req)
+		next.ServeHTTP(rc, req)
 
 		// Calculate duration
 		duration := time.Since(start)
 
+		// Parse request and response for MCP metrics
+		mcpMethod := "unknown"
+		var parsedReq *mcp.ParsedRequest
+		var parsedResp *mcp.ParsedResponse
+
+		if len(reqBody) > 0 {
+			var err error
+			parsedReq, err = mcp.ParseRequest(reqBody)
+			if err != nil {
+				p.logger.Debug("failed to parse MCP request",
+					slog.String("error", err.Error()),
+				)
+			} else {
+				mcpMethod = parsedReq.Method
+			}
+		}
+
+		// Parse response if it's JSON
+		respBody := rc.Body()
+		if len(respBody) > 0 && isJSONContentType(rc.Header().Get("Content-Type")) {
+			var err error
+			parsedResp, err = mcp.ParseResponse(respBody)
+			if err != nil {
+				p.logger.Debug("failed to parse MCP response",
+					slog.String("error", err.Error()),
+				)
+			}
+		}
+
 		// Log the request
 		p.logger.Info("request",
-			slog.String("method", req.Method),
+			slog.String("http_method", req.Method),
 			slog.String("path", req.URL.Path),
 			slog.String("query", req.URL.RawQuery),
-			slog.Int("status", lrw.statusCode),
+			slog.String("mcp_method", mcpMethod),
+			slog.Int("status", rc.StatusCode()),
 			slog.Duration("duration", duration),
 			slog.String("client_ip", getClientIP(req)),
 			slog.Int64("request_bytes", reqSize),
-			slog.Int64("response_bytes", lrw.bytesWritten),
+			slog.Int64("response_bytes", rc.BytesWritten()),
 		)
 
 		// Record metrics
 		if p.recorder != nil {
-			p.recorder.RecordRequest(ctx, lrw.statusCode, duration, reqSize, lrw.bytesWritten)
+			p.recorder.RecordRequest(ctx, mcpMethod, rc.StatusCode(), duration, reqSize, rc.BytesWritten())
+
+			// Record MCP-specific metrics
+			if parsedReq != nil {
+				// Record tool calls
+				if parsedReq.Method == mcp.MethodToolsCall && parsedReq.ToolName != "" {
+					p.recorder.RecordToolCall(ctx, parsedReq.ToolName)
+				}
+
+				// Record resource reads
+				if parsedReq.Method == mcp.MethodResourcesRead && parsedReq.ResourceURI != "" {
+					p.recorder.RecordResourceRead(ctx, parsedReq.ResourceURI)
+				}
+			}
+
+			// Record errors
+			if parsedResp != nil && parsedResp.IsError {
+				p.recorder.RecordError(ctx, mcpMethod, parsedResp.ErrorCode)
+			}
 		}
 	})
+}
+
+// isJSONContentType checks if the content type indicates JSON.
+func isJSONContentType(contentType string) bool {
+	return strings.Contains(contentType, "application/json")
 }
 
 // loggingResponseWriter wraps http.ResponseWriter to capture status code and bytes written.
