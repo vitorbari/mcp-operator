@@ -171,11 +171,12 @@ func getClientIP(req *http.Request) string {
 func (p *Proxy) metricsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		start := time.Now()
+		ctx := req.Context()
 
 		// Track active connections
 		if p.recorder != nil {
-			p.recorder.IncrementConnections()
-			defer p.recorder.DecrementConnections()
+			p.recorder.IncrementConnections(ctx)
+			defer p.recorder.DecrementConnections(ctx)
 		}
 
 		// Get request size from Content-Length header
@@ -210,7 +211,7 @@ func (p *Proxy) metricsMiddleware(next http.Handler) http.Handler {
 
 		// Record metrics
 		if p.recorder != nil {
-			p.recorder.RecordRequest(lrw.statusCode, duration, reqSize, lrw.bytesWritten)
+			p.recorder.RecordRequest(ctx, lrw.statusCode, duration, reqSize, lrw.bytesWritten)
 		}
 	})
 }

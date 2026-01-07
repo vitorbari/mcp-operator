@@ -1,13 +1,13 @@
-// Package metrics provides Prometheus metrics collection for the MCP proxy.
+// Package metrics provides OpenTelemetry metrics collection for the MCP proxy.
 package metrics
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
-	// Namespace for all MCP proxy metrics.
-	namespace = "mcp"
+	// MeterName is the name of the OpenTelemetry meter.
+	MeterName = "mcp-proxy"
 )
 
 var (
@@ -24,115 +24,79 @@ var (
 	}
 )
 
-// Collector holds all Prometheus metrics for the MCP proxy.
-type Collector struct {
+// Instruments holds all OpenTelemetry metric instruments for the MCP proxy.
+type Instruments struct {
 	// RequestsTotal counts total requests by HTTP status code.
-	RequestsTotal *prometheus.CounterVec
+	RequestsTotal metric.Int64Counter
 
 	// RequestDuration tracks request duration in seconds.
-	RequestDuration prometheus.Histogram
+	RequestDuration metric.Float64Histogram
 
 	// RequestSize tracks request body size in bytes.
-	RequestSize prometheus.Histogram
+	RequestSize metric.Float64Histogram
 
 	// ResponseSize tracks response body size in bytes.
-	ResponseSize prometheus.Histogram
+	ResponseSize metric.Float64Histogram
 
 	// ActiveConnections tracks the number of active connections.
-	ActiveConnections prometheus.Gauge
-
-	// ProxyInfo is a static gauge with proxy metadata (always set to 1).
-	ProxyInfo *prometheus.GaugeVec
+	ActiveConnections metric.Int64UpDownCounter
 }
 
-// NewCollector creates a new Collector with all metrics registered.
-func NewCollector() *Collector {
-	c := &Collector{
-		RequestsTotal: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Namespace: namespace,
-				Name:      "requests_total",
-				Help:      "Total number of HTTP requests by status code.",
-			},
-			[]string{"status"},
-		),
-
-		RequestDuration: prometheus.NewHistogram(
-			prometheus.HistogramOpts{
-				Namespace: namespace,
-				Name:      "request_duration_seconds",
-				Help:      "HTTP request duration in seconds.",
-				Buckets:   DefaultDurationBuckets,
-			},
-		),
-
-		RequestSize: prometheus.NewHistogram(
-			prometheus.HistogramOpts{
-				Namespace: namespace,
-				Name:      "request_size_bytes",
-				Help:      "HTTP request body size in bytes.",
-				Buckets:   DefaultBytesBuckets,
-			},
-		),
-
-		ResponseSize: prometheus.NewHistogram(
-			prometheus.HistogramOpts{
-				Namespace: namespace,
-				Name:      "response_size_bytes",
-				Help:      "HTTP response body size in bytes.",
-				Buckets:   DefaultBytesBuckets,
-			},
-		),
-
-		ActiveConnections: prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "active_connections",
-				Help:      "Number of active connections.",
-			},
-		),
-
-		ProxyInfo: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "proxy_info",
-				Help:      "Static proxy information (always 1).",
-			},
-			[]string{"version", "target"},
-		),
-	}
-
-	return c
-}
-
-// Register registers all metrics with the given registry.
-func (c *Collector) Register(registry prometheus.Registerer) error {
-	collectors := []prometheus.Collector{
-		c.RequestsTotal,
-		c.RequestDuration,
-		c.RequestSize,
-		c.ResponseSize,
-		c.ActiveConnections,
-		c.ProxyInfo,
-	}
-
-	for _, collector := range collectors {
-		if err := registry.Register(collector); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// MustRegister registers all metrics with the given registry and panics on error.
-func (c *Collector) MustRegister(registry prometheus.Registerer) {
-	registry.MustRegister(
-		c.RequestsTotal,
-		c.RequestDuration,
-		c.RequestSize,
-		c.ResponseSize,
-		c.ActiveConnections,
-		c.ProxyInfo,
+// NewInstruments creates all metric instruments using the provided meter.
+func NewInstruments(meter metric.Meter) (*Instruments, error) {
+	requestsTotal, err := meter.Int64Counter(
+		"mcp.requests.total",
+		metric.WithDescription("Total number of HTTP requests by status code."),
+		metric.WithUnit("{request}"),
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	requestDuration, err := meter.Float64Histogram(
+		"mcp.request.duration",
+		metric.WithDescription("HTTP request duration in seconds."),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(DefaultDurationBuckets...),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	requestSize, err := meter.Float64Histogram(
+		"mcp.request.size",
+		metric.WithDescription("HTTP request body size in bytes."),
+		metric.WithUnit("By"),
+		metric.WithExplicitBucketBoundaries(DefaultBytesBuckets...),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	responseSize, err := meter.Float64Histogram(
+		"mcp.response.size",
+		metric.WithDescription("HTTP response body size in bytes."),
+		metric.WithUnit("By"),
+		metric.WithExplicitBucketBoundaries(DefaultBytesBuckets...),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	activeConnections, err := meter.Int64UpDownCounter(
+		"mcp.active_connections",
+		metric.WithDescription("Number of active connections."),
+		metric.WithUnit("{connection}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Instruments{
+		RequestsTotal:     requestsTotal,
+		RequestDuration:   requestDuration,
+		RequestSize:       requestSize,
+		ResponseSize:      responseSize,
+		ActiveConnections: activeConnections,
+	}, nil
 }

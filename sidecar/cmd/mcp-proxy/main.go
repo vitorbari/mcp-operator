@@ -11,8 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-
 	"github.com/vitorbari/mcp-operator/sidecar/pkg/config"
 	"github.com/vitorbari/mcp-operator/sidecar/pkg/metrics"
 	"github.com/vitorbari/mcp-operator/sidecar/pkg/proxy"
@@ -37,8 +35,12 @@ func main() {
 		slog.String("log_level", cfg.LogLevel),
 	)
 
-	// Create the metrics recorder
-	recorder := metrics.NewRecorder(Version, cfg.TargetAddr)
+	// Create the metrics recorder with OpenTelemetry
+	recorder, err := metrics.NewRecorder(Version, cfg.TargetAddr)
+	if err != nil {
+		logger.Error("failed to create metrics recorder", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
 
 	// Create the proxy with metrics recorder
 	p, err := proxy.NewWithRecorder(cfg.ListenAddr, cfg.TargetAddr, logger, recorder)
@@ -84,6 +86,11 @@ func main() {
 		logger.Error("metrics server shutdown error", slog.String("error", err.Error()))
 	}
 
+	// Shutdown OpenTelemetry meter provider
+	if err := recorder.Shutdown(shutdownCtx); err != nil {
+		logger.Error("metrics recorder shutdown error", slog.String("error", err.Error()))
+	}
+
 	logger.Info("proxy shutdown complete")
 }
 
@@ -91,13 +98,8 @@ func main() {
 func startMetricsServer(addr string, recorder *metrics.Recorder, logger *slog.Logger) *http.Server {
 	mux := http.NewServeMux()
 
-	// Use promhttp.HandlerFor with the recorder's registry
-	mux.Handle("/metrics", promhttp.HandlerFor(
-		recorder.Registry(),
-		promhttp.HandlerOpts{
-			EnableOpenMetrics: true,
-		},
-	))
+	// Use the recorder's handler which serves Prometheus format metrics
+	mux.Handle("/metrics", recorder.Handler())
 
 	// Add a simple health check endpoint on the metrics server
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
