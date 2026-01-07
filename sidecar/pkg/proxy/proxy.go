@@ -4,6 +4,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -505,6 +506,60 @@ func (p *Proxy) Start(ctx context.Context) error {
 			slog.String("target", p.target.String()),
 		)
 		if err := p.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errChan <- err
+		}
+		close(errChan)
+	}()
+
+	// Wait for context cancellation or server error
+	select {
+	case <-ctx.Done():
+		p.logger.Info("shutting down proxy server")
+		// Create a shutdown context with timeout
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if err := p.server.Shutdown(shutdownCtx); err != nil {
+			p.logger.Error("error during server shutdown", slog.String("error", err.Error()))
+			return err
+		}
+		p.logger.Info("proxy server stopped gracefully")
+		return ctx.Err()
+
+	case err := <-errChan:
+		if err != nil {
+			return fmt.Errorf("server error: %w", err)
+		}
+		return nil
+	}
+}
+
+// StartWithTLS starts the proxy server with TLS and blocks until the context is cancelled.
+func (p *Proxy) StartWithTLS(ctx context.Context, tlsConfig *tls.Config, certFile, keyFile string) error {
+	// Create the HTTP handler with metrics middleware
+	handler := p.metricsMiddleware(p.reverseProxy)
+
+	// Create the HTTPS server
+	// Note: WriteTimeout is set to 0 to support long-lived SSE connections.
+	// SSE connections can last indefinitely and would be killed by a write timeout.
+	p.server = &http.Server{
+		Addr:        p.listenAddr,
+		Handler:     handler,
+		TLSConfig:   tlsConfig,
+		ReadTimeout: 30 * time.Second,
+		IdleTimeout: 120 * time.Second,
+	}
+
+	// Channel to capture server errors
+	errChan := make(chan error, 1)
+
+	// Start the server in a goroutine
+	go func() {
+		p.logger.Info("starting HTTPS server",
+			slog.String("listen_addr", p.listenAddr),
+			slog.String("target", p.target.String()),
+		)
+		if err := p.server.ListenAndServeTLS(certFile, keyFile); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errChan <- err
 		}
 		close(errChan)

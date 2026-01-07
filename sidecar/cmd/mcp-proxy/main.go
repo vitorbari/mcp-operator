@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -35,7 +36,50 @@ func main() {
 		slog.String("metrics_addr", cfg.MetricsAddr),
 		slog.String("log_level", cfg.LogLevel),
 		slog.Duration("health_check_interval", cfg.HealthCheckInterval),
+		slog.Bool("tls_enabled", cfg.TLSEnabled),
 	)
+
+	// Validate and load TLS configuration if enabled
+	var tlsConfig *tls.Config
+	if cfg.TLSEnabled {
+		// Validate TLS files exist
+		if err := proxy.ValidateTLSFiles(cfg.TLSCertFile, cfg.TLSKeyFile); err != nil {
+			logger.Error("TLS configuration error", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+
+		// Check certificate expiry
+		expiry, err := proxy.ValidateCertExpiry(cfg.TLSCertFile)
+		if err != nil {
+			logger.Error("failed to check certificate expiry", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+
+		if proxy.IsCertExpiringSoon(expiry) {
+			logger.Warn("TLS certificate is expiring soon",
+				slog.Time("expiry", expiry),
+				slog.Int("days_until_expiry", proxy.DaysUntilExpiry(expiry)),
+			)
+		} else {
+			logger.Info("TLS certificate validated",
+				slog.Time("expiry", expiry),
+				slog.Int("days_until_expiry", proxy.DaysUntilExpiry(expiry)),
+			)
+		}
+
+		// Load TLS configuration
+		tlsConfig, err = proxy.LoadTLSConfig(cfg.TLSCertFile, cfg.TLSKeyFile, cfg.TLSMinVersion)
+		if err != nil {
+			logger.Error("failed to load TLS configuration", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+
+		logger.Info("TLS configuration loaded",
+			slog.String("cert_file", cfg.TLSCertFile),
+			slog.String("key_file", cfg.TLSKeyFile),
+			slog.String("min_version", cfg.TLSMinVersion),
+		)
+	}
 
 	// Create the metrics recorder with OpenTelemetry
 	recorder, err := metrics.NewRecorder(Version, cfg.TargetAddr)
@@ -79,10 +123,18 @@ func main() {
 		slog.String("listen_addr", p.ListenAddr()),
 		slog.String("target", p.TargetURL().String()),
 		slog.String("metrics_addr", cfg.MetricsAddr),
+		slog.Bool("tls_enabled", cfg.TLSEnabled),
 	)
 
-	if err := p.Start(ctx); err != nil && err != context.Canceled {
-		logger.Error("proxy error", slog.String("error", err.Error()))
+	var proxyErr error
+	if cfg.TLSEnabled {
+		proxyErr = p.StartWithTLS(ctx, tlsConfig, cfg.TLSCertFile, cfg.TLSKeyFile)
+	} else {
+		proxyErr = p.Start(ctx)
+	}
+
+	if proxyErr != nil && proxyErr != context.Canceled {
+		logger.Error("proxy error", slog.String("error", proxyErr.Error()))
 		os.Exit(1)
 	}
 
