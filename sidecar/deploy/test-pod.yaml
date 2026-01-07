@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mcp-test
+  labels:
+    app: mcp-test
+spec:
+  containers:
+    # MCP Server container
+    - name: mcp-server
+      image: tzolov/mcp-everything-server:v3
+      command: ["node", "dist/index.js", "streamableHttp"]
+      ports:
+        - containerPort: 3001
+          name: mcp-server
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+
+    # MCP Proxy sidecar container
+    - name: mcp-proxy
+      image: ghcr.io/vitorbari/mcp-proxy:latest
+      args:
+        - --target-addr=localhost:3001
+        - --listen-addr=:8080
+        - --metrics-addr=:9090
+        - --log-level=info
+      ports:
+        - containerPort: 8080
+          name: mcp
+        - containerPort: 9090
+          name: metrics
+      livenessProbe:
+        httpGet:
+          path: /healthz
+          port: 9090
+        initialDelaySeconds: 5
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /readyz
+          port: 9090
+        initialDelaySeconds: 5
+        periodSeconds: 5
+        timeoutSeconds: 3
+        failureThreshold: 3
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
