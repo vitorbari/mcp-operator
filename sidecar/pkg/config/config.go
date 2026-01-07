@@ -25,6 +25,18 @@ type Config struct {
 
 	// HealthCheckInterval is the interval between health checks of the target.
 	HealthCheckInterval time.Duration
+
+	// TLSEnabled enables TLS termination for incoming connections.
+	TLSEnabled bool
+
+	// TLSCertFile is the path to the TLS certificate file.
+	TLSCertFile string
+
+	// TLSKeyFile is the path to the TLS private key file.
+	TLSKeyFile string
+
+	// TLSMinVersion is the minimum TLS version to accept (1.2 or 1.3).
+	TLSMinVersion string
 }
 
 // DefaultConfig returns a Config with default values.
@@ -35,6 +47,10 @@ func DefaultConfig() *Config {
 		MetricsAddr:         ":9090",
 		LogLevel:            "info",
 		HealthCheckInterval: 10 * time.Second,
+		TLSEnabled:          false,
+		TLSCertFile:         "",
+		TLSKeyFile:          "",
+		TLSMinVersion:       "1.2",
 	}
 }
 
@@ -47,6 +63,10 @@ func ParseFlags() *Config {
 	flag.StringVar(&cfg.MetricsAddr, "metrics-addr", cfg.MetricsAddr, "Address to expose Prometheus metrics on")
 	flag.StringVar(&cfg.LogLevel, "log-level", cfg.LogLevel, "Log level (debug, info, warn, error)")
 	flag.DurationVar(&cfg.HealthCheckInterval, "health-check-interval", cfg.HealthCheckInterval, "Interval between health checks of the target")
+	flag.BoolVar(&cfg.TLSEnabled, "tls-enabled", cfg.TLSEnabled, "Enable TLS termination for incoming connections")
+	flag.StringVar(&cfg.TLSCertFile, "tls-cert-file", cfg.TLSCertFile, "Path to TLS certificate file")
+	flag.StringVar(&cfg.TLSKeyFile, "tls-key-file", cfg.TLSKeyFile, "Path to TLS private key file")
+	flag.StringVar(&cfg.TLSMinVersion, "tls-min-version", cfg.TLSMinVersion, "Minimum TLS version (1.2 or 1.3)")
 
 	flag.Parse()
 
