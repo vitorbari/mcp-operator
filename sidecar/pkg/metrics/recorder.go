@@ -155,3 +155,22 @@ func (r *Recorder) IncrementConnections(ctx context.Context) {
 func (r *Recorder) DecrementConnections(ctx context.Context) {
 	r.instruments.ActiveConnections.Add(ctx, -1)
 }
+
+// SSEConnectionOpened records that an SSE connection was opened.
+func (r *Recorder) SSEConnectionOpened(ctx context.Context) {
+	r.instruments.SSEConnectionsTotal.Add(ctx, 1)
+	r.instruments.SSEConnectionsActive.Add(ctx, 1)
+}
+
+// SSEConnectionClosed records that an SSE connection was closed with its duration.
+func (r *Recorder) SSEConnectionClosed(ctx context.Context, duration time.Duration) {
+	r.instruments.SSEConnectionsActive.Add(ctx, -1)
+	r.instruments.SSEConnectionDuration.Record(ctx, duration.Seconds())
+}
+
+// SSEEventReceived records that an SSE event was received.
+func (r *Recorder) SSEEventReceived(ctx context.Context, eventType string) {
+	r.instruments.SSEEventsTotal.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("event_type", eventType),
+	))
+}
