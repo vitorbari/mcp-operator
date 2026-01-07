@@ -49,6 +49,18 @@ type Instruments struct {
 
 	// RequestErrorsTotal counts total JSON-RPC error responses by method and error code.
 	RequestErrorsTotal metric.Int64Counter
+
+	// SSEConnectionsTotal counts total SSE connections opened.
+	SSEConnectionsTotal metric.Int64Counter
+
+	// SSEConnectionsActive tracks the number of active SSE connections.
+	SSEConnectionsActive metric.Int64UpDownCounter
+
+	// SSEEventsTotal counts total SSE events by event type.
+	SSEEventsTotal metric.Int64Counter
+
+	// SSEConnectionDuration tracks SSE connection duration in seconds.
+	SSEConnectionDuration metric.Float64Histogram
 }
 
 // NewInstruments creates all metric instruments using the provided meter.
@@ -128,14 +140,55 @@ func NewInstruments(meter metric.Meter) (*Instruments, error) {
 		return nil, err
 	}
 
+	sseConnectionsTotal, err := meter.Int64Counter(
+		"mcp.sse.connections.total",
+		metric.WithDescription("Total number of SSE connections opened."),
+		metric.WithUnit("{connection}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	sseConnectionsActive, err := meter.Int64UpDownCounter(
+		"mcp.sse.connections.active",
+		metric.WithDescription("Number of active SSE connections."),
+		metric.WithUnit("{connection}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	sseEventsTotal, err := meter.Int64Counter(
+		"mcp.sse.events.total",
+		metric.WithDescription("Total number of SSE events by event type."),
+		metric.WithUnit("{event}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	sseConnectionDuration, err := meter.Float64Histogram(
+		"mcp.sse.connection.duration",
+		metric.WithDescription("SSE connection duration in seconds."),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Instruments{
-		RequestsTotal:      requestsTotal,
-		RequestDuration:    requestDuration,
-		RequestSize:        requestSize,
-		ResponseSize:       responseSize,
-		ActiveConnections:  activeConnections,
-		ToolCallsTotal:     toolCallsTotal,
-		ResourceReadsTotal: resourceReadsTotal,
-		RequestErrorsTotal: requestErrorsTotal,
+		RequestsTotal:         requestsTotal,
+		RequestDuration:       requestDuration,
+		RequestSize:           requestSize,
+		ResponseSize:          responseSize,
+		ActiveConnections:     activeConnections,
+		ToolCallsTotal:        toolCallsTotal,
+		ResourceReadsTotal:    resourceReadsTotal,
+		RequestErrorsTotal:    requestErrorsTotal,
+		SSEConnectionsTotal:   sseConnectionsTotal,
+		SSEConnectionsActive:  sseConnectionsActive,
+		SSEEventsTotal:        sseEventsTotal,
+		SSEConnectionDuration: sseConnectionDuration,
 	}, nil
 }

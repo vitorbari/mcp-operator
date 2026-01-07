@@ -100,6 +100,9 @@ func (p *Proxy) createReverseProxy() *httputil.ReverseProxy {
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
+	// Enable immediate flushing for SSE support
+	proxy.FlushInterval = -1
+
 	return proxy
 }
 
@@ -201,16 +204,31 @@ func (p *Proxy) metricsMiddleware(next http.Handler) http.Handler {
 			}
 		}
 
-		// Wrap the response writer to capture the status code and response body
-		rc := newResponseCapture(w, DefaultMaxBodyCapture)
+		// Use SSE-aware response writer that can detect and handle SSE responses
+		sw := newSSEAwareWriter(w, p.recorder)
 
 		// Process the request
-		next.ServeHTTP(rc, req)
+		next.ServeHTTP(sw, req)
 
 		// Calculate duration
 		duration := time.Since(start)
 
-		// Parse request and response for MCP metrics
+		// Handle SSE connection close and metrics
+		if sw.isSSE {
+			sw.recordSSEClose()
+			p.logger.Info("sse_connection",
+				slog.String("http_method", req.Method),
+				slog.String("path", req.URL.Path),
+				slog.Int("status", sw.statusCode),
+				slog.Duration("duration", duration),
+				slog.String("client_ip", getClientIP(req)),
+				slog.Int64("request_bytes", reqSize),
+				slog.Int64("response_bytes", sw.bytesWritten),
+			)
+			return
+		}
+
+		// Parse request and response for MCP metrics (non-SSE only)
 		mcpMethod := "unknown"
 		var parsedReq *mcp.ParsedRequest
 		var parsedResp *mcp.ParsedResponse
@@ -228,8 +246,8 @@ func (p *Proxy) metricsMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Parse response if it's JSON
-		respBody := rc.Body()
-		if len(respBody) > 0 && isJSONContentType(rc.Header().Get("Content-Type")) {
+		respBody := sw.Body()
+		if len(respBody) > 0 && isJSONContentType(sw.Header().Get("Content-Type")) {
 			var err error
 			parsedResp, err = mcp.ParseResponse(respBody)
 			if err != nil {
@@ -245,16 +263,16 @@ func (p *Proxy) metricsMiddleware(next http.Handler) http.Handler {
 			slog.String("path", req.URL.Path),
 			slog.String("query", req.URL.RawQuery),
 			slog.String("mcp_method", mcpMethod),
-			slog.Int("status", rc.StatusCode()),
+			slog.Int("status", sw.statusCode),
 			slog.Duration("duration", duration),
 			slog.String("client_ip", getClientIP(req)),
 			slog.Int64("request_bytes", reqSize),
-			slog.Int64("response_bytes", rc.BytesWritten()),
+			slog.Int64("response_bytes", sw.bytesWritten),
 		)
 
 		// Record metrics
 		if p.recorder != nil {
-			p.recorder.RecordRequest(ctx, mcpMethod, rc.StatusCode(), duration, reqSize, rc.BytesWritten())
+			p.recorder.RecordRequest(ctx, mcpMethod, sw.statusCode, duration, reqSize, sw.bytesWritten)
 
 			// Record MCP-specific metrics
 			if parsedReq != nil {
@@ -275,6 +293,166 @@ func (p *Proxy) metricsMiddleware(next http.Handler) http.Handler {
 			}
 		}
 	})
+}
+
+// sseAwareWriter is a response writer that detects SSE responses and handles them appropriately.
+type sseAwareWriter struct {
+	http.ResponseWriter
+	recorder     *metrics.Recorder
+	statusCode   int
+	bytesWritten int64
+	isSSE        bool
+	body         bytes.Buffer
+	maxCapture   int
+	startTime    time.Time
+	headersSent  bool
+	// SSE event accumulator (per-connection)
+	sseEventType string
+	sseEventData strings.Builder
+}
+
+// newSSEAwareWriter creates a new SSE-aware response writer.
+func newSSEAwareWriter(w http.ResponseWriter, recorder *metrics.Recorder) *sseAwareWriter {
+	return &sseAwareWriter{
+		ResponseWriter: w,
+		recorder:       recorder,
+		statusCode:     http.StatusOK,
+		maxCapture:     DefaultMaxBodyCapture,
+		startTime:      time.Now(),
+	}
+}
+
+// WriteHeader captures the status code and detects SSE responses.
+func (sw *sseAwareWriter) WriteHeader(code int) {
+	if sw.headersSent {
+		return
+	}
+	sw.statusCode = code
+	sw.headersSent = true
+
+	// Check if this is an SSE response
+	contentType := sw.Header().Get("Content-Type")
+	sw.isSSE = IsSSEContentType(contentType)
+
+	// For SSE, record connection opened
+	if sw.isSSE && sw.recorder != nil {
+		sw.recorder.SSEConnectionOpened(context.Background())
+	}
+
+	sw.ResponseWriter.WriteHeader(code)
+}
+
+// Write captures the response and handles SSE event parsing.
+func (sw *sseAwareWriter) Write(b []byte) (int, error) {
+	if !sw.headersSent {
+		sw.WriteHeader(http.StatusOK)
+	}
+
+	n, err := sw.ResponseWriter.Write(b)
+	sw.bytesWritten += int64(n)
+
+	if sw.isSSE {
+		// For SSE, parse events from the data being written
+		sw.parseSSEData(b)
+	} else {
+		// For non-SSE, capture body for later parsing
+		if sw.body.Len() < sw.maxCapture {
+			remaining := sw.maxCapture - sw.body.Len()
+			if len(b) <= remaining {
+				sw.body.Write(b)
+			} else {
+				sw.body.Write(b[:remaining])
+			}
+		}
+	}
+
+	return n, err
+}
+
+// Flush implements http.Flusher for SSE streaming support.
+func (sw *sseAwareWriter) Flush() {
+	if flusher, ok := sw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+// Body returns the captured response body (for non-SSE responses).
+func (sw *sseAwareWriter) Body() []byte {
+	return sw.body.Bytes()
+}
+
+// parseSSEData parses SSE events from the written data and records metrics.
+func (sw *sseAwareWriter) parseSSEData(data []byte) {
+	if sw.recorder == nil {
+		return
+	}
+
+	// Parse line by line
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimRight(line, "\r")
+
+		if strings.HasPrefix(line, "event:") {
+			sw.sseEventType = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		} else if strings.HasPrefix(line, "data:") {
+			dataContent := strings.TrimPrefix(line, "data:")
+			if sw.sseEventData.Len() > 0 {
+				sw.sseEventData.WriteString("\n")
+			}
+			sw.sseEventData.WriteString(dataContent)
+		} else if line == "" && (sw.sseEventType != "" || sw.sseEventData.Len() > 0) {
+			// Empty line marks end of event
+			eventType := sw.sseEventType
+			if eventType == "" {
+				eventType = "message"
+			}
+
+			ctx := context.Background()
+			sw.recorder.SSEEventReceived(ctx, eventType)
+
+			// Try to parse MCP data
+			if sw.sseEventData.Len() > 0 {
+				dataStr := strings.TrimSpace(sw.sseEventData.String())
+				sw.parseMCPFromSSE(ctx, dataStr)
+			}
+
+			// Reset accumulator
+			sw.sseEventType = ""
+			sw.sseEventData.Reset()
+		}
+	}
+}
+
+// parseMCPFromSSE attempts to parse MCP JSON-RPC from SSE data.
+func (sw *sseAwareWriter) parseMCPFromSSE(ctx context.Context, data string) {
+	if sw.recorder == nil {
+		return
+	}
+
+	// Try parsing as request
+	if req, err := mcp.ParseRequest([]byte(data)); err == nil {
+		if req.Method == mcp.MethodToolsCall && req.ToolName != "" {
+			sw.recorder.RecordToolCall(ctx, req.ToolName)
+		}
+		if req.Method == mcp.MethodResourcesRead && req.ResourceURI != "" {
+			sw.recorder.RecordResourceRead(ctx, req.ResourceURI)
+		}
+		return
+	}
+
+	// Try parsing as response
+	if resp, err := mcp.ParseResponse([]byte(data)); err == nil {
+		if resp.IsError {
+			sw.recorder.RecordError(ctx, "sse", resp.ErrorCode)
+		}
+	}
+}
+
+// recordSSEClose is called when the SSE connection is closed to record metrics.
+func (sw *sseAwareWriter) recordSSEClose() {
+	if sw.isSSE && sw.recorder != nil {
+		sw.recorder.SSEConnectionClosed(context.Background(), time.Since(sw.startTime))
+	}
 }
 
 // isJSONContentType checks if the content type indicates JSON.
@@ -315,12 +493,13 @@ func (p *Proxy) Start(ctx context.Context) error {
 	handler := p.metricsMiddleware(p.reverseProxy)
 
 	// Create the HTTP server
+	// Note: WriteTimeout is set to 0 to support long-lived SSE connections.
+	// SSE connections can last indefinitely and would be killed by a write timeout.
 	p.server = &http.Server{
-		Addr:         p.listenAddr,
-		Handler:      handler,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:        p.listenAddr,
+		Handler:     handler,
+		ReadTimeout: 30 * time.Second,
+		IdleTimeout: 120 * time.Second,
 	}
 
 	// Channel to capture server errors
