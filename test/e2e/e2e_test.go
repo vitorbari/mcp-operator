@@ -921,7 +921,7 @@ spec:
 			ports := spec["ports"].([]interface{})
 
 			// Should only have one port (http)
-			Expect(len(ports)).To(Equal(1))
+			Expect(ports).To(HaveLen(1))
 
 			port := ports[0].(map[string]interface{})
 			Expect(port["name"]).To(Equal("http"))
