@@ -78,6 +78,16 @@ type MCPServerSpec struct {
 	// Validation defines MCP protocol validation configuration
 	// +optional
 	Validation *ValidationSpec `json:"validation,omitempty"`
+
+	// Metrics enables MCP-aware Prometheus metrics collection via sidecar proxy.
+	// When enabled, a metrics sidecar proxy is injected to collect MCP-specific metrics.
+	// +optional
+	Metrics *MetricsConfig `json:"metrics,omitempty"`
+
+	// Sidecar allows advanced customization of the metrics sidecar proxy.
+	// Only applicable when metrics.enabled is true.
+	// +optional
+	Sidecar *SidecarConfig `json:"sidecar,omitempty"`
 }
 
 // MCPServerSecurity defines security settings for the MCP server
@@ -369,6 +379,74 @@ type MCPServerHPAPolicy struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=1800
 	PeriodSeconds int32 `json:"periodSeconds"`
+}
+
+// Sidecar defaults
+const (
+	// DefaultSidecarImage is the default image for the metrics sidecar
+	DefaultSidecarImage = "ghcr.io/vitorbari/mcp-proxy:latest"
+	// DefaultMetricsPort is the default port for Prometheus metrics
+	DefaultMetricsPort = int32(9090)
+	// DefaultSidecarPort is the default port the sidecar listens on
+	DefaultSidecarPort = int32(8080)
+	// DefaultSidecarCPURequest is the default CPU request for the sidecar
+	DefaultSidecarCPURequest = "50m"
+	// DefaultSidecarMemoryRequest is the default memory request for the sidecar
+	DefaultSidecarMemoryRequest = "64Mi"
+	// DefaultSidecarCPULimit is the default CPU limit for the sidecar
+	DefaultSidecarCPULimit = "200m"
+	// DefaultSidecarMemoryLimit is the default memory limit for the sidecar
+	DefaultSidecarMemoryLimit = "128Mi"
+)
+
+// MetricsConfig configures MCP metrics collection via sidecar proxy
+type MetricsConfig struct {
+	// Enabled enables metrics collection via sidecar proxy.
+	// When true, a sidecar container is injected that proxies traffic
+	// and collects MCP-specific Prometheus metrics.
+	Enabled bool `json:"enabled"`
+
+	// Port for Prometheus metrics endpoint.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +kubebuilder:default=9090
+	// +optional
+	Port int32 `json:"port,omitempty"`
+}
+
+// SidecarConfig allows advanced customization of the metrics sidecar proxy
+type SidecarConfig struct {
+	// Image overrides the default sidecar image.
+	// Default: ghcr.io/vitorbari/mcp-proxy:latest
+	// +optional
+	Image string `json:"image,omitempty"`
+
+	// Resources for the sidecar container.
+	// Default: requests: 50m CPU, 64Mi memory; limits: 200m CPU, 128Mi memory
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// TLS configures TLS termination at the sidecar.
+	// When enabled, the sidecar accepts HTTPS and forwards HTTP to the MCP server.
+	// +optional
+	TLS *SidecarTLSConfig `json:"tls,omitempty"`
+}
+
+// SidecarTLSConfig configures TLS termination for the sidecar
+type SidecarTLSConfig struct {
+	// Enabled enables TLS termination at the sidecar.
+	Enabled bool `json:"enabled"`
+
+	// SecretName is the name of the Kubernetes Secret containing tls.crt and tls.key.
+	// The secret must be in the same namespace as the MCPServer.
+	SecretName string `json:"secretName"`
+
+	// MinVersion specifies the minimum TLS version.
+	// Valid values: "1.2", "1.3"
+	// +kubebuilder:validation:Enum="1.2";"1.3"
+	// +kubebuilder:default="1.2"
+	// +optional
+	MinVersion string `json:"minVersion,omitempty"`
 }
 
 // MCPServerTransport defines transport configuration for the MCP server
