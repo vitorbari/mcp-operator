@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vitorbari/mcp-operator/sidecar/pkg/config"
+	"github.com/vitorbari/mcp-operator/sidecar/pkg/health"
 	"github.com/vitorbari/mcp-operator/sidecar/pkg/metrics"
 	"github.com/vitorbari/mcp-operator/sidecar/pkg/proxy"
 )
@@ -33,6 +34,7 @@ func main() {
 		slog.String("target_addr", cfg.TargetAddr),
 		slog.String("metrics_addr", cfg.MetricsAddr),
 		slog.String("log_level", cfg.LogLevel),
+		slog.Duration("health_check_interval", cfg.HealthCheckInterval),
 	)
 
 	// Create the metrics recorder with OpenTelemetry
@@ -49,9 +51,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Create the health checker for target connectivity
+	healthChecker := health.NewHealthChecker(cfg.TargetAddr, cfg.HealthCheckInterval)
+
 	// Setup context with signal handling for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Start the health checker
+	healthChecker.Start(ctx)
 
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
@@ -63,8 +71,8 @@ func main() {
 		cancel()
 	}()
 
-	// Start the metrics server
-	metricsServer := startMetricsServer(cfg.MetricsAddr, recorder, logger)
+	// Start the metrics server with health endpoints
+	metricsServer := startMetricsServer(cfg.MetricsAddr, recorder, healthChecker, logger)
 
 	// Start the proxy (blocking)
 	logger.Info("proxy configured",
@@ -77,6 +85,9 @@ func main() {
 		logger.Error("proxy error", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
+
+	// Shutdown health checker
+	healthChecker.Stop()
 
 	// Shutdown metrics server
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -94,18 +105,16 @@ func main() {
 	logger.Info("proxy shutdown complete")
 }
 
-// startMetricsServer starts the Prometheus metrics HTTP server.
-func startMetricsServer(addr string, recorder *metrics.Recorder, logger *slog.Logger) *http.Server {
+// startMetricsServer starts the Prometheus metrics HTTP server with health endpoints.
+func startMetricsServer(addr string, recorder *metrics.Recorder, healthChecker *health.HealthChecker, logger *slog.Logger) *http.Server {
 	mux := http.NewServeMux()
 
 	// Use the recorder's handler which serves Prometheus format metrics
 	mux.Handle("/metrics", recorder.Handler())
 
-	// Add a simple health check endpoint on the metrics server
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
-	})
+	// Health check endpoints using the health checker
+	mux.HandleFunc("/healthz", healthChecker.LivenessHandler())
+	mux.HandleFunc("/readyz", healthChecker.ReadinessHandler())
 
 	server := &http.Server{
 		Addr:         addr,

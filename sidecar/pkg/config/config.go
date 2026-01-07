@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 )
 
 // Config holds the configuration for the MCP proxy sidecar.
@@ -21,15 +22,19 @@ type Config struct {
 
 	// LogLevel controls the logging verbosity (debug, info, warn, error).
 	LogLevel string
+
+	// HealthCheckInterval is the interval between health checks of the target.
+	HealthCheckInterval time.Duration
 }
 
 // DefaultConfig returns a Config with default values.
 func DefaultConfig() *Config {
 	return &Config{
-		ListenAddr:  ":8080",
-		TargetAddr:  "localhost:3001",
-		MetricsAddr: ":9090",
-		LogLevel:    "info",
+		ListenAddr:          ":8080",
+		TargetAddr:          "localhost:3001",
+		MetricsAddr:         ":9090",
+		LogLevel:            "info",
+		HealthCheckInterval: 10 * time.Second,
 	}
 }
 
@@ -41,6 +46,7 @@ func ParseFlags() *Config {
 	flag.StringVar(&cfg.TargetAddr, "target-addr", cfg.TargetAddr, "Address of the MCP server to proxy to")
 	flag.StringVar(&cfg.MetricsAddr, "metrics-addr", cfg.MetricsAddr, "Address to expose Prometheus metrics on")
 	flag.StringVar(&cfg.LogLevel, "log-level", cfg.LogLevel, "Log level (debug, info, warn, error)")
+	flag.DurationVar(&cfg.HealthCheckInterval, "health-check-interval", cfg.HealthCheckInterval, "Interval between health checks of the target")
 
 	flag.Parse()
 
