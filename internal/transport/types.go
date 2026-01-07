@@ -64,6 +64,7 @@ func GetDefaultTransportType() mcpv1.MCPTransportType {
 }
 
 // GetTransportPort returns the port for the given transport configuration
+// This is the port the MCP server container listens on internally
 func GetTransportPort(mcpServer *mcpv1.MCPServer) int32 {
 	if mcpServer.Spec.Transport == nil || mcpServer.Spec.Transport.Config == nil {
 		return 8080 // default
@@ -76,4 +77,15 @@ func GetTransportPort(mcpServer *mcpv1.MCPServer) int32 {
 	}
 
 	return 8080 // default
+}
+
+// GetServicePort returns the port exposed by the Service
+// When sidecar is enabled, this returns the sidecar port (8080)
+// Otherwise, it returns the transport port
+func GetServicePort(mcpServer *mcpv1.MCPServer) int32 {
+	// When metrics sidecar is enabled, the service exposes the sidecar port
+	if mcpServer.Spec.Metrics != nil && mcpServer.Spec.Metrics.Enabled {
+		return mcpv1.DefaultSidecarPort
+	}
+	return GetTransportPort(mcpServer)
 }

@@ -728,7 +728,7 @@ func (r *MCPServerReconciler) updateMCPServerStatus(ctx context.Context, mcpServ
 	// Set service endpoint
 	service := &corev1.Service{}
 	if err := r.Get(ctx, types.NamespacedName{Name: mcpServer.Name, Namespace: mcpServer.Namespace}, service); err == nil {
-		port := transport.GetTransportPort(mcpServer)
+		port := transport.GetServicePort(mcpServer)
 		if service.Spec.Type == corev1.ServiceTypeLoadBalancer && len(service.Status.LoadBalancer.Ingress) > 0 {
 			ingress := service.Status.LoadBalancer.Ingress[0]
 			if ingress.IP != "" {
@@ -1188,17 +1188,8 @@ func (r *MCPServerReconciler) buildValidationEndpoint(mcpServer *mcpv1.MCPServer
 	serviceName := mcpServer.Name
 	namespace := mcpServer.Namespace
 
-	// Determine the port
-	port := int32(8080)
-	if mcpServer.Spec.Service != nil && mcpServer.Spec.Service.Port != 0 {
-		port = mcpServer.Spec.Service.Port
-	}
-	if mcpServer.Spec.Transport != nil &&
-		mcpServer.Spec.Transport.Config != nil &&
-		mcpServer.Spec.Transport.Config.HTTP != nil &&
-		mcpServer.Spec.Transport.Config.HTTP.Port != 0 {
-		port = mcpServer.Spec.Transport.Config.HTTP.Port
-	}
+	// Get the service port (accounts for sidecar if enabled)
+	port := transport.GetServicePort(mcpServer)
 
 	// Build the base URL using the internal service DNS name
 	// Path will be auto-detected by the validator
