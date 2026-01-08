@@ -1,0 +1,15 @@
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: mcpserver-with-metrics
+spec:
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "streamableHttp"]
+  transport:
+    type: http
+    config:
+      http:
+        port: 3001
+  # Enable metrics sidecar - simple configuration
+  metrics:
+    enabled: true

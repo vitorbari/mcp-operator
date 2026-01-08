@@ -336,6 +336,27 @@ spec:
                 description: Image specifies the container image for the MCP server
                 pattern: ^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[a-zA-Z0-9][a-zA-Z0-9._-]*)?$
                 type: string
+              metrics:
+                description: |-
+                  Metrics enables MCP-aware Prometheus metrics collection via sidecar proxy.
+                  When enabled, a metrics sidecar proxy is injected to collect MCP-specific metrics.
+                properties:
+                  enabled:
+                    description: |-
+                      Enabled enables metrics collection via sidecar proxy.
+                      When true, a sidecar container is injected that proxies traffic
+                      and collects MCP-specific Prometheus metrics.
+                    type: boolean
+                  port:
+                    default: 9090
+                    description: Port for Prometheus metrics endpoint.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                required:
+                - enabled
+                type: object
               podTemplate:
                 description: PodTemplate defines additional pod template specifications
                 properties:
@@ -3331,6 +3352,104 @@ spec:
                     - NodePort
                     - LoadBalancer
                     type: string
+                type: object
+              sidecar:
+                description: |-
+                  Sidecar allows advanced customization of the metrics sidecar proxy.
+                  Only applicable when metrics.enabled is true.
+                properties:
+                  image:
+                    description: |-
+                      Image overrides the default sidecar image.
+                      Default: ghcr.io/vitorbari/mcp-proxy:latest
+                    type: string
+                  resources:
+                    description: |-
+                      Resources for the sidecar container.
+                      Default: requests: 50m CPU, 64Mi memory; limits: 200m CPU, 128Mi memory
+                    properties:
+                      claims:
+                        description: |-
+                          Claims lists the names of resources, defined in spec.resourceClaims,
+                          that are used by this container.
+
+                          This is an alpha field and requires enabling the
+                          DynamicResourceAllocation feature gate.
+
+                          This field is immutable. It can only be set for containers.
+                        items:
+                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                          properties:
+                            name:
+                              description: |-
+                                Name must match the name of one entry in pod.spec.resourceClaims of
+                                the Pod where this field is used. It makes that resource available
+                                inside a container.
+                              type: string
+                            request:
+                              description: |-
+                                Request is the name chosen for a request in the referenced claim.
+                                If empty, everything from the claim is made available, otherwise
+                                only the result of this request.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      limits:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Limits describes the maximum amount of compute resources allowed.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                      requests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Requests describes the minimum amount of compute resources required.
+                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                    type: object
+                  tls:
+                    description: |-
+                      TLS configures TLS termination at the sidecar.
+                      When enabled, the sidecar accepts HTTPS and forwards HTTP to the MCP server.
+                    properties:
+                      enabled:
+                        description: Enabled enables TLS termination at the sidecar.
+                        type: boolean
+                      minVersion:
+                        default: "1.2"
+                        description: |-
+                          MinVersion specifies the minimum TLS version.
+                          Valid values: "1.2", "1.3"
+                        enum:
+                        - "1.2"
+                        - "1.3"
+                        type: string
+                      secretName:
+                        description: |-
+                          SecretName is the name of the Kubernetes Secret containing tls.crt and tls.key.
+                          The secret must be in the same namespace as the MCPServer.
+                        type: string
+                    required:
+                    - enabled
+                    - secretName
+                    type: object
                 type: object
               transport:
                 description: Transport defines the MCP transport configuration

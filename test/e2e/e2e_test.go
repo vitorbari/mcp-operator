@@ -730,6 +730,329 @@ spec:
 			Expect(output).To(Equal("3"), "Operator should not override HPA-managed replica count")
 		})
 
+		It("should inject metrics sidecar when metrics.enabled is true", func() {
+			mcpServerName := "test-metrics-sidecar"
+			mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "streamableHttp"]
+  replicas: 1
+  transport:
+    type: http
+    config:
+      http:
+        port: 3001
+  metrics:
+    enabled: true
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+`, mcpServerName, testNamespace)
+
+			By("creating MCPServer with metrics enabled")
+			err := applyMCPServerYAML(mcpServerYAML)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for MCPServer to reach Running phase")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
+
+			By("verifying pod has two containers")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pods",
+					"-l", "app="+mcpServerName,
+					"-n", testNamespace,
+					"-o", "jsonpath={.items[0].spec.containers[*].name}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("mcp-server"))
+				g.Expect(output).To(ContainSubstring("mcp-proxy"))
+			}, 1*time.Minute, 2*time.Second).Should(Succeed())
+
+			By("verifying service has metrics port")
+			cmd := exec.Command("kubectl", "get", "service", mcpServerName,
+				"-n", testNamespace, "-o", "json")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			var serviceData map[string]interface{}
+			err = json.Unmarshal([]byte(output), &serviceData)
+			Expect(err).NotTo(HaveOccurred())
+
+			spec := serviceData["spec"].(map[string]interface{})
+			ports := spec["ports"].([]interface{})
+
+			// Verify we have at least 2 ports (http and metrics)
+			Expect(len(ports)).To(BeNumerically(">=", 2))
+
+			// Find metrics port
+			hasMetricsPort := false
+			hasHTTPPort := false
+			for _, p := range ports {
+				port := p.(map[string]interface{})
+				portName := port["name"].(string)
+				if portName == "metrics" {
+					hasMetricsPort = true
+					Expect(port["port"]).To(BeNumerically("==", 9090))
+				}
+				if portName == "http" {
+					hasHTTPPort = true
+					// Service should point to sidecar port (8080)
+					Expect(port["port"]).To(BeNumerically("==", 8080))
+				}
+			}
+			Expect(hasMetricsPort).To(BeTrue(), "Service should have metrics port")
+			Expect(hasHTTPPort).To(BeTrue(), "Service should have http port")
+
+			By("verifying sidecar container configuration")
+			cmd = exec.Command("kubectl", "get", "pods",
+				"-l", "app="+mcpServerName,
+				"-n", testNamespace,
+				"-o", "json")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			var podsData map[string]interface{}
+			err = json.Unmarshal([]byte(output), &podsData)
+			Expect(err).NotTo(HaveOccurred())
+
+			items := podsData["items"].([]interface{})
+			Expect(items).NotTo(BeEmpty())
+
+			pod := items[0].(map[string]interface{})
+			podSpec := pod["spec"].(map[string]interface{})
+			containers := podSpec["containers"].([]interface{})
+
+			// Find the mcp-proxy container
+			var sidecarContainer map[string]interface{}
+			for _, c := range containers {
+				container := c.(map[string]interface{})
+				if container["name"].(string) == "mcp-proxy" {
+					sidecarContainer = container
+					break
+				}
+			}
+			Expect(sidecarContainer).NotTo(BeNil(), "Should have mcp-proxy container")
+
+			// Verify sidecar has correct args
+			args := sidecarContainer["args"].([]interface{})
+			argsStr := fmt.Sprintf("%v", args)
+			Expect(argsStr).To(ContainSubstring("--target-addr"))
+			Expect(argsStr).To(ContainSubstring("localhost:3001"))
+			Expect(argsStr).To(ContainSubstring("--listen-addr"))
+			Expect(argsStr).To(ContainSubstring(":8080"))
+			Expect(argsStr).To(ContainSubstring("--metrics-addr"))
+			Expect(argsStr).To(ContainSubstring(":9090"))
+
+			By("cleaning up")
+			cmd = exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
+				"-n", testNamespace, "--timeout=60s")
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should not inject sidecar when metrics is not enabled", func() {
+			mcpServerName := "test-no-metrics-sidecar"
+			mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: nginxinc/nginx-unprivileged:latest
+  replicas: 1
+`, mcpServerName, testNamespace)
+
+			By("creating MCPServer without metrics")
+			err := applyMCPServerYAML(mcpServerYAML)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for MCPServer to reach Running phase")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
+
+			By("verifying pod has only one container")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pods",
+					"-l", "app="+mcpServerName,
+					"-n", testNamespace,
+					"-o", "jsonpath={.items[0].spec.containers[*].name}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("mcp-server"))
+				g.Expect(output).NotTo(ContainSubstring("mcp-proxy"))
+			}, 1*time.Minute, 2*time.Second).Should(Succeed())
+
+			By("verifying service does not have metrics port")
+			cmd := exec.Command("kubectl", "get", "service", mcpServerName,
+				"-n", testNamespace, "-o", "json")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			var serviceData map[string]interface{}
+			err = json.Unmarshal([]byte(output), &serviceData)
+			Expect(err).NotTo(HaveOccurred())
+
+			spec := serviceData["spec"].(map[string]interface{})
+			ports := spec["ports"].([]interface{})
+
+			// Should only have one port (http)
+			Expect(ports).To(HaveLen(1))
+
+			port := ports[0].(map[string]interface{})
+			Expect(port["name"]).To(Equal("http"))
+
+			By("cleaning up")
+			cmd = exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
+				"-n", testNamespace, "--timeout=60s")
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should apply custom sidecar configuration", func() {
+			mcpServerName := "test-custom-sidecar"
+			mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "streamableHttp"]
+  replicas: 1
+  transport:
+    type: http
+    config:
+      http:
+        port: 3001
+  metrics:
+    enabled: true
+    port: 9091
+  sidecar:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+`, mcpServerName, testNamespace)
+
+			By("creating MCPServer with custom sidecar configuration")
+			err := applyMCPServerYAML(mcpServerYAML)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for MCPServer to reach Running phase")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
+
+			By("verifying custom metrics port in service")
+			cmd := exec.Command("kubectl", "get", "service", mcpServerName,
+				"-n", testNamespace, "-o", "json")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			var serviceData map[string]interface{}
+			err = json.Unmarshal([]byte(output), &serviceData)
+			Expect(err).NotTo(HaveOccurred())
+
+			spec := serviceData["spec"].(map[string]interface{})
+			ports := spec["ports"].([]interface{})
+
+			// Find metrics port
+			for _, p := range ports {
+				port := p.(map[string]interface{})
+				if port["name"].(string) == "metrics" {
+					Expect(port["port"]).To(BeNumerically("==", 9091))
+				}
+			}
+
+			By("verifying custom resource limits on sidecar container")
+			cmd = exec.Command("kubectl", "get", "pods",
+				"-l", "app="+mcpServerName,
+				"-n", testNamespace,
+				"-o", "json")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			var podsData map[string]interface{}
+			err = json.Unmarshal([]byte(output), &podsData)
+			Expect(err).NotTo(HaveOccurred())
+
+			items := podsData["items"].([]interface{})
+			Expect(items).NotTo(BeEmpty())
+
+			pod := items[0].(map[string]interface{})
+			podSpec := pod["spec"].(map[string]interface{})
+			containers := podSpec["containers"].([]interface{})
+
+			// Find the mcp-proxy container
+			var sidecarContainer map[string]interface{}
+			for _, c := range containers {
+				container := c.(map[string]interface{})
+				if container["name"].(string) == "mcp-proxy" {
+					sidecarContainer = container
+					break
+				}
+			}
+			Expect(sidecarContainer).NotTo(BeNil())
+
+			resources := sidecarContainer["resources"].(map[string]interface{})
+			limits := resources["limits"].(map[string]interface{})
+			requests := resources["requests"].(map[string]interface{})
+
+			Expect(limits["cpu"]).To(Equal("500m"))
+			Expect(limits["memory"]).To(Equal("256Mi"))
+			Expect(requests["cpu"]).To(Equal("100m"))
+			Expect(requests["memory"]).To(Equal("128Mi"))
+
+			By("cleaning up")
+			cmd = exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
+				"-n", testNamespace, "--timeout=60s")
+			_, _ = utils.Run(cmd)
+		})
+
 		It("should properly clean up resources on deletion", func() {
 			mcpServerName := "test-cleanup"
 			mcpServerYAML := fmt.Sprintf(`

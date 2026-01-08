@@ -1,0 +1,31 @@
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: mcpserver-metrics-advanced
+spec:
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "streamableHttp"]
+  transport:
+    type: http
+    config:
+      http:
+        port: 3001
+  # Enable metrics with advanced sidecar configuration
+  metrics:
+    enabled: true
+    port: 9091  # Custom metrics port
+  sidecar:
+    # Custom sidecar image (optional)
+    # image: ghcr.io/vitorbari/mcp-proxy:v0.1.0
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    # TLS termination (optional) - uncomment to enable
+    # tls:
+    #   enabled: true
+    #   secretName: mcp-tls-secret
+    #   minVersion: "1.2"

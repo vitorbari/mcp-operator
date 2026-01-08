@@ -1,0 +1,17 @@
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: mcpserver-metrics-sse
+spec:
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "sse"]
+  transport:
+    type: http
+    protocol: sse
+    config:
+      http:
+        port: 3001
+        path: "/sse"
+  # Enable metrics sidecar with SSE transport
+  metrics:
+    enabled: true

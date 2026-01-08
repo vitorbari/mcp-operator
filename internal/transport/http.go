@@ -18,13 +18,16 @@ package transport
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -237,7 +240,27 @@ func (h *HTTPResourceManager) buildDeployment(mcpServer *mcpv1.MCPServer) *appsv
 	utils.AddHealthProbes(&container, mcpServer, port)
 
 	containers := []corev1.Container{container}
+
+	// Inject sidecar if metrics is enabled
+	if h.shouldInjectSidecar(mcpServer) {
+		sidecar := h.buildSidecarContainer(mcpServer, port)
+		containers = append(containers, sidecar)
+	}
+
 	podSpec := utils.BuildBasePodSpec(mcpServer, containers)
+
+	// Add TLS volume if sidecar TLS is configured
+	if h.shouldInjectSidecar(mcpServer) && mcpServer.Spec.Sidecar != nil &&
+		mcpServer.Spec.Sidecar.TLS != nil && mcpServer.Spec.Sidecar.TLS.Enabled {
+		podSpec.Volumes = append(podSpec.Volumes, corev1.Volume{
+			Name: "tls-certs",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: mcpServer.Spec.Sidecar.TLS.SecretName,
+				},
+			},
+		})
+	}
 
 	return utils.BuildDeployment(mcpServer, podSpec)
 }
@@ -292,7 +315,25 @@ func (h *HTTPResourceManager) buildService(mcpServer *mcpv1.MCPServer) *corev1.S
 	annotations["service.beta.kubernetes.io/aws-load-balancer-backend-protocol"] = "http"
 	annotations["service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout"] = "3600"
 
-	service := utils.BuildService(mcpServer, port, corev1.ProtocolTCP, annotations)
+	// When sidecar is injected, the service points to sidecar port (8080)
+	// The sidecar then proxies to the MCP server on localhost
+	servicePort := port
+	if h.shouldInjectSidecar(mcpServer) {
+		servicePort = mcpv1.DefaultSidecarPort
+	}
+
+	service := utils.BuildService(mcpServer, servicePort, corev1.ProtocolTCP, annotations)
+
+	// Add metrics port if sidecar is enabled
+	if h.shouldInjectSidecar(mcpServer) {
+		metricsPort := h.getMetricsPort(mcpServer)
+		service.Spec.Ports = append(service.Spec.Ports, corev1.ServicePort{
+			Name:       "metrics",
+			Port:       metricsPort,
+			TargetPort: intstr.FromInt(int(metricsPort)),
+			Protocol:   corev1.ProtocolTCP,
+		})
+	}
 
 	// Set session affinity if session management is enabled
 	if h.hasSessionManagement(mcpServer) {
@@ -307,4 +348,141 @@ func isHPAEnabled(mcpServer *mcpv1.MCPServer) bool {
 	return mcpServer.Spec.HPA != nil &&
 		mcpServer.Spec.HPA.Enabled != nil &&
 		*mcpServer.Spec.HPA.Enabled
+}
+
+// shouldInjectSidecar returns true if the metrics sidecar should be injected
+func (h *HTTPResourceManager) shouldInjectSidecar(mcpServer *mcpv1.MCPServer) bool {
+	return mcpServer.Spec.Metrics != nil && mcpServer.Spec.Metrics.Enabled
+}
+
+// getMetricsPort returns the port for the Prometheus metrics endpoint
+func (h *HTTPResourceManager) getMetricsPort(mcpServer *mcpv1.MCPServer) int32 {
+	if mcpServer.Spec.Metrics != nil && mcpServer.Spec.Metrics.Port != 0 {
+		return mcpServer.Spec.Metrics.Port
+	}
+	return mcpv1.DefaultMetricsPort
+}
+
+// getSidecarImage returns the sidecar image to use
+func (h *HTTPResourceManager) getSidecarImage(mcpServer *mcpv1.MCPServer) string {
+	if mcpServer.Spec.Sidecar != nil && mcpServer.Spec.Sidecar.Image != "" {
+		return mcpServer.Spec.Sidecar.Image
+	}
+	return mcpv1.DefaultSidecarImage
+}
+
+// buildSidecarContainer builds the metrics sidecar container
+func (h *HTTPResourceManager) buildSidecarContainer(mcpServer *mcpv1.MCPServer, targetPort int32) corev1.Container {
+	metricsPort := h.getMetricsPort(mcpServer)
+	sidecarImage := h.getSidecarImage(mcpServer)
+
+	// Build sidecar args
+	args := []string{
+		fmt.Sprintf("--target-addr=localhost:%d", targetPort),
+		fmt.Sprintf("--listen-addr=:%d", mcpv1.DefaultSidecarPort),
+		fmt.Sprintf("--metrics-addr=:%d", metricsPort),
+		"--log-level=info",
+	}
+
+	// Add TLS args if configured
+	if mcpServer.Spec.Sidecar != nil && mcpServer.Spec.Sidecar.TLS != nil && mcpServer.Spec.Sidecar.TLS.Enabled {
+		args = append(args,
+			"--tls-enabled",
+			"--tls-cert-file=/etc/tls/tls.crt",
+			"--tls-key-file=/etc/tls/tls.key",
+		)
+		if mcpServer.Spec.Sidecar.TLS.MinVersion != "" {
+			args = append(args, fmt.Sprintf("--tls-min-version=%s", mcpServer.Spec.Sidecar.TLS.MinVersion))
+		}
+	}
+
+	container := corev1.Container{
+		Name:  "mcp-proxy",
+		Image: sidecarImage,
+		Args:  args,
+		Ports: []corev1.ContainerPort{
+			{
+				Name:          "mcp",
+				ContainerPort: mcpv1.DefaultSidecarPort,
+				Protocol:      corev1.ProtocolTCP,
+			},
+			{
+				Name:          "metrics",
+				ContainerPort: metricsPort,
+				Protocol:      corev1.ProtocolTCP,
+			},
+		},
+		LivenessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{
+					Path: "/healthz",
+					Port: intstr.FromInt(int(metricsPort)),
+				},
+			},
+			InitialDelaySeconds: 5,
+			PeriodSeconds:       10,
+			TimeoutSeconds:      5,
+			FailureThreshold:    3,
+		},
+		ReadinessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{
+					Path: "/readyz",
+					Port: intstr.FromInt(int(metricsPort)),
+				},
+			},
+			InitialDelaySeconds: 5,
+			PeriodSeconds:       5,
+			TimeoutSeconds:      3,
+			FailureThreshold:    3,
+		},
+		Resources: h.getSidecarResources(mcpServer),
+		SecurityContext: &corev1.SecurityContext{
+			RunAsNonRoot:             boolPtr(true),
+			ReadOnlyRootFilesystem:   boolPtr(true),
+			AllowPrivilegeEscalation: boolPtr(false),
+			Capabilities: &corev1.Capabilities{
+				Drop: []corev1.Capability{"ALL"},
+			},
+			SeccompProfile: &corev1.SeccompProfile{
+				Type: corev1.SeccompProfileTypeRuntimeDefault,
+			},
+		},
+	}
+
+	// Add TLS volume mount if configured
+	if mcpServer.Spec.Sidecar != nil && mcpServer.Spec.Sidecar.TLS != nil && mcpServer.Spec.Sidecar.TLS.Enabled {
+		container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{
+			Name:      "tls-certs",
+			MountPath: "/etc/tls",
+			ReadOnly:  true,
+		})
+	}
+
+	return container
+}
+
+// getSidecarResources returns the resource requirements for the sidecar
+func (h *HTTPResourceManager) getSidecarResources(mcpServer *mcpv1.MCPServer) corev1.ResourceRequirements {
+	// Use custom resources if specified
+	if mcpServer.Spec.Sidecar != nil && mcpServer.Spec.Sidecar.Resources.Requests != nil {
+		return mcpServer.Spec.Sidecar.Resources
+	}
+
+	// Return defaults
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse(mcpv1.DefaultSidecarCPURequest),
+			corev1.ResourceMemory: resource.MustParse(mcpv1.DefaultSidecarMemoryRequest),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse(mcpv1.DefaultSidecarCPULimit),
+			corev1.ResourceMemory: resource.MustParse(mcpv1.DefaultSidecarMemoryLimit),
+		},
+	}
+}
+
+// boolPtr returns a pointer to a bool value
+func boolPtr(b bool) *bool {
+	return &b
 }
