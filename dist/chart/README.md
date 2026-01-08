@@ -1,212 +1,67 @@
-# MCP Operator
+# mcp-operator
 
-A production-ready Kubernetes operator for deploying and managing Model Context Protocol (MCP) servers with automatic protocol validation, horizontal scaling, and built-in observability.
+![Version: 0.1.0-alpha.18](https://img.shields.io/badge/Version-0.1.0--alpha.18-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.0-alpha.18](https://img.shields.io/badge/AppVersion-0.1.0--alpha.18-informational?style=flat-square)
 
-## What is MCP Operator?
+Production-ready Kubernetes operator for Model Context Protocol (MCP) servers with protocol intelligence and auto-discovery
 
-MCP Operator makes it easy to run MCP servers in Kubernetes. Just define your server using a simple YAML file, and the operator handles the deployment, scaling, monitoring, and protocol validation for you.
+**Homepage:** <https://github.com/vitorbari/mcp-operator>
 
-**Key Features:**
-- **Auto-detection** - Automatically detects transport type and MCP protocol version
-- **Protocol Validation** - Ensures your servers are MCP-compliant
-- **Horizontal Scaling** - Built-in autoscaling based on CPU and memory
-- **Observability** - Prometheus metrics and Grafana dashboards out of the box
-- **Production Ready** - Pod security standards and health checks
+## Maintainers
 
-## Quick Start
+| Name | Email | Url |
+| ---- | ------ | --- |
+| Vitor Bari Buccianti |  | <https://github.com/vitorbari> |
 
-### Installation
+## Source Code
 
-```bash
-# Get latest version
-VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name' | sed 's/^v//')
+* <https://github.com/vitorbari/mcp-operator>
 
-# Install
-helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
-  --version ${VERSION} \
-  --namespace mcp-operator-system \
-  --create-namespace
-```
+## Values
 
-### Deploy Your First MCP Server
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| certmanager.enable | bool | `false` | Enable cert-manager injection to webhooks |
+| controllerManager.container.args | list | `["--leader-elect","--metrics-bind-address=:8443","--health-probe-bind-address=:8081","--zap-log-level=info"]` | Command-line arguments for the controller manager |
+| controllerManager.container.image.repository | string | `"ghcr.io/vitorbari/mcp-operator"` | Container image repository |
+| controllerManager.container.image.tag | string | `"v0.1.0-alpha.18"` | Container image tag (should match operator version) |
+| controllerManager.container.livenessProbe | object | `{"httpGet":{"path":"/healthz","port":8081},"initialDelaySeconds":15,"periodSeconds":20}` | Liveness probe configuration |
+| controllerManager.container.livenessProbe.initialDelaySeconds | int | `15` | Initial delay before starting liveness probes (seconds) |
+| controllerManager.container.livenessProbe.periodSeconds | int | `20` | How often to perform the probe (seconds) |
+| controllerManager.container.readinessProbe | object | `{"httpGet":{"path":"/readyz","port":8081},"initialDelaySeconds":5,"periodSeconds":10}` | Readiness probe configuration |
+| controllerManager.container.readinessProbe.initialDelaySeconds | int | `5` | Initial delay before starting readiness probes (seconds) |
+| controllerManager.container.readinessProbe.periodSeconds | int | `10` | How often to perform the probe (seconds) |
+| controllerManager.container.resources | object | `{"limits":{"cpu":"500m","memory":"128Mi"},"requests":{"cpu":"10m","memory":"64Mi"}}` | Container resource requests and limits |
+| controllerManager.container.resources.limits.cpu | string | `"500m"` | CPU limit |
+| controllerManager.container.resources.limits.memory | string | `"128Mi"` | Memory limit |
+| controllerManager.container.resources.requests.cpu | string | `"10m"` | CPU request |
+| controllerManager.container.resources.requests.memory | string | `"64Mi"` | Memory request |
+| controllerManager.container.securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}` | Container security context |
+| controllerManager.container.securityContext.allowPrivilegeEscalation | bool | `false` | Whether to allow privilege escalation |
+| controllerManager.replicas | int | `1` | Number of operator replicas to run |
+| controllerManager.securityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod security context |
+| controllerManager.securityContext.runAsNonRoot | bool | `true` | Whether to run as non-root user |
+| controllerManager.securityContext.seccompProfile.type | string | `"RuntimeDefault"` | Seccomp profile type |
+| controllerManager.serviceAccountName | string | `"mcp-operator-controller-manager"` | ServiceAccount name to use |
+| controllerManager.terminationGracePeriodSeconds | int | `10` | Grace period for pod termination (seconds) |
+| crd.enable | bool | `true` | Include CRDs in installation |
+| crd.keep | bool | `true` | Keep CRDs when uninstalling the chart (adds helm.sh/resource-policy: keep annotation) NOTE: Removing the CRDs will also remove all MCPServer resources due to garbage collection. |
+| grafana.enabled | bool | `false` | Enable creation of Grafana dashboard ConfigMap for MCP Operator metrics |
+| metrics.enable | bool | `true` | Enable metrics endpoint |
+| networkPolicy.enable | bool | `false` | Enable NetworkPolicy resources |
+| prometheus.additionalLabels | object | `{"release":"monitoring"}` | Additional labels for ServiceMonitor (must match Prometheus serviceMonitorSelector) Example: If Prometheus has serviceMonitorSelector.matchLabels.release=monitoring then set: {release: monitoring} |
+| prometheus.enable | bool | `false` | Create ServiceMonitor resource for Prometheus Operator |
+| rbac.enable | bool | `true` | Enable RBAC resources creation |
+| sidecar.image | object | `{"pullPolicy":"IfNotPresent","repository":"ghcr.io/vitorbari/mcp-proxy","tag":"latest"}` | Default sidecar image configuration |
+| sidecar.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy (IfNotPresent, Always, Never) |
+| sidecar.image.repository | string | `"ghcr.io/vitorbari/mcp-proxy"` | Sidecar image repository |
+| sidecar.image.tag | string | `"latest"` | Sidecar image tag |
+| sidecar.metrics | object | `{"port":9090}` | Default metrics configuration |
+| sidecar.metrics.port | int | `9090` | Metrics server port |
+| sidecar.resources | object | `{"limits":{"cpu":"200m","memory":"128Mi"},"requests":{"cpu":"50m","memory":"64Mi"}}` | Default resource requirements for the sidecar container |
+| sidecar.resources.limits.cpu | string | `"200m"` | CPU limit |
+| sidecar.resources.limits.memory | string | `"128Mi"` | Memory limit |
+| sidecar.resources.requests.cpu | string | `"50m"` | CPU request |
+| sidecar.resources.requests.memory | string | `"64Mi"` | Memory request |
 
-Create a file called `my-server.yaml`:
-
-```yaml
-apiVersion: mcp.mcp-operator.io/v1
-kind: MCPServer
-metadata:
-  name: my-mcp-server
-spec:
-  image: "your-registry.company.com/your-mcp-server:v1.0.0"
-  # Operator handles validation, scaling, monitoring
-```
-
-Apply it:
-
-```bash
-kubectl apply -f my-server.yaml
-```
-
-Watch it come up:
-
-```bash
-kubectl get mcpservers -w
-```
-
-You should see:
-
-```
-NAME            PHASE     REPLICAS   READY   PROTOCOL   VALIDATION   CAPABILITIES              AGE
-my-mcp-server   Running   1          1       sse        Validated    ["tools","resources"]     45s
-```
-
-## Configuration Examples
-
-### Production Setup with Auto-Scaling
-
-```yaml
-apiVersion: mcp.mcp-operator.io/v1
-kind: MCPServer
-metadata:
-  name: my-mcp-server
-spec:
-  image: "tzolov/mcp-everything-server:v3"
-  command: ["node", "dist/index.js", "sse"]
-
-  transport:
-    type: http
-    protocol: auto  # Auto-detect protocol
-    config:
-      http:
-        port: 3001
-        path: "/sse"
-        sessionManagement: true
-
-  # Scale between 2-10 pods based on CPU
-  hpa:
-    enabled: true
-    minReplicas: 2
-    maxReplicas: 10
-    targetCPUUtilizationPercentage: 70
-
-  # Pod security
-  security:
-    runAsUser: 1000
-    runAsGroup: 1000
-    runAsNonRoot: true
-
-  resources:
-    requests:
-      cpu: "200m"
-      memory: "256Mi"
-    limits:
-      cpu: "1000m"
-      memory: "1Gi"
-```
-
-### Enable Monitoring
-
-Install with Prometheus and Grafana dashboards:
-
-```bash
-helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
-  --version ${VERSION} \
-  --namespace mcp-operator-system \
-  --create-namespace \
-  --set prometheus.enable=true \
-  --set grafana.enabled=true
-```
-
-This requires [Prometheus Operator](https://prometheus-operator.dev/) to be installed in your cluster.
-
-### Custom Values
-
-Override default settings:
-
-```bash
-helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
-  --version ${VERSION} \
-  --set controllerManager.replicas=2 \
-  --set controllerManager.container.resources.limits.cpu=1000m \
-  --set metrics.enable=true
-```
-
-Or use a values file:
-
-```bash
-helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
-  --version ${VERSION} \
-  -f my-values.yaml
-```
-
-## Transport Configuration
-
-The operator supports both modern and legacy MCP protocols:
-
-**Auto-detection (recommended):**
-```yaml
-transport:
-  type: http
-  protocol: auto  # Automatically chooses the best protocol
-```
-
-**Force Streamable HTTP (modern):**
-```yaml
-transport:
-  type: http
-  protocol: streamable-http
-```
-
-**Force SSE (legacy):**
-```yaml
-transport:
-  type: http
-  protocol: sse
-```
-
-## Protocol Validation
-
-The operator automatically validates your MCP servers to ensure they're protocol-compliant. Enable strict mode to fail deployments that don't pass validation:
-
-```yaml
-spec:
-  validation:
-    strictMode: true
-```
-
-## Upgrading
-
-```bash
-# Get latest version
-VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name' | sed 's/^v//')
-
-# Upgrade
-helm upgrade mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
-  --version ${VERSION} \
-  --namespace mcp-operator-system
-```
-
-## Uninstalling
-
-```bash
-helm uninstall mcp-operator -n mcp-operator-system
-```
-
-**Note:** By default, CRDs are kept after uninstall to prevent accidental data loss. To also remove CRDs:
-
-```bash
-kubectl delete crd mcpservers.mcp.mcp-operator.io
-```
-
-## What Gets Created
-
-When you install this chart, it creates:
-
-- **Deployment** - The operator controller manager
-- **ServiceAccount** - For operator RBAC
-- **ClusterRole & ClusterRoleBinding** - RBAC permissions
-- **CRDs** - MCPServer custom resource definition
-- **Service** - Metrics endpoint (if enabled)
-- **ServiceMonitor** - Prometheus scraping (if enabled)
-- **ConfigMap** - Grafana dashboard (if enabled)
+----------------------------------------------
+Autogenerated from chart metadata using [helm-docs v1.14.2](https://github.com/norwoodj/helm-docs/releases/v1.14.2)
