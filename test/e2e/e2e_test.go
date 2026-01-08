@@ -856,12 +856,12 @@ spec:
 			// Verify sidecar has correct args
 			args := sidecarContainer["args"].([]interface{})
 			argsStr := fmt.Sprintf("%v", args)
-			Expect(argsStr).To(ContainSubstring("-target"))
+			Expect(argsStr).To(ContainSubstring("--target-addr"))
 			Expect(argsStr).To(ContainSubstring("localhost:3001"))
-			Expect(argsStr).To(ContainSubstring("-port"))
-			Expect(argsStr).To(ContainSubstring("8080"))
-			Expect(argsStr).To(ContainSubstring("-metrics-port"))
-			Expect(argsStr).To(ContainSubstring("9090"))
+			Expect(argsStr).To(ContainSubstring("--listen-addr"))
+			Expect(argsStr).To(ContainSubstring(":8080"))
+			Expect(argsStr).To(ContainSubstring("--metrics-addr"))
+			Expect(argsStr).To(ContainSubstring(":9090"))
 
 			By("cleaning up")
 			cmd = exec.Command("kubectl", "delete", "mcpserver", mcpServerName,

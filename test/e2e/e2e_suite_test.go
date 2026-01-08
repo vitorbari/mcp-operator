@@ -45,6 +45,9 @@ var (
 	// projectImage is the name of the image which will be build and loaded
 	// with the code source changes to be tested.
 	projectImage = "example.com/mcp-operator:v0.0.1"
+
+	// sidecarImage is the mcp-proxy sidecar image used for metrics collection
+	sidecarImage = "ghcr.io/vitorbari/mcp-proxy:latest"
 )
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
@@ -66,6 +69,15 @@ var _ = BeforeSuite(func() {
 	By("loading the manager(Operator) image on Kind")
 	err = utils.LoadImageToKindClusterWithName(projectImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager(Operator) image into Kind")
+
+	By("building the sidecar (mcp-proxy) image")
+	cmd = exec.Command("docker", "build", "-t", sidecarImage, "./sidecar")
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the sidecar image")
+
+	By("loading the sidecar image on Kind")
+	err = utils.LoadImageToKindClusterWithName(sidecarImage)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the sidecar image into Kind")
 
 	// The e2e tests are intended to run on a temporary cluster that is created and destroyed for testing.
 	// To prevent errors when tests run in environments with dependencies already installed,

@@ -441,6 +441,12 @@ func (h *HTTPResourceManager) buildSidecarContainer(mcpServer *mcpv1.MCPServer, 
 			RunAsNonRoot:             boolPtr(true),
 			ReadOnlyRootFilesystem:   boolPtr(true),
 			AllowPrivilegeEscalation: boolPtr(false),
+			Capabilities: &corev1.Capabilities{
+				Drop: []corev1.Capability{"ALL"},
+			},
+			SeccompProfile: &corev1.SeccompProfile{
+				Type: corev1.SeccompProfileTypeRuntimeDefault,
+			},
 		},
 	}
 
