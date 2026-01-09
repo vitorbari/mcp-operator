@@ -863,10 +863,49 @@ spec:
 			Expect(argsStr).To(ContainSubstring("--metrics-addr"))
 			Expect(argsStr).To(ContainSubstring(":9090"))
 
+			By("verifying ServiceMonitor is created")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "servicemonitor", mcpServerName,
+					"-n", testNamespace, "-o", "json")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "ServiceMonitor should be created")
+
+				var smData map[string]interface{}
+				err = json.Unmarshal([]byte(output), &smData)
+				g.Expect(err).NotTo(HaveOccurred())
+
+				// Verify ServiceMonitor metadata
+				metadata := smData["metadata"].(map[string]interface{})
+				g.Expect(metadata["name"]).To(Equal(mcpServerName))
+
+				// Verify ServiceMonitor spec
+				smSpec := smData["spec"].(map[string]interface{})
+
+				// Verify selector matches the MCPServer
+				selector := smSpec["selector"].(map[string]interface{})
+				matchLabels := selector["matchLabels"].(map[string]interface{})
+				g.Expect(matchLabels["app"]).To(Equal(mcpServerName))
+
+				// Verify endpoints configuration
+				endpoints := smSpec["endpoints"].([]interface{})
+				g.Expect(endpoints).NotTo(BeEmpty())
+				endpoint := endpoints[0].(map[string]interface{})
+				g.Expect(endpoint["port"]).To(Equal("metrics"))
+				g.Expect(endpoint["path"]).To(Equal("/metrics"))
+			}, 1*time.Minute, 2*time.Second).Should(Succeed())
+
 			By("cleaning up")
 			cmd = exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
 				"-n", testNamespace, "--timeout=60s")
 			_, _ = utils.Run(cmd)
+
+			By("verifying ServiceMonitor is deleted with MCPServer")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "servicemonitor", mcpServerName,
+					"-n", testNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred(), "ServiceMonitor should be deleted when MCPServer is deleted")
+			}, 1*time.Minute, 2*time.Second).Should(Succeed())
 		})
 
 		It("should not inject sidecar when metrics is not enabled", func() {
@@ -925,6 +964,14 @@ spec:
 
 			port := ports[0].(map[string]interface{})
 			Expect(port["name"]).To(Equal("http"))
+
+			By("verifying ServiceMonitor is NOT created when metrics disabled")
+			Consistently(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "servicemonitor", mcpServerName,
+					"-n", testNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred(), "ServiceMonitor should NOT be created when metrics is disabled")
+			}, 10*time.Second, 2*time.Second).Should(Succeed())
 
 			By("cleaning up")
 			cmd = exec.Command("kubectl", "delete", "mcpserver", mcpServerName,

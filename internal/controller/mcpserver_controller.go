@@ -281,6 +281,13 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return r.updateStatusWithError(ctx, mcpServer, err)
 	}
 
+	// Reconcile ServiceMonitor if metrics are enabled and Prometheus Operator is installed
+	if err := r.reconcileServiceMonitor(ctx, mcpServer); err != nil {
+		log.Error(err, "Failed to reconcile ServiceMonitor")
+		r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "ServiceMonitorFailed", fmt.Sprintf("Failed to reconcile ServiceMonitor: %v", err))
+		return r.updateStatusWithError(ctx, mcpServer, err)
+	}
+
 	// Update status based on deployment status
 	statusChanged := false
 	if err := r.updateMCPServerStatus(ctx, mcpServer); err != nil {
