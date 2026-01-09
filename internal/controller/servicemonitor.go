@@ -18,10 +18,11 @@ package controller
 
 import (
 	"context"
+	"strings"
 
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
@@ -32,29 +33,43 @@ import (
 )
 
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list
-
-const (
-	// ServiceMonitorCRDName is the name of the ServiceMonitor CRD
-	ServiceMonitorCRDName = "servicemonitors.monitoring.coreos.com"
-)
 
 // isServiceMonitorCRDAvailable checks if the ServiceMonitor CRD is installed in the cluster
+// by attempting to get a non-existent ServiceMonitor and checking the error type
 func (r *MCPServerReconciler) isServiceMonitorCRDAvailable(ctx context.Context) bool {
 	log := logf.FromContext(ctx)
 
-	crd := &apiextensionsv1.CustomResourceDefinition{}
-	err := r.Get(ctx, types.NamespacedName{Name: ServiceMonitorCRDName}, crd)
+	// Try to get a ServiceMonitor that doesn't exist
+	// If the CRD is not installed, we'll get a "no matches for kind" error
+	// If the CRD is installed, we'll get a "not found" error
+	sm := &monitoringv1.ServiceMonitor{}
+	err := r.Get(ctx, types.NamespacedName{Name: "__probe__", Namespace: "default"}, sm)
 	if err != nil {
-		if errors.IsNotFound(err) {
+		// Check if this is a "no kind match" error (CRD not installed)
+		if meta.IsNoMatchError(err) || isNoMatchError(err) {
 			log.V(1).Info("ServiceMonitor CRD not found, Prometheus Operator not installed")
 			return false
 		}
-		log.Error(err, "Failed to check for ServiceMonitor CRD")
+		// NotFound error means the CRD exists but the resource doesn't - that's fine
+		if errors.IsNotFound(err) {
+			return true
+		}
+		// Some other error
+		log.Error(err, "Failed to check for ServiceMonitor CRD availability")
 		return false
 	}
 
 	return true
+}
+
+// isNoMatchError checks if the error indicates the CRD is not installed
+func isNoMatchError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "no matches for kind") ||
+		strings.Contains(errStr, "the server could not find the requested resource")
 }
 
 // shouldCreateServiceMonitor returns true if a ServiceMonitor should be created for this MCPServer
