@@ -10,6 +10,7 @@ configMapGenerator:
   files:
   - dashboard.json
   options:
+    disableNameSuffixHash: true
     labels:
       grafana_dashboard: "1"
     annotations:
