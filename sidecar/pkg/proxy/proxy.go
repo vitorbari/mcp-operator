@@ -208,16 +208,22 @@ func (p *Proxy) metricsMiddleware(next http.Handler) http.Handler {
 		// Use SSE-aware response writer that can detect and handle SSE responses
 		sw := newSSEAwareWriter(w, p.recorder, req.Method)
 
+		// Defer SSE connection close handling.
+		// IMPORTANT: This must be in a defer because for SSE connections,
+		// ServeHTTP blocks until the client disconnects. When the client disconnects,
+		// the http.Server may not return normally from ServeHTTP, but defers still run.
+		// This ensures SSE connection close metrics are always recorded.
+		defer func() {
+			if sw.isSSE {
+				sw.recordSSEClose()
+			}
+		}()
+
 		// Process the request
 		next.ServeHTTP(sw, req)
 
-		// Calculate duration
+		// Calculate duration (for non-SSE requests that reach this point)
 		duration := time.Since(start)
-
-		// Handle SSE connection close metrics (but continue to record request metrics)
-		if sw.isSSE {
-			sw.recordSSEClose()
-		}
 
 		// Parse request for MCP method (always, regardless of SSE)
 		mcpMethod := "unknown"
