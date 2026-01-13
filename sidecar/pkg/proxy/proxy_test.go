@@ -549,9 +549,11 @@ func TestProxy_SSEResponseRecordsRequestMetrics(t *testing.T) {
 		t.Error("Expected method=tools/list to be recorded in request metrics")
 	}
 
-	// Verify SSE-specific metrics were also recorded
-	if !strings.Contains(metricsBody, "mcp_sse_connections_total") {
-		t.Error("Expected mcp_sse_connections_total metric to be recorded")
+	// POST requests with SSE content type should NOT record SSE connection metrics
+	// because they are Streamable HTTP request-responses, not long-lived SSE streams.
+	// SSE connection metrics should only be recorded for GET requests.
+	if strings.Contains(metricsBody, `mcp_sse_connections_total{`) {
+		t.Error("POST requests with SSE content type should NOT record mcp_sse_connections_total")
 	}
 }
 
@@ -612,9 +614,221 @@ func TestProxy_NonSSEResponseRecordsMetrics(t *testing.T) {
 	}
 
 	// Verify SSE metrics were NOT recorded for non-SSE response
-	if strings.Contains(metricsBody, "mcp_sse_connections_total") {
-		// The counter exists but should be 0 or not have any samples
-		// Actually, the metric may exist with 0 value, so just check it wasn't incremented
-		// by verifying the body doesn't contain a non-zero value
+	if strings.Contains(metricsBody, `mcp_sse_connections_total{`) {
+		t.Error("Non-SSE responses should NOT record mcp_sse_connections_total")
+	}
+}
+
+// TestProxy_GETSSERequestRecordsSSEConnectionMetrics verifies that GET requests
+// with SSE content type correctly record SSE connection metrics.
+// This is the expected behavior for true long-lived SSE streams (e.g., server notifications).
+func TestProxy_GETSSERequestRecordsSSEConnectionMetrics(t *testing.T) {
+	// Create a mock target server that returns SSE content type for GET requests
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(http.StatusOK)
+		// Send a simple SSE event and close (simulating a short-lived SSE for testing)
+		w.Write([]byte("event: endpoint\ndata: /messages\n\n"))
+	}))
+	defer targetServer.Close()
+
+	// Create a real metrics recorder
+	recorder, err := metrics.NewRecorder("test", targetServer.URL)
+	if err != nil {
+		t.Fatalf("Failed to create metrics recorder: %v", err)
+	}
+	defer recorder.Shutdown(context.Background())
+
+	// Create proxy with recorder
+	logger := newTestLogger()
+	p, err := NewWithRecorder(":0", targetServer.URL, logger, recorder)
+	if err != nil {
+		t.Fatalf("Failed to create proxy: %v", err)
+	}
+
+	// Create a GET request (this is how SSE streams are established)
+	req := httptest.NewRequest(http.MethodGet, "/sse", nil)
+	rr := httptest.NewRecorder()
+
+	// Serve the request
+	handler := p.metricsMiddleware(p.reverseProxy)
+	handler.ServeHTTP(rr, req)
+
+	// Verify the response was successful and is SSE
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+
+	contentType := rr.Header().Get("Content-Type")
+	if !strings.HasPrefix(contentType, "text/event-stream") {
+		t.Errorf("Expected SSE content type, got %s", contentType)
+	}
+
+	// Fetch metrics
+	metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRr := httptest.NewRecorder()
+	recorder.Handler().ServeHTTP(metricsRr, metricsReq)
+
+	metricsBody := metricsRr.Body.String()
+
+	// Verify SSE connection metrics were recorded for GET request
+	if !strings.Contains(metricsBody, `mcp_sse_connections_total{`) {
+		t.Error("Expected mcp_sse_connections_total metric to be recorded for GET SSE request")
+	}
+
+	// Verify connection duration was recorded (connection closed)
+	if !strings.Contains(metricsBody, `mcp_sse_connection_duration_seconds_count{`) {
+		t.Error("Expected mcp_sse_connection_duration_seconds metric to be recorded")
+	}
+}
+
+// TestProxy_POSTSSEResponseDoesNotRecordSSEConnectionMetrics is a regression test
+// to ensure that POST requests with text/event-stream content type (Streamable HTTP)
+// do NOT record SSE connection metrics. Only GET requests should be counted as SSE connections.
+//
+// Bug context: In MCP Streamable HTTP transport, POST request-responses use
+// text/event-stream content type for the response body. These are NOT long-lived
+// SSE connections but regular request-response cycles. The proxy was incorrectly
+// counting every POST response as an SSE connection, leading to inflated metrics.
+func TestProxy_POSTSSEResponseDoesNotRecordSSEConnectionMetrics(t *testing.T) {
+	// Create a mock target server that returns SSE content type for POST (Streamable HTTP style)
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Simulate Streamable HTTP response - uses text/event-stream content type
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("event: message\ndata: {\"jsonrpc\":\"2.0\",\"result\":{\"tools\":[]},\"id\":1}\n\n"))
+	}))
+	defer targetServer.Close()
+
+	// Create a real metrics recorder
+	recorder, err := metrics.NewRecorder("test", targetServer.URL)
+	if err != nil {
+		t.Fatalf("Failed to create metrics recorder: %v", err)
+	}
+	defer recorder.Shutdown(context.Background())
+
+	// Create proxy with recorder
+	logger := newTestLogger()
+	p, err := NewWithRecorder(":0", targetServer.URL, logger, recorder)
+	if err != nil {
+		t.Fatalf("Failed to create proxy: %v", err)
+	}
+
+	// Make multiple POST requests (simulating Streamable HTTP traffic)
+	for i := 0; i < 5; i++ {
+		reqBody := []byte(`{"jsonrpc":"2.0","method":"tools/list","id":1}`)
+		req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+
+		handler := p.metricsMiddleware(p.reverseProxy)
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("Expected status %d, got %d", http.StatusOK, rr.Code)
+		}
+	}
+
+	// Fetch metrics
+	metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRr := httptest.NewRecorder()
+	recorder.Handler().ServeHTTP(metricsRr, metricsReq)
+
+	metricsBody := metricsRr.Body.String()
+
+	// Verify request metrics were recorded (5 requests)
+	if !strings.Contains(metricsBody, `mcp_requests_total{method="tools/list"`) {
+		t.Error("Expected mcp_requests_total to be recorded for POST requests")
+	}
+
+	// CRITICAL: Verify SSE connection metrics were NOT recorded for POST requests
+	// This is the regression test for the bug where POST requests were incorrectly
+	// counted as SSE connections.
+	if strings.Contains(metricsBody, `mcp_sse_connections_total{`) {
+		t.Error("POST requests with SSE content type should NOT record mcp_sse_connections_total - this is a regression!")
+	}
+
+	if strings.Contains(metricsBody, `mcp_sse_connections_active{`) {
+		t.Error("POST requests with SSE content type should NOT record mcp_sse_connections_active - this is a regression!")
+	}
+}
+
+// TestProxy_MixedGETAndPOSTSSERequests verifies that in a mixed traffic scenario
+// (both GET SSE streams and POST Streamable HTTP requests), only GET requests
+// are counted as SSE connections.
+func TestProxy_MixedGETAndPOSTSSERequests(t *testing.T) {
+	// Create a mock target server that returns SSE content type for both GET and POST
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodGet {
+			w.Write([]byte("event: endpoint\ndata: /messages\n\n"))
+		} else {
+			w.Write([]byte("event: message\ndata: {\"jsonrpc\":\"2.0\",\"result\":{},\"id\":1}\n\n"))
+		}
+	}))
+	defer targetServer.Close()
+
+	// Create a real metrics recorder
+	recorder, err := metrics.NewRecorder("test", targetServer.URL)
+	if err != nil {
+		t.Fatalf("Failed to create metrics recorder: %v", err)
+	}
+	defer recorder.Shutdown(context.Background())
+
+	// Create proxy with recorder
+	logger := newTestLogger()
+	p, err := NewWithRecorder(":0", targetServer.URL, logger, recorder)
+	if err != nil {
+		t.Fatalf("Failed to create proxy: %v", err)
+	}
+
+	handler := p.metricsMiddleware(p.reverseProxy)
+
+	// Make 3 GET requests (SSE streams)
+	for i := 0; i < 3; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/sse", nil)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+	}
+
+	// Make 10 POST requests (Streamable HTTP)
+	for i := 0; i < 10; i++ {
+		reqBody := []byte(`{"jsonrpc":"2.0","method":"initialize","id":1}`)
+		req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+	}
+
+	// Fetch metrics
+	metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRr := httptest.NewRecorder()
+	recorder.Handler().ServeHTTP(metricsRr, metricsReq)
+
+	metricsBody := metricsRr.Body.String()
+
+	// Verify SSE connection total is 3 (only GET requests)
+	// The metric format is: mcp_sse_connections_total{...} 3
+	if !strings.Contains(metricsBody, `mcp_sse_connections_total{`) {
+		t.Error("Expected mcp_sse_connections_total metric to exist")
+	}
+
+	// Parse the metric value to verify it's exactly 3
+	for _, line := range strings.Split(metricsBody, "\n") {
+		if strings.HasPrefix(line, "mcp_sse_connections_total{") {
+			// Extract the value (last space-separated field)
+			parts := strings.Fields(line)
+			if len(parts) >= 1 {
+				value := parts[len(parts)-1]
+				if value != "3" {
+					t.Errorf("Expected mcp_sse_connections_total to be 3 (GET requests only), got %s", value)
+				}
+			}
+		}
 	}
 }
