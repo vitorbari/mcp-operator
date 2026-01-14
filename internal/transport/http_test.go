@@ -221,3 +221,353 @@ var _ = Describe("HTTPResourceManager", func() {
 func ptr[T any](v T) *T {
 	return &v
 }
+
+var _ = Describe("SSE-Aware Reconciliation", func() {
+	var (
+		ctx           context.Context
+		k8sClient     client.Client
+		httpManager   *HTTPResourceManager
+		mcpServer     *mcpv1.MCPServer
+		runtimeScheme *runtime.Scheme
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+
+		// Create runtime scheme and add our types
+		runtimeScheme = runtime.NewScheme()
+		Expect(scheme.AddToScheme(runtimeScheme)).To(Succeed())
+		Expect(mcpv1.AddToScheme(runtimeScheme)).To(Succeed())
+
+		// Create fake client
+		k8sClient = fake.NewClientBuilder().
+			WithScheme(runtimeScheme).
+			Build()
+
+		// Create HTTP manager
+		httpManager = NewHTTPResourceManager(k8sClient, runtimeScheme)
+
+		// Create test MCPServer
+		mcpServer = &mcpv1.MCPServer{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-sse-mcpserver",
+				Namespace: "default",
+			},
+			Spec: mcpv1.MCPServerSpec{
+				Image:    "nginx:1.21",
+				Replicas: ptr(int32(2)),
+				Transport: &mcpv1.MCPServerTransport{
+					Type: mcpv1.MCPTransportHTTP,
+					Config: &mcpv1.MCPTransportConfigDetails{
+						HTTP: &mcpv1.MCPHTTPTransportConfig{
+							Port: 8080,
+							Path: "/sse",
+						},
+					},
+				},
+			},
+		}
+	})
+
+	Describe("isSSEActive", func() {
+		It("should return false when protocol is streamable-http", func() {
+			mcpServer.Spec.Transport.Protocol = mcpv1.MCPProtocolStreamableHTTP
+			Expect(httpManager.isSSEActive(mcpServer)).To(BeFalse())
+		})
+
+		It("should return true when protocol is explicitly sse", func() {
+			mcpServer.Spec.Transport.Protocol = mcpv1.MCPProtocolSSE
+			Expect(httpManager.isSSEActive(mcpServer)).To(BeTrue())
+		})
+
+		It("should return true when protocol is auto and SSE is detected in status", func() {
+			mcpServer.Spec.Transport.Protocol = mcpv1.MCPProtocolAuto
+			mcpServer.Status.ResolvedTransport = &mcpv1.ResolvedTransportStatus{
+				Protocol: mcpv1.MCPProtocolSSE,
+			}
+			Expect(httpManager.isSSEActive(mcpServer)).To(BeTrue())
+		})
+
+		It("should return false when protocol is auto and no detection yet", func() {
+			mcpServer.Spec.Transport.Protocol = mcpv1.MCPProtocolAuto
+			Expect(httpManager.isSSEActive(mcpServer)).To(BeFalse())
+		})
+
+		It("should return true when protocol is auto and validation detected SSE", func() {
+			mcpServer.Spec.Transport.Protocol = mcpv1.MCPProtocolAuto
+			mcpServer.Status.Validation = &mcpv1.ValidationStatus{
+				Protocol: "sse",
+			}
+			Expect(httpManager.isSSEActive(mcpServer)).To(BeTrue())
+		})
+	})
+
+	Describe("isExplicitSSE", func() {
+		It("should return true only for explicit SSE configuration", func() {
+			mcpServer.Spec.Transport.Protocol = mcpv1.MCPProtocolSSE
+			Expect(httpManager.isExplicitSSE(mcpServer)).To(BeTrue())
+
+			mcpServer.Spec.Transport.Protocol = mcpv1.MCPProtocolAuto
+			Expect(httpManager.isExplicitSSE(mcpServer)).To(BeFalse())
+		})
+	})
+
+	Describe("SSE Deployment Settings", func() {
+		Context("when SSE is explicitly configured", func() {
+			BeforeEach(func() {
+				mcpServer.Spec.Transport.Protocol = mcpv1.MCPProtocolSSE
+			})
+
+			It("should apply rolling update strategy with maxUnavailable=0", func() {
+				err := httpManager.CreateResources(ctx, mcpServer)
+				Expect(err).NotTo(HaveOccurred())
+
+				deployment := &appsv1.Deployment{}
+				err = k8sClient.Get(ctx, client.ObjectKey{
+					Name:      mcpServer.Name,
+					Namespace: mcpServer.Namespace,
+				}, deployment)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(deployment.Spec.Strategy.Type).To(Equal(appsv1.RollingUpdateDeploymentStrategyType))
+				Expect(deployment.Spec.Strategy.RollingUpdate).NotTo(BeNil())
+				Expect(deployment.Spec.Strategy.RollingUpdate.MaxUnavailable.IntValue()).To(Equal(0))
+			})
+
+			It("should apply SSE-specific pod annotations", func() {
+				err := httpManager.CreateResources(ctx, mcpServer)
+				Expect(err).NotTo(HaveOccurred())
+
+				deployment := &appsv1.Deployment{}
+				err = k8sClient.Get(ctx, client.ObjectKey{
+					Name:      mcpServer.Name,
+					Namespace: mcpServer.Namespace,
+				}, deployment)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(deployment.Spec.Template.Annotations).To(HaveKeyWithValue("mcp.transport.protocol", "sse"))
+				Expect(deployment.Spec.Template.Annotations).To(HaveKeyWithValue("mcp.transport.streaming", "true"))
+			})
+
+			It("should apply default termination grace period", func() {
+				err := httpManager.CreateResources(ctx, mcpServer)
+				Expect(err).NotTo(HaveOccurred())
+
+				deployment := &appsv1.Deployment{}
+				err = k8sClient.Get(ctx, client.ObjectKey{
+					Name:      mcpServer.Name,
+					Namespace: mcpServer.Namespace,
+				}, deployment)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(deployment.Spec.Template.Spec.TerminationGracePeriodSeconds).NotTo(BeNil())
+				Expect(*deployment.Spec.Template.Spec.TerminationGracePeriodSeconds).To(Equal(int64(60)))
+			})
+
+			It("should apply custom termination grace period when configured", func() {
+				customGracePeriod := int64(120)
+				mcpServer.Spec.Transport.Config.HTTP.SSE = &mcpv1.SSEConfig{
+					TerminationGracePeriodSeconds: &customGracePeriod,
+				}
+
+				err := httpManager.CreateResources(ctx, mcpServer)
+				Expect(err).NotTo(HaveOccurred())
+
+				deployment := &appsv1.Deployment{}
+				err = k8sClient.Get(ctx, client.ObjectKey{
+					Name:      mcpServer.Name,
+					Namespace: mcpServer.Namespace,
+				}, deployment)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(deployment.Spec.Template.Spec.TerminationGracePeriodSeconds).NotTo(BeNil())
+				Expect(*deployment.Spec.Template.Spec.TerminationGracePeriodSeconds).To(Equal(int64(120)))
+			})
+		})
+
+		Context("when SSE is auto-detected", func() {
+			BeforeEach(func() {
+				mcpServer.Spec.Transport.Protocol = mcpv1.MCPProtocolAuto
+				mcpServer.Status.ResolvedTransport = &mcpv1.ResolvedTransportStatus{
+					Protocol:         mcpv1.MCPProtocolSSE,
+					SSEConfigApplied: true,
+				}
+			})
+
+			It("should apply SSE settings after detection", func() {
+				err := httpManager.CreateResources(ctx, mcpServer)
+				Expect(err).NotTo(HaveOccurred())
+
+				deployment := &appsv1.Deployment{}
+				err = k8sClient.Get(ctx, client.ObjectKey{
+					Name:      mcpServer.Name,
+					Namespace: mcpServer.Namespace,
+				}, deployment)
+				Expect(err).NotTo(HaveOccurred())
+
+				// SSE settings should be applied
+				Expect(deployment.Spec.Strategy.Type).To(Equal(appsv1.RollingUpdateDeploymentStrategyType))
+				Expect(deployment.Spec.Strategy.RollingUpdate.MaxUnavailable.IntValue()).To(Equal(0))
+			})
+		})
+
+		Context("when protocol is streamable-http", func() {
+			BeforeEach(func() {
+				mcpServer.Spec.Transport.Protocol = mcpv1.MCPProtocolStreamableHTTP
+			})
+
+			It("should NOT apply SSE-specific settings", func() {
+				err := httpManager.CreateResources(ctx, mcpServer)
+				Expect(err).NotTo(HaveOccurred())
+
+				deployment := &appsv1.Deployment{}
+				err = k8sClient.Get(ctx, client.ObjectKey{
+					Name:      mcpServer.Name,
+					Namespace: mcpServer.Namespace,
+				}, deployment)
+				Expect(err).NotTo(HaveOccurred())
+
+				// SSE annotations should not be present
+				Expect(deployment.Spec.Template.Annotations).NotTo(HaveKey("mcp.transport.protocol"))
+				Expect(deployment.Spec.Template.Annotations).NotTo(HaveKey("mcp.transport.streaming"))
+
+				// Termination grace period should not be set (default behavior)
+				Expect(deployment.Spec.Template.Spec.TerminationGracePeriodSeconds).To(BeNil())
+			})
+		})
+	})
+
+	Describe("SSE Service Settings", func() {
+		Context("when SSE session affinity is enabled", func() {
+			BeforeEach(func() {
+				mcpServer.Spec.Transport.Protocol = mcpv1.MCPProtocolSSE
+				mcpServer.Spec.Transport.Config.HTTP.SSE = &mcpv1.SSEConfig{
+					EnableSessionAffinity: ptr(true),
+				}
+			})
+
+			It("should enable ClientIP session affinity on the service", func() {
+				err := httpManager.CreateResources(ctx, mcpServer)
+				Expect(err).NotTo(HaveOccurred())
+
+				service := &corev1.Service{}
+				err = k8sClient.Get(ctx, client.ObjectKey{
+					Name:      mcpServer.Name,
+					Namespace: mcpServer.Namespace,
+				}, service)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(service.Spec.SessionAffinity).To(Equal(corev1.ServiceAffinityClientIP))
+				Expect(service.Spec.SessionAffinityConfig).NotTo(BeNil())
+				Expect(service.Spec.SessionAffinityConfig.ClientIP).NotTo(BeNil())
+			})
+
+			It("should add SSE annotations to the service", func() {
+				err := httpManager.CreateResources(ctx, mcpServer)
+				Expect(err).NotTo(HaveOccurred())
+
+				service := &corev1.Service{}
+				err = k8sClient.Get(ctx, client.ObjectKey{
+					Name:      mcpServer.Name,
+					Namespace: mcpServer.Namespace,
+				}, service)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(service.Annotations).To(HaveKeyWithValue("mcp.transport.protocol", "sse"))
+				Expect(service.Annotations).To(HaveKeyWithValue("mcp.transport.streaming", "true"))
+			})
+		})
+
+		Context("when SSE is active but session affinity is NOT enabled", func() {
+			BeforeEach(func() {
+				mcpServer.Spec.Transport.Protocol = mcpv1.MCPProtocolSSE
+				// No SSE config or session affinity not enabled
+			})
+
+			It("should NOT enable session affinity by default", func() {
+				err := httpManager.CreateResources(ctx, mcpServer)
+				Expect(err).NotTo(HaveOccurred())
+
+				service := &corev1.Service{}
+				err = k8sClient.Get(ctx, client.ObjectKey{
+					Name:      mcpServer.Name,
+					Namespace: mcpServer.Namespace,
+				}, service)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Session affinity should NOT be set (safe default) - empty string or None
+				Expect(service.Spec.SessionAffinity).NotTo(Equal(corev1.ServiceAffinityClientIP))
+			})
+		})
+
+		Context("when auto-detect mode and SSE detected but no explicit affinity opt-in", func() {
+			BeforeEach(func() {
+				mcpServer.Spec.Transport.Protocol = mcpv1.MCPProtocolAuto
+				mcpServer.Status.ResolvedTransport = &mcpv1.ResolvedTransportStatus{
+					Protocol:         mcpv1.MCPProtocolSSE,
+					SSEConfigApplied: true,
+				}
+				// No SSE config - user didn't opt in
+			})
+
+			It("should NOT enable session affinity implicitly", func() {
+				err := httpManager.CreateResources(ctx, mcpServer)
+				Expect(err).NotTo(HaveOccurred())
+
+				service := &corev1.Service{}
+				err = k8sClient.Get(ctx, client.ObjectKey{
+					Name:      mcpServer.Name,
+					Namespace: mcpServer.Namespace,
+				}, service)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Session affinity should NOT be set in auto-detect mode without explicit opt-in
+				Expect(service.Spec.SessionAffinity).NotTo(Equal(corev1.ServiceAffinityClientIP))
+			})
+		})
+	})
+
+	Describe("SSE Configuration Helpers", func() {
+		It("should return correct termination grace period", func() {
+			// No SSE config - should return nil for non-SSE
+			mcpServer.Spec.Transport.Protocol = mcpv1.MCPProtocolStreamableHTTP
+			gracePeriod := httpManager.getSSETerminationGracePeriod(mcpServer)
+			Expect(gracePeriod).To(BeNil())
+
+			// SSE active but no custom config - should return default 60s
+			mcpServer.Spec.Transport.Protocol = mcpv1.MCPProtocolSSE
+			gracePeriod = httpManager.getSSETerminationGracePeriod(mcpServer)
+			Expect(gracePeriod).NotTo(BeNil())
+			Expect(*gracePeriod).To(Equal(int64(60)))
+
+			// SSE with custom config
+			customPeriod := int64(90)
+			mcpServer.Spec.Transport.Config.HTTP.SSE = &mcpv1.SSEConfig{
+				TerminationGracePeriodSeconds: &customPeriod,
+			}
+			gracePeriod = httpManager.getSSETerminationGracePeriod(mcpServer)
+			Expect(gracePeriod).NotTo(BeNil())
+			Expect(*gracePeriod).To(Equal(int64(90)))
+		})
+
+		It("should correctly determine session affinity requirement", func() {
+			// Non-SSE should not require affinity
+			mcpServer.Spec.Transport.Protocol = mcpv1.MCPProtocolStreamableHTTP
+			Expect(httpManager.shouldEnableSSESessionAffinity(mcpServer)).To(BeFalse())
+
+			// SSE without config should not require affinity
+			mcpServer.Spec.Transport.Protocol = mcpv1.MCPProtocolSSE
+			Expect(httpManager.shouldEnableSSESessionAffinity(mcpServer)).To(BeFalse())
+
+			// SSE with explicit opt-in should require affinity
+			mcpServer.Spec.Transport.Config.HTTP.SSE = &mcpv1.SSEConfig{
+				EnableSessionAffinity: ptr(true),
+			}
+			Expect(httpManager.shouldEnableSSESessionAffinity(mcpServer)).To(BeTrue())
+
+			// SSE with explicit opt-out should not require affinity
+			mcpServer.Spec.Transport.Config.HTTP.SSE.EnableSessionAffinity = ptr(false)
+			Expect(httpManager.shouldEnableSSESessionAffinity(mcpServer)).To(BeFalse())
+		})
+	})
+})

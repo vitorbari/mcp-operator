@@ -2263,6 +2263,390 @@ spec:
 				_, _ = utils.Run(cmd)
 			})
 		})
+
+		Context("SSE-Aware Reconciliation", func() {
+			It("should apply SSE-specific deployment settings when protocol is explicitly SSE", func() {
+				mcpServerName := "test-sse-explicit-config"
+				mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "sse"]
+  replicas: 1
+  transport:
+    type: http
+    protocol: sse
+    config:
+      http:
+        port: 3001
+        path: "/sse"
+        sessionManagement: true
+        sse:
+          enableSessionAffinity: true
+          terminationGracePeriodSeconds: 90
+          maxSurge: "50%%"
+  validation:
+    enabled: true
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+`, mcpServerName, testNamespace)
+
+				By("creating MCPServer with explicit SSE protocol")
+				err := applyMCPServerYAML(mcpServerYAML)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("waiting for MCPServer to reach Running phase")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+						"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(output).To(Equal("Running"))
+				}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("verifying SSE-specific deployment strategy (maxUnavailable=0)")
+				cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.spec.strategy.rollingUpdate.maxUnavailable}")
+				output, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).To(Equal("0"), "maxUnavailable should be 0 for SSE")
+
+				By("verifying SSE-specific deployment strategy (maxSurge)")
+				cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.spec.strategy.rollingUpdate.maxSurge}")
+				output, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).To(Equal("50%"), "maxSurge should be 50% as configured")
+
+				By("verifying SSE-specific pod annotations")
+				cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.spec.template.metadata.annotations.mcp\\.transport\\.protocol}")
+				output, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).To(Equal("sse"), "Pod should have SSE protocol annotation")
+
+				cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.spec.template.metadata.annotations.mcp\\.transport\\.streaming}")
+				output, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).To(Equal("true"), "Pod should have streaming annotation")
+
+				By("verifying termination grace period")
+				cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.spec.template.spec.terminationGracePeriodSeconds}")
+				output, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).To(Equal("90"), "terminationGracePeriodSeconds should be 90 as configured")
+
+				By("verifying SSE-specific service annotations")
+				cmd = exec.Command("kubectl", "get", "service", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.metadata.annotations.mcp\\.transport\\.protocol}")
+				output, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).To(Equal("sse"), "Service should have SSE protocol annotation")
+
+				By("verifying session affinity is enabled")
+				cmd = exec.Command("kubectl", "get", "service", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.spec.sessionAffinity}")
+				output, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).To(Equal("ClientIP"), "Session affinity should be ClientIP")
+
+				By("cleaning up")
+				cmd = exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
+					"-n", testNamespace, "--timeout=120s")
+				_, _ = utils.Run(cmd)
+			})
+
+			It("should apply SSE-specific settings after auto-detection detects SSE", func() {
+				mcpServerName := "test-sse-auto-detect"
+				mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "sse"]
+  replicas: 1
+  transport:
+    type: http
+    protocol: auto
+    config:
+      http:
+        port: 3001
+        path: "/sse"
+        sessionManagement: true
+        sse:
+          enableSessionAffinity: true
+          terminationGracePeriodSeconds: 120
+  validation:
+    enabled: true
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+`, mcpServerName, testNamespace)
+
+				By("creating MCPServer with auto protocol detection")
+				err := applyMCPServerYAML(mcpServerYAML)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("waiting for MCPServer to reach Running phase")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+						"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(output).To(Equal("Running"))
+				}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("waiting for validation to detect SSE protocol")
+				Eventually(func(g Gomega) {
+					result, err := getMCPServerStatus(mcpServerName)
+					g.Expect(err).NotTo(HaveOccurred())
+
+					status, ok := result["status"].(map[string]interface{})
+					g.Expect(ok).To(BeTrue())
+
+					validation, ok := status["validation"].(map[string]interface{})
+					g.Expect(ok).To(BeTrue())
+
+					protocol, ok := validation["protocol"].(string)
+					g.Expect(ok).To(BeTrue())
+					g.Expect(protocol).To(Equal("sse"), "Protocol should be detected as SSE")
+				}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("verifying resolved transport is set in status")
+				Eventually(func(g Gomega) {
+					result, err := getMCPServerStatus(mcpServerName)
+					g.Expect(err).NotTo(HaveOccurred())
+
+					status, ok := result["status"].(map[string]interface{})
+					g.Expect(ok).To(BeTrue())
+
+					resolvedTransport, ok := status["resolvedTransport"].(map[string]interface{})
+					g.Expect(ok).To(BeTrue(), "resolvedTransport should exist in status")
+
+					protocol, ok := resolvedTransport["protocol"].(string)
+					g.Expect(ok).To(BeTrue())
+					g.Expect(protocol).To(Equal("sse"), "resolvedTransport.protocol should be sse")
+
+					sseConfigApplied, ok := resolvedTransport["sseConfigApplied"].(bool)
+					g.Expect(ok).To(BeTrue())
+					g.Expect(sseConfigApplied).To(BeTrue(), "SSE config should be applied")
+				}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("verifying SSE-specific deployment settings were applied after detection")
+				cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.spec.strategy.rollingUpdate.maxUnavailable}")
+				output, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).To(Equal("0"), "maxUnavailable should be 0 for SSE after auto-detection")
+
+				By("verifying SSE-specific pod annotations after detection")
+				cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.spec.template.metadata.annotations.mcp\\.transport\\.protocol}")
+				output, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).To(Equal("sse"), "Pod should have SSE protocol annotation after detection")
+
+				By("verifying session affinity is enabled when opted in")
+				cmd = exec.Command("kubectl", "get", "service", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.spec.sessionAffinity}")
+				output, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).To(Equal("ClientIP"), "Session affinity should be enabled when explicitly configured")
+
+				By("verifying SSEDetected event was emitted")
+				Eventually(func(g Gomega) {
+					waitForEvent(g, mcpServerName, "SSEDetected", "Should have SSEDetected event")
+				}, 1*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("cleaning up")
+				cmd = exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
+					"-n", testNamespace, "--timeout=120s")
+				_, _ = utils.Run(cmd)
+			})
+
+			It("should NOT enable session affinity when not explicitly configured in auto-detect mode", func() {
+				mcpServerName := "test-sse-no-affinity"
+				mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "sse"]
+  replicas: 1
+  transport:
+    type: http
+    protocol: auto
+    config:
+      http:
+        port: 3001
+        path: "/sse"
+        sessionManagement: false
+  validation:
+    enabled: true
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+`, mcpServerName, testNamespace)
+
+				By("creating MCPServer with auto protocol but NO session affinity opt-in")
+				err := applyMCPServerYAML(mcpServerYAML)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("waiting for MCPServer to reach Running phase")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+						"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(output).To(Equal("Running"))
+				}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("waiting for SSE to be detected")
+				Eventually(func(g Gomega) {
+					result, err := getMCPServerStatus(mcpServerName)
+					g.Expect(err).NotTo(HaveOccurred())
+
+					status, ok := result["status"].(map[string]interface{})
+					g.Expect(ok).To(BeTrue())
+
+					validation, ok := status["validation"].(map[string]interface{})
+					g.Expect(ok).To(BeTrue())
+
+					protocol, ok := validation["protocol"].(string)
+					g.Expect(ok).To(BeTrue())
+					g.Expect(protocol).To(Equal("sse"))
+				}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("verifying session affinity is NOT enabled (safe default)")
+				cmd := exec.Command("kubectl", "get", "service", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.spec.sessionAffinity}")
+				output, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				// Empty string or "None" means no session affinity
+				Expect(output).NotTo(Equal("ClientIP"), "Session affinity should NOT be enabled without explicit opt-in")
+
+				By("verifying SSE deployment settings are still applied (rolling update)")
+				cmd = exec.Command("kubectl", "get", "deployment", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.spec.strategy.rollingUpdate.maxUnavailable}")
+				output, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).To(Equal("0"), "maxUnavailable should still be 0 for SSE")
+
+				By("cleaning up")
+				cmd = exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
+					"-n", testNamespace, "--timeout=120s")
+				_, _ = utils.Run(cmd)
+			})
+
+			It("should NOT apply SSE settings when protocol is streamable-http", func() {
+				mcpServerName := "test-streamable-no-sse"
+				mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js"]
+  replicas: 1
+  transport:
+    type: http
+    protocol: streamable-http
+    config:
+      http:
+        port: 3001
+        path: "/mcp"
+        sessionManagement: true
+  validation:
+    enabled: true
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+`, mcpServerName, testNamespace)
+
+				By("creating MCPServer with explicit streamable-http protocol")
+				err := applyMCPServerYAML(mcpServerYAML)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("waiting for MCPServer to reach Running phase")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+						"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(output).To(Equal("Running"))
+				}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("verifying SSE-specific pod annotations are NOT present")
+				cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.spec.template.metadata.annotations.mcp\\.transport\\.protocol}")
+				output, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).NotTo(Equal("sse"), "Pod should NOT have SSE protocol annotation")
+
+				By("verifying SSE-specific service annotations are NOT present")
+				cmd = exec.Command("kubectl", "get", "service", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.metadata.annotations.mcp\\.transport\\.protocol}")
+				output, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).NotTo(Equal("sse"), "Service should NOT have SSE protocol annotation")
+
+				By("cleaning up")
+				cmd = exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
+					"-n", testNamespace, "--timeout=120s")
+				_, _ = utils.Run(cmd)
+			})
+		})
 	})
 })
 
