@@ -137,6 +137,8 @@ func (r *MCPServerReconciler) buildServiceMonitor(mcpServer *mcpv1.MCPServer) *m
 		"app.kubernetes.io/instance":   mcpServer.Name,
 		"app.kubernetes.io/component":  "mcp-server",
 		"app.kubernetes.io/managed-by": "mcp-operator",
+		// Required by kube-prometheus-stack to discover ServiceMonitors
+		"release": "monitoring",
 	}
 
 	// Get metrics port
