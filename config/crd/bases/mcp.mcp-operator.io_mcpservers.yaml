@@ -3363,6 +3363,15 @@ spec:
                       Image overrides the default sidecar image.
                       Default: ghcr.io/vitorbari/mcp-proxy:latest
                     type: string
+                  port:
+                    description: |-
+                      Port specifies the port the sidecar listens on for incoming MCP traffic.
+                      When not specified, defaults to 8080 unless the MCP server is also configured
+                      to use port 8080, in which case it defaults to 8081 to avoid conflicts.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
                   resources:
                     description: |-
                       Resources for the sidecar container.

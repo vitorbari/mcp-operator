@@ -389,6 +389,8 @@ const (
 	DefaultMetricsPort = int32(9090)
 	// DefaultSidecarPort is the default port the sidecar listens on
 	DefaultSidecarPort = int32(8080)
+	// FallbackSidecarPort is used when the MCP server port conflicts with DefaultSidecarPort
+	FallbackSidecarPort = int32(8081)
 	// DefaultSidecarCPURequest is the default CPU request for the sidecar
 	DefaultSidecarCPURequest = "50m"
 	// DefaultSidecarMemoryRequest is the default memory request for the sidecar
@@ -420,6 +422,14 @@ type SidecarConfig struct {
 	// Default: ghcr.io/vitorbari/mcp-proxy:latest
 	// +optional
 	Image string `json:"image,omitempty"`
+
+	// Port specifies the port the sidecar listens on for incoming MCP traffic.
+	// When not specified, defaults to 8080 unless the MCP server is also configured
+	// to use port 8080, in which case it defaults to 8081 to avoid conflicts.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +optional
+	Port int32 `json:"port,omitempty"`
 
 	// Resources for the sidecar container.
 	// Default: requests: 50m CPU, 64Mi memory; limits: 200m CPU, 128Mi memory
