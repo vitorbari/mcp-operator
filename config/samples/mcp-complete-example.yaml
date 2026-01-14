@@ -62,6 +62,19 @@ spec:
         port: 8080
         path: "/mcp"
         sessionManagement: true
+        # SSE-specific configuration (applied when SSE is active)
+        # These settings optimize Kubernetes resources for long-lived SSE connections
+        sse:
+          # Enable ClientIP session affinity on the Service
+          # Helps maintain SSE connections to the same backend pod
+          # Not enabled by default in auto-detect mode (requires explicit opt-in)
+          enableSessionAffinity: false
+          # Termination grace period for graceful SSE connection shutdown
+          # Default: 60 seconds (allows existing connections to complete)
+          terminationGracePeriodSeconds: 60
+          # Maximum surge during rolling updates
+          # Default: "25%" - allows controlled surge while keeping maxUnavailable=0
+          maxSurge: "25%"
 
   # ============================================
   # Resource Requirements

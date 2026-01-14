@@ -129,6 +129,102 @@ func (h *HTTPResourceManager) hasSessionManagement(mcpServer *mcpv1.MCPServer) b
 	return false // default
 }
 
+// isSSEActive returns true if SSE transport is active (explicit or auto-detected).
+// SSE is considered active when:
+// 1. transport.protocol is explicitly set to "sse", OR
+// 2. transport.protocol is "auto" AND SSE was detected (stored in status.resolvedTransport)
+func (h *HTTPResourceManager) isSSEActive(mcpServer *mcpv1.MCPServer) bool {
+	// Check for explicit SSE configuration
+	if mcpServer.Spec.Transport != nil && mcpServer.Spec.Transport.Protocol == mcpv1.MCPProtocolSSE {
+		return true
+	}
+
+	// Check for auto-detected SSE (resolved in status)
+	if mcpServer.Status.ResolvedTransport != nil &&
+		mcpServer.Status.ResolvedTransport.Protocol == mcpv1.MCPProtocolSSE {
+		return true
+	}
+
+	// Also check validation status for detected protocol (legacy/fallback)
+	if mcpServer.Status.Validation != nil &&
+		mcpServer.Status.Validation.Protocol == "sse" {
+		// Only use this if auto-detect mode is enabled
+		if mcpServer.Spec.Transport == nil ||
+			mcpServer.Spec.Transport.Protocol == "" ||
+			mcpServer.Spec.Transport.Protocol == mcpv1.MCPProtocolAuto {
+			return true
+		}
+	}
+
+	return false
+}
+
+// isExplicitSSE returns true only when SSE is explicitly configured (not auto-detected)
+func (h *HTTPResourceManager) isExplicitSSE(mcpServer *mcpv1.MCPServer) bool {
+	return mcpServer.Spec.Transport != nil && mcpServer.Spec.Transport.Protocol == mcpv1.MCPProtocolSSE
+}
+
+// getSSEConfig returns the SSE configuration, or nil if not specified
+func (h *HTTPResourceManager) getSSEConfig(mcpServer *mcpv1.MCPServer) *mcpv1.SSEConfig {
+	if mcpServer.Spec.Transport != nil &&
+		mcpServer.Spec.Transport.Config != nil &&
+		mcpServer.Spec.Transport.Config.HTTP != nil {
+		return mcpServer.Spec.Transport.Config.HTTP.SSE
+	}
+	return nil
+}
+
+// shouldEnableSSESessionAffinity returns true if SSE session affinity should be enabled.
+// Session affinity is enabled when:
+// 1. SSE is explicitly configured AND enableSessionAffinity is true, OR
+// 2. SSE is auto-detected AND enableSessionAffinity is explicitly set to true
+func (h *HTTPResourceManager) shouldEnableSSESessionAffinity(mcpServer *mcpv1.MCPServer) bool {
+	if !h.isSSEActive(mcpServer) {
+		return false
+	}
+
+	sseConfig := h.getSSEConfig(mcpServer)
+	if sseConfig == nil || sseConfig.EnableSessionAffinity == nil {
+		return false
+	}
+
+	return *sseConfig.EnableSessionAffinity
+}
+
+// getSSETerminationGracePeriod returns the termination grace period for SSE deployments.
+// Returns the configured value, or a default of 60 seconds if not specified.
+func (h *HTTPResourceManager) getSSETerminationGracePeriod(mcpServer *mcpv1.MCPServer) *int64 {
+	if !h.isSSEActive(mcpServer) {
+		return nil
+	}
+
+	sseConfig := h.getSSEConfig(mcpServer)
+	if sseConfig != nil && sseConfig.TerminationGracePeriodSeconds != nil {
+		return sseConfig.TerminationGracePeriodSeconds
+	}
+
+	// Default termination grace period for SSE (60 seconds)
+	defaultGracePeriod := int64(60)
+	return &defaultGracePeriod
+}
+
+// getSSEMaxSurge returns the maxSurge value for SSE rolling updates.
+// Returns the configured value, or a default of "25%" if not specified.
+func (h *HTTPResourceManager) getSSEMaxSurge(mcpServer *mcpv1.MCPServer) *intstr.IntOrString {
+	if !h.isSSEActive(mcpServer) {
+		return nil
+	}
+
+	sseConfig := h.getSSEConfig(mcpServer)
+	if sseConfig != nil && sseConfig.MaxSurge != nil {
+		return sseConfig.MaxSurge
+	}
+
+	// Default maxSurge for SSE (25%)
+	defaultMaxSurge := intstr.FromString("25%")
+	return &defaultMaxSurge
+}
+
 // createDeployment creates a deployment for HTTP transport
 func (h *HTTPResourceManager) createDeployment(ctx context.Context, mcpServer *mcpv1.MCPServer) error {
 	deployment := h.buildDeployment(mcpServer)
@@ -199,6 +295,12 @@ func (h *HTTPResourceManager) updateDeployment(ctx context.Context, mcpServer *m
 			needsUpdate = true
 		}
 
+		// 4. Update deployment strategy (for SSE-specific rolling update settings)
+		if !reflect.DeepEqual(found.Spec.Strategy, deployment.Spec.Strategy) {
+			found.Spec.Strategy = deployment.Spec.Strategy
+			needsUpdate = true
+		}
+
 		if needsUpdate {
 			return h.client.Update(ctx, found)
 		}
@@ -262,7 +364,50 @@ func (h *HTTPResourceManager) buildDeployment(mcpServer *mcpv1.MCPServer) *appsv
 		})
 	}
 
-	return utils.BuildDeployment(mcpServer, podSpec)
+	// Apply SSE-specific termination grace period
+	if gracePeriod := h.getSSETerminationGracePeriod(mcpServer); gracePeriod != nil {
+		podSpec.TerminationGracePeriodSeconds = gracePeriod
+	}
+
+	deployment := utils.BuildDeployment(mcpServer, podSpec)
+
+	// Apply SSE-specific deployment strategy and annotations
+	h.applySSEDeploymentSettings(mcpServer, deployment)
+
+	return deployment
+}
+
+// applySSEDeploymentSettings applies SSE-specific settings to the deployment.
+// This includes rolling update strategy, pod annotations, and other SSE optimizations.
+func (h *HTTPResourceManager) applySSEDeploymentSettings(mcpServer *mcpv1.MCPServer, deployment *appsv1.Deployment) {
+	if !h.isSSEActive(mcpServer) {
+		return
+	}
+
+	// Add SSE-specific Pod annotations for observability and debugging
+	if deployment.Spec.Template.Annotations == nil {
+		deployment.Spec.Template.Annotations = make(map[string]string)
+	}
+	deployment.Spec.Template.Annotations["mcp.transport.protocol"] = "sse"
+	deployment.Spec.Template.Annotations["mcp.transport.streaming"] = "true"
+
+	// Apply rolling update strategy optimized for SSE (long-lived connections)
+	// maxUnavailable=0 ensures no pods are killed before new ones are ready
+	// This prevents abrupt termination of active SSE streams
+	maxUnavailable := intstr.FromInt(0)
+	maxSurge := h.getSSEMaxSurge(mcpServer)
+	if maxSurge == nil {
+		defaultMaxSurge := intstr.FromString("25%")
+		maxSurge = &defaultMaxSurge
+	}
+
+	deployment.Spec.Strategy = appsv1.DeploymentStrategy{
+		Type: appsv1.RollingUpdateDeploymentStrategyType,
+		RollingUpdate: &appsv1.RollingUpdateDeployment{
+			MaxUnavailable: &maxUnavailable,
+			MaxSurge:       maxSurge,
+		},
+	}
 }
 
 // createService creates a service for HTTP transport
@@ -315,6 +460,9 @@ func (h *HTTPResourceManager) buildService(mcpServer *mcpv1.MCPServer) *corev1.S
 	annotations["service.beta.kubernetes.io/aws-load-balancer-backend-protocol"] = "http"
 	annotations["service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout"] = "3600"
 
+	// Apply SSE-specific Service annotations when SSE is active
+	h.applySSEServiceAnnotations(mcpServer, annotations)
+
 	// When sidecar is injected, the service points to sidecar port (8080)
 	// The sidecar then proxies to the MCP server on localhost
 	servicePort := port
@@ -335,12 +483,39 @@ func (h *HTTPResourceManager) buildService(mcpServer *mcpv1.MCPServer) *corev1.S
 		})
 	}
 
-	// Set session affinity if session management is enabled
-	if h.hasSessionManagement(mcpServer) {
+	// Set session affinity based on configuration
+	// Priority: SSE session affinity > general session management
+	if h.shouldEnableSSESessionAffinity(mcpServer) {
+		service.Spec.SessionAffinity = corev1.ServiceAffinityClientIP
+		// Configure session affinity timeout (default 3 hours for SSE connections)
+		timeoutSeconds := int32(10800)
+		service.Spec.SessionAffinityConfig = &corev1.SessionAffinityConfig{
+			ClientIP: &corev1.ClientIPConfig{
+				TimeoutSeconds: &timeoutSeconds,
+			},
+		}
+	} else if h.hasSessionManagement(mcpServer) {
 		service.Spec.SessionAffinity = corev1.ServiceAffinityClientIP
 	}
 
 	return service
+}
+
+// applySSEServiceAnnotations adds SSE-specific annotations to the service.
+// These are informational annotations that help with observability and external tooling.
+func (h *HTTPResourceManager) applySSEServiceAnnotations(mcpServer *mcpv1.MCPServer, annotations map[string]string) {
+	if !h.isSSEActive(mcpServer) {
+		return
+	}
+
+	// Add SSE-specific informational annotations
+	annotations["mcp.transport.protocol"] = "sse"
+	annotations["mcp.transport.streaming"] = "true"
+
+	// Note: We do NOT apply cloud-provider-specific annotations here
+	// as per the requirements (no ingress-controller-specific annotations).
+	// The nginx/AWS annotations above are transport-generic streaming support,
+	// not SSE-specific.
 }
 
 // isHPAEnabled checks if HPA is enabled for the MCPServer
