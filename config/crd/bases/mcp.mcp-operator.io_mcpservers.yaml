@@ -3479,6 +3479,44 @@ spec:
                             description: SessionManagement enables session management
                               for the HTTP transport
                             type: boolean
+                          sse:
+                            description: |-
+                              SSE contains SSE-specific configuration settings.
+                              These settings are applied when transport.protocol is "sse" (explicit)
+                              or when SSE is auto-detected and protocol is "auto".
+                            properties:
+                              enableSessionAffinity:
+                                default: false
+                                description: |-
+                                  EnableSessionAffinity enables ClientIP session affinity on the Service.
+                                  This helps maintain SSE connections to the same backend pod.
+
+                                  Important: Session affinity is NOT enabled by default in auto-detect mode
+                                  to avoid implicit behavior changes. Set this to true to explicitly enable it.
+
+                                  When transport.protocol is explicitly set to "sse", you may want to enable this.
+                                type: boolean
+                              maxSurge:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                default: 25%
+                                description: |-
+                                  MaxSurge specifies the maximum number of pods that can be created over the
+                                  desired number of pods during rolling updates. This allows controlled surge
+                                  during SSE deployments.
+                                x-kubernetes-int-or-string: true
+                              terminationGracePeriodSeconds:
+                                default: 60
+                                description: |-
+                                  TerminationGracePeriodSeconds defines the duration in seconds the pod needs
+                                  to terminate gracefully when receiving SIGTERM. For SSE, longer values allow
+                                  existing connections to complete gracefully.
+                                format: int64
+                                maximum: 3600
+                                minimum: 1
+                                type: integer
+                            type: object
                         type: object
                     type: object
                   protocol:
@@ -3638,6 +3676,39 @@ spec:
                 description: Replicas represents the current number of running replicas
                 format: int32
                 type: integer
+              resolvedTransport:
+                description: |-
+                  ResolvedTransport contains the resolved transport configuration after auto-detection.
+                  This is used to prevent flapping when transport.protocol is "auto".
+                  Once a protocol is detected and SSE-specific configuration is applied,
+                  the resolved transport is locked until spec changes or operator restart.
+                properties:
+                  lastResolvedTime:
+                    description: LastResolvedTime is the timestamp when the transport
+                      was last resolved.
+                    format: date-time
+                    type: string
+                  protocol:
+                    description: |-
+                      Protocol is the resolved MCP protocol variant.
+                      Valid values: "streamable-http", "sse"
+                    enum:
+                    - auto
+                    - streamable-http
+                    - sse
+                    type: string
+                  resolvedGeneration:
+                    description: |-
+                      ResolvedGeneration is the MCPServer generation when the transport was resolved.
+                      Transport resolution is re-evaluated when this doesn't match the current generation.
+                    format: int64
+                    type: integer
+                  sseConfigApplied:
+                    description: |-
+                      SSEConfigApplied indicates whether SSE-specific configuration has been
+                      applied to the Deployment and Service resources.
+                    type: boolean
+                type: object
               serviceEndpoint:
                 description: ServiceEndpoint represents the endpoint where the MCP
                   server is accessible

@@ -147,7 +147,7 @@ func (h *HTTPResourceManager) isSSEActive(mcpServer *mcpv1.MCPServer) bool {
 
 	// Also check validation status for detected protocol (legacy/fallback)
 	if mcpServer.Status.Validation != nil &&
-		mcpServer.Status.Validation.Protocol == "sse" {
+		mcpServer.Status.Validation.Protocol == string(mcpv1.MCPProtocolSSE) {
 		// Only use this if auto-detect mode is enabled
 		if mcpServer.Spec.Transport == nil ||
 			mcpServer.Spec.Transport.Protocol == "" ||
