@@ -28,7 +28,7 @@ A Kubernetes operator for deploying MCP servers.
 
 - **Ingress/external exposure** - Creates a ClusterIP Service by default. You need to create your own Ingress, Gateway, or change the Service type to LoadBalancer if you want external access.
 - **Authentication** - The operator detects if your server requires auth, but doesn't handle authentication itself. You need to configure auth at your server or ingress layer.
-- **stdio transport** - Only supports HTTP-based transports (SSE and Streamable HTTP). If your MCP server uses stdio, this operator isn't for you - stdio is meant for local subprocess communication, not Kubernetes deployments.
+- **stdio transport** - Only supports HTTP-based transports (SSE and Streamable HTTP). If your MCP server uses stdio, you can wrap it with an adapter like [supergateway](https://github.com/supercorp-ai/supergateway) that exposes it as SSE or Streamable HTTP, then deploy that container with this operator. See the [containerizing guide](docs/containerizing.md) for details.
 - **MCP client** - This deploys servers, not clients. It doesn't help you connect to MCP servers from your applications.
 - **TLS termination** - Doesn't configure TLS by default. Use an ingress controller or the optional sidecar TLS feature.
 
