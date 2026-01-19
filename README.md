@@ -30,7 +30,7 @@ A Kubernetes operator for deploying MCP servers.
 - **Authentication** - The operator detects if your server requires auth, but doesn't handle authentication itself. You need to configure auth at your server or ingress layer.
 - **stdio transport** - Only supports HTTP-based transports (SSE and Streamable HTTP). If your MCP server uses stdio, you can wrap it with an adapter like [supergateway](https://github.com/supercorp-ai/supergateway) that exposes it as SSE or Streamable HTTP, then deploy that container with this operator. See the [containerizing guide](docs/containerizing.md) for details.
 - **MCP client** - This deploys servers, not clients. It doesn't help you connect to MCP servers from your applications.
-- **TLS termination** - Doesn't configure TLS by default. Use an ingress controller or the optional sidecar TLS feature.
+- **TLS termination** - Doesn't configure TLS by default. You can enable TLS termination via the metrics sidecar (`spec.sidecar.tls`) if you're using metrics, or use an ingress controller.
 
 ## Quick Start
 
