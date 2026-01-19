@@ -6,34 +6,31 @@
 [![Release](https://github.com/vitorbari/mcp-operator/actions/workflows/release.yml/badge.svg)](https://github.com/vitorbari/mcp-operator/actions/workflows/release.yml)
 [![Awesome MCP](https://awesome.re/mentioned-badge.svg)](https://github.com/punkpeye/awesome-mcp-devtools)
 
-> **⚠️ Alpha Software - Not Production Ready**
+> **⚠️ Alpha Software**
 >
-> This project is in early development and should be considered **experimental**. While we encourage you to try it out and provide feedback, please don't use it in production environments yet. APIs may change, features may be incomplete, and bugs are expected.
->
-> **We'd love your feedback!** Please open issues for bugs, feature requests, or questions.
+> This project is in early development. APIs may change, features may be incomplete, and bugs are expected. We'd appreciate your feedback via [issues](https://github.com/vitorbari/mcp-operator/issues).
 
-Deploy your MCP servers on Kubernetes with automatic protocol validation, horizontal scaling, and built-in observability.
+A Kubernetes operator for deploying MCP servers.
 
 ![demo](https://github.com/user-attachments/assets/81a95736-11fe-450b-bb57-ad4d2db2a9ac)
 
-## What is this?
+## Why use this?
 
-MCP Operator makes it easy to run MCP servers in Kubernetes. Just define your server using a simple YAML file, and the operator handles the deployment, scaling, monitoring, and protocol validation for you.
+**Protocol validation** - The operator connects to your MCP server after deployment and verifies it actually speaks MCP. It detects which protocol your server uses (SSE or Streamable HTTP), what capabilities it advertises, and whether it requires authentication. This catches configuration mistakes early - wrong port, wrong path, server not actually running MCP, etc.
 
-**Key Features:**
-- **Auto-detection** - Automatically detects transport type and MCP protocol version
-- **Protocol Validation** - Ensures your servers are MCP-compliant
-- **Horizontal Scaling** - Built-in autoscaling based on CPU and memory
-- **Observability** - Prometheus metrics and Grafana dashboards out of the box
-- **Production Ready** - Pod security standards and health checks
+**Correct transport configuration** - SSE and Streamable HTTP have different requirements. The operator handles the transport-specific configuration (paths, session management, keep-alive settings) so you don't have to figure out the right Service annotations or health check paths for each protocol type.
+
+**Observability** - If you have Prometheus Operator installed, the operator creates ServiceMonitors and Grafana dashboards for your MCP servers. There's also an optional metrics sidecar that can collect MCP-specific metrics (request counts, latencies, etc.)
+
+**Standard Kubernetes resources** - Under the hood, it creates Deployments, Services, ServiceAccounts, and HPAs. Nothing proprietary.
 
 ## Quick Start
 
-> 📖 **New to MCP Operator?** Check out the [Getting Started Guide](GETTING_STARTED.md) for a complete walkthrough.
+See the [Getting Started Guide](GETTING_STARTED.md) for a complete walkthrough.
 
-### Installation Options
+### Installation
 
-Choose your preferred installation method:
+Two options:
 
 #### Option 1: Install via Helm (Recommended)
 
@@ -58,20 +55,19 @@ VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases |
 kubectl apply -f https://github.com/vitorbari/mcp-operator/releases/download/${VERSION}/install.yaml
 ```
 
-**Use Helm** for easier configuration and upgrades. **Use kubectl** for minimal dependencies.
+Helm is easier to configure. kubectl has fewer dependencies.
 
-### Your First MCP Server
+### Your First MCPServer
 
-Create a file called `my-server.yaml`:
+Create `my-server.yaml`:
 
 ```yaml
 apiVersion: mcp.mcp-operator.io/v1
 kind: MCPServer
 metadata:
-  name: customer-data-mcp
+  name: my-mcp-server
 spec:
-  image: "your-registry.company.com/customer-data-mcp:v1.2.0"
-  # Operator handles validation, scaling, monitoring
+  image: "your-registry/your-mcp-server:v1.0.0"
 ```
 
 Apply it:
@@ -80,33 +76,35 @@ Apply it:
 kubectl apply -f my-server.yaml
 ```
 
-The operator needs a minute to start the server and validate it. Watch it in real-time:
+Watch the status:
 
 ```sh
 kubectl get mcpservers -w
 ```
 
-You should see something like:
+Output:
 
 ```
-NAME              PHASE     REPLICAS   READY   PROTOCOL   VALIDATION   CAPABILITIES                      AGE
-customer-data-mcp Running   1          1       sse        Validated    ["tools","resources","prompts"]   109s
+NAME            PHASE     REPLICAS   READY   PROTOCOL   VALIDATION   CAPABILITIES                      AGE
+my-mcp-server   Running   1          1       sse        Validated    ["tools","resources","prompts"]   109s
 ```
 
-That's it! Your MCP server is running, validated, and ready to use.
+The operator created a Deployment and Service. It also connected to your server to validate it speaks MCP and detected its capabilities.
 
 ## What Gets Created
 
-When you create an MCPServer, the operator automatically sets up:
+When you create an MCPServer, the operator creates:
 
-- **Deployment** - Manages your server pods with health checks
-- **Service** - Exposes your server inside the cluster
-- **HPA (optional)** - Scales pods based on traffic
-- **Validation** - Checks protocol compliance and reports capabilities
+- **Deployment** - Runs your server container with configured health checks
+- **Service** - ClusterIP service for in-cluster access (configurable to NodePort or LoadBalancer)
+- **ServiceAccount** - For pod identity
+- **HPA** - If `hpa.enabled: true`, creates a HorizontalPodAutoscaler
+
+The operator also runs validation against your server to check protocol compliance.
 
 ## Examples
 
-### Production Setup with Auto-Scaling
+### With Auto-Scaling
 
 ```yaml
 apiVersion: mcp.mcp-operator.io/v1
@@ -164,14 +162,12 @@ For detailed validation behavior, see the [Validation Behavior Guide](docs/valid
 
 ## Monitoring
 
-Enable Prometheus metrics and Grafana dashboards:
+Requires [Prometheus Operator](https://prometheus-operator.dev/) to be installed in your cluster.
 
 **With Helm:**
 ```sh
-# Get latest version
 VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name' | sed 's/^v//')
 
-# Install with monitoring
 helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
   --version ${VERSION} \
   --namespace mcp-operator-system \
@@ -182,43 +178,43 @@ helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
 
 **With kubectl:**
 ```sh
-# Get latest version
 VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases | jq -r '.[0].tag_name')
 
-# Install monitoring from release assets
 kubectl apply -f https://github.com/vitorbari/mcp-operator/releases/download/${VERSION}/monitoring.yaml
 ```
 
-<img width="3452" height="3726" alt="localhost_3000_d_mcp-operator-overview_mcp-operator-protocol-intelligence_orgId=1 from=now-15m to=now timezone=browser refresh=30s" src="https://github.com/user-attachments/assets/f81ed38e-a03d-4a3b-aa72-727487e6c2ff" />
+This creates a ServiceMonitor (so Prometheus scrapes the operator metrics) and a ConfigMap with a Grafana dashboard.
 
-Requires [Prometheus Operator](https://prometheus-operator.dev/). See the [Monitoring Guide](docs/monitoring.md) for details on available metrics, dashboards, and alerting.
+<img width="3452" height="3726" alt="Grafana dashboard showing MCP server metrics" src="https://github.com/user-attachments/assets/f81ed38e-a03d-4a3b-aa72-727487e6c2ff" />
+
+See the [Monitoring Guide](docs/monitoring.md) for details.
 
 ## Transport Configuration
 
-The operator supports both modern and legacy MCP protocols:
+MCP has two HTTP transport protocols: SSE (Server-Sent Events, older) and Streamable HTTP (newer). The operator can auto-detect which one your server uses, or you can specify it explicitly.
 
-**Auto-detection (recommended):**
+**Auto-detection:**
 ```yaml
 transport:
   type: http
-  protocol: auto  # Automatically chooses the best protocol
+  protocol: auto
 ```
 
-**Force Streamable HTTP (modern):**
-```yaml
-transport:
-  type: http
-  protocol: streamable-http
-```
-
-**Force SSE (legacy):**
+**Explicit SSE:**
 ```yaml
 transport:
   type: http
   protocol: sse
 ```
 
-Most of the time, `auto` works great and saves you from having to figure out which protocol your server uses.
+**Explicit Streamable HTTP:**
+```yaml
+transport:
+  type: http
+  protocol: streamable-http
+```
+
+Auto-detection works by trying to connect with each protocol. If you know which protocol your server uses, specifying it explicitly is faster.
 
 ## Documentation
 
@@ -260,13 +256,7 @@ kubectl apply -k config/samples/
 
 ## Contributing
 
-We welcome contributions! Whether it's:
-- 🐛 Bug reports
-- 💡 Feature requests
-- 📝 Documentation improvements
-- 🔧 Code contributions
-
-Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on bug reports, feature requests, and code contributions.
 
 ## Support
 
