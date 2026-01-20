@@ -1157,7 +1157,81 @@ spec:
 
 See [PodDisruptionBudget examples](../config/samples/poddisruptionbudget-example.yaml) for comprehensive patterns.
 
-### 7. Use Secrets for Sensitive Data
+### 7. Implement NetworkPolicies for Security
+
+Control network traffic to and from your MCPServer pods to implement defense-in-depth security:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: my-server-netpol
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app: my-server
+      app.kubernetes.io/name: mcpserver
+      app.kubernetes.io/component: mcp-server
+
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Allow MCP client connections
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: client-apps
+      ports:
+        - protocol: TCP
+          port: 8080  # MCP server port
+
+    # Allow Prometheus metrics scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090  # Metrics port
+
+  egress:
+    # Allow DNS queries
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+
+    # Allow HTTPS for external APIs
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+```
+
+**Key considerations:**
+
+- **Always allow DNS:** Required for Kubernetes service discovery
+- **Match your ports:** Update port numbers to match your `transport.config.http.port`
+- **Prometheus integration:** If `metrics.enabled: true`, allow ingress on port 9090
+- **Start permissive, then restrict:** Begin with basic policies and tighten based on traffic patterns
+- **Verify CNI support:** Ensure your cluster's CNI plugin supports NetworkPolicy (Calico, Cilium, etc.)
+
+See [NetworkPolicy examples](../config/samples/networkpolicy-example.yaml) for comprehensive patterns including namespace isolation and strict egress control.
+
+### 8. Use Secrets for Sensitive Data
 
 Never hardcode credentials:
 
@@ -1170,7 +1244,7 @@ environment:
         key: api-key
 ```
 
-### 8. Tag Images with Versions
+### 9. Tag Images with Versions
 
 Avoid `latest` tag in production:
 
@@ -1182,7 +1256,7 @@ image: "myregistry/mcp-server:v1.2.0"
 image: "myregistry/mcp-server:latest"
 ```
 
-### 9. Monitor Your Servers
+### 10. Monitor Your Servers
 
 Enable metrics collection via the metrics sidecar:
 
@@ -1207,7 +1281,7 @@ When `metrics.enabled` is true, a sidecar container is automatically injected th
 - Exposes Prometheus metrics at the specified port
 - Auto-creates a ServiceMonitor if Prometheus Operator is installed
 
-### 10. Use Namespaces
+### 11. Use Namespaces
 
 Organize resources by environment or team:
 
@@ -1217,7 +1291,7 @@ kubectl create namespace mcp-staging
 kubectl create namespace mcp-development
 ```
 
-### 11. Document Your Configuration
+### 12. Document Your Configuration
 
 Add annotations and labels:
 
