@@ -754,6 +754,12 @@ func TestProxy_POSTSSEResponseDoesNotRecordSSEConnectionMetrics(t *testing.T) {
 	if strings.Contains(metricsBody, `mcp_sse_connections_active{`) {
 		t.Error("POST requests with SSE content type should NOT record mcp_sse_connections_active - this is a regression!")
 	}
+
+	// Also verify SSE events are NOT recorded for POST requests (Streamable HTTP)
+	// SSE events should only be tracked for true SSE streams (GET requests)
+	if strings.Contains(metricsBody, `mcp_sse_events_total{`) {
+		t.Error("POST requests with SSE content type should NOT record mcp_sse_events_total - this is a regression!")
+	}
 }
 
 // TestProxy_MixedGETAndPOSTSSERequests verifies that in a mixed traffic scenario
@@ -827,6 +833,20 @@ func TestProxy_MixedGETAndPOSTSSERequests(t *testing.T) {
 				value := parts[len(parts)-1]
 				if value != "3" {
 					t.Errorf("Expected mcp_sse_connections_total to be 3 (GET requests only), got %s", value)
+				}
+			}
+		}
+	}
+
+	// Verify SSE events are only counted for GET requests (3 events), not POST requests
+	// If POST requests were incorrectly counted, we'd see 13 events (3 GET + 10 POST)
+	for _, line := range strings.Split(metricsBody, "\n") {
+		if strings.HasPrefix(line, "mcp_sse_events_total{") {
+			parts := strings.Fields(line)
+			if len(parts) >= 1 {
+				value := parts[len(parts)-1]
+				if value != "3" {
+					t.Errorf("Expected mcp_sse_events_total to be 3 (GET requests only), got %s", value)
 				}
 			}
 		}
