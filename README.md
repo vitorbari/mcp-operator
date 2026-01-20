@@ -197,6 +197,35 @@ This creates a ServiceMonitor (so Prometheus scrapes the operator metrics) and a
 
 See the [Monitoring Guide](docs/monitoring.md) for details.
 
+## MCP Server Metrics
+
+Enable per-server metrics collection with a single line:
+
+```yaml
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: my-mcp-server
+spec:
+  image: your-registry/your-mcp-server:latest
+  transport:
+    type: http
+    config:
+      http:
+        port: 3001
+  metrics:
+    enabled: true  # That's it!
+```
+
+When enabled, the operator injects a metrics sidecar that automatically tracks:
+- Request counts, latencies, and sizes
+- Tool calls by tool name
+- Resource reads by URI
+- JSON-RPC errors by method and code
+- SSE connection metrics
+
+See the [MCP Server Metrics Guide](docs/metrics.md) for available metrics, Grafana queries, and alerting examples.
+
 ## Transport Configuration
 
 MCP has two HTTP transport protocols: SSE (Server-Sent Events, older) and Streamable HTTP (newer). The operator can auto-detect which one your server uses, or you can specify it explicitly.
@@ -241,7 +270,9 @@ Auto-detection works by trying to connect with each protocol. If you know which 
 
 ### Operations
 - [Troubleshooting Guide](docs/troubleshooting.md) - Common issues and solutions
-- [Monitoring Guide](docs/monitoring.md) - Metrics, dashboards, and alerts
+- [Monitoring Guide](docs/monitoring.md) - Operator metrics, dashboards, and alerts
+- [MCP Server Metrics](docs/metrics.md) - Per-server metrics with the sidecar proxy
+- [Sidecar Architecture](docs/sidecar-architecture.md) - Technical deep-dive into the metrics sidecar
 
 ### Advanced Topics
 - [Release Process](docs/release-process.md) - For maintainers
@@ -255,6 +286,8 @@ Check out the `config/samples/` directory for real-world examples:
 - **`wikipedia-http.yaml`** - Simple example using the Wikipedia MCP server
 - **`mcp-basic-example.yaml`** - Production setup with HPA and monitoring
 - **`mcp-complete-example.yaml`** - Shows all available configuration options
+- **`mcp_v1_mcpserver_metrics.yaml`** - Simple metrics sidecar example
+- **`mcp_v1_mcpserver_metrics_advanced.yaml`** - Advanced sidecar configuration
 
 Apply all samples:
 

@@ -107,3 +107,32 @@ networkPolicy:
 grafana:
   # -- Enable creation of Grafana dashboard ConfigMap for MCP Operator metrics
   enabled: false
+
+# [SIDECAR] Default sidecar configuration for MCPServer resources
+# These values document the defaults used when metrics.enabled=true on an MCPServer.
+# To customize sidecar settings, configure them directly on the MCPServer resource.
+sidecar:
+  # -- Default sidecar image configuration
+  image:
+    # -- Sidecar image repository
+    repository: ghcr.io/vitorbari/mcp-proxy
+    # -- Sidecar image tag
+    tag: latest
+    # -- Image pull policy (IfNotPresent, Always, Never)
+    pullPolicy: IfNotPresent
+  # -- Default resource requirements for the sidecar container
+  resources:
+    requests:
+      # -- CPU request
+      cpu: 50m
+      # -- Memory request
+      memory: 64Mi
+    limits:
+      # -- CPU limit
+      cpu: 200m
+      # -- Memory limit
+      memory: 128Mi
+  # -- Default metrics configuration
+  metrics:
+    # -- Metrics server port
+    port: 9090
