@@ -13,6 +13,7 @@ Common issues and solutions for the MCP Operator.
 - [Configuration Issues](#configuration-issues)
 - [Networking Issues](#networking-issues)
 - [Metrics Sidecar Issues](#metrics-sidecar-issues)
+- [SSE Connection Issues](#sse-connection-issues)
 - [Debug Mode](#debug-mode)
 - [Getting Help](#getting-help)
 
@@ -1127,6 +1128,290 @@ kubectl top pod $POD_NAME --containers > $OUTPUT_DIR/resource-usage.txt 2>&1 || 
 
 echo "Diagnostics collected in $OUTPUT_DIR/"
 ls -la $OUTPUT_DIR/
+```
+
+## SSE Connection Issues
+
+Server-Sent Events (SSE) is a transport protocol used by MCP servers for real-time communication. SSE connections are long-lived, which requires special handling during deployments and scaling operations.
+
+### SSE Connections Dropping During Rollout
+
+**Symptom:** Active SSE connections are terminated during deployment updates, causing client reconnections and potential data loss.
+
+**Why this happens:**
+
+During a rolling update, Kubernetes terminates old pods while starting new ones. Without proper configuration, SSE connections are abruptly closed.
+
+**Check current deployment strategy:**
+
+```bash
+# Check rolling update strategy
+kubectl get deployment <mcpserver-name> -o jsonpath='{.spec.strategy}' | jq
+
+# Expected for SSE: maxUnavailable should be 0
+```
+
+**Verify SSE configuration is applied:**
+
+```bash
+# Check if SSE config was detected/applied
+kubectl get mcpserver <name> -o jsonpath='{.status.resolvedTransport}' | jq
+
+# Check deployment rolling update strategy
+kubectl get deployment <mcpserver-name> -o jsonpath='{.spec.strategy.rollingUpdate}'
+```
+
+**Solutions:**
+
+#### 1. Ensure SSE Protocol is Configured
+
+```yaml
+spec:
+  transport:
+    protocol: sse  # Explicit SSE
+    # or
+    protocol: auto  # Auto-detect (will apply SSE config if detected)
+```
+
+#### 2. Configure Termination Grace Period
+
+Allow time for existing connections to complete:
+
+```yaml
+spec:
+  transport:
+    config:
+      http:
+        sse:
+          terminationGracePeriodSeconds: 120  # Give connections 2 minutes to complete
+```
+
+#### 3. Verify maxUnavailable=0 Strategy
+
+When SSE is detected, the operator sets `maxUnavailable: 0` to ensure no pods are terminated until new ones are ready:
+
+```bash
+# Verify the deployment strategy
+kubectl get deployment <mcpserver-name> -o yaml | grep -A 5 "strategy:"
+```
+
+**Expected output:**
+
+```yaml
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 25%
+    maxUnavailable: 0
+```
+
+### Session Affinity Not Working
+
+**Symptom:** SSE clients reconnect to different backend pods, losing session state.
+
+**Verify session affinity configuration:**
+
+```bash
+# Check MCPServer spec
+kubectl get mcpserver <name> -o jsonpath='{.spec.transport.config.http.sse.enableSessionAffinity}'
+# Should return "true" if enabled
+
+# Check Service session affinity
+kubectl get svc <mcpserver-name> -o jsonpath='{.spec.sessionAffinity}'
+# Should return "ClientIP" if enabled
+```
+
+**Common causes:**
+
+#### 1. Session Affinity Not Enabled
+
+Session affinity is **not enabled by default** to avoid implicit behavior changes.
+
+**Solution:**
+
+```yaml
+spec:
+  transport:
+    protocol: sse
+    config:
+      http:
+        sse:
+          enableSessionAffinity: true  # Must be explicitly enabled
+```
+
+#### 2. Load Balancer Overriding Session Affinity
+
+External load balancers may not respect Kubernetes session affinity.
+
+**Solution:**
+
+Configure your load balancer for sticky sessions:
+
+```yaml
+spec:
+  service:
+    annotations:
+      # AWS ALB
+      alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=3600
+      # GCP
+      cloud.google.com/backend-config: '{"default": "sse-backend-config"}'
+      # Azure
+      service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout: "30"
+```
+
+#### 3. Session Affinity Timeout
+
+Session affinity may expire if clients don't reconnect within the timeout.
+
+**Check and adjust:**
+
+```bash
+# Check session affinity config
+kubectl get svc <mcpserver-name> -o jsonpath='{.spec.sessionAffinityConfig}'
+```
+
+**Note:** The default session sticky time is 10800 seconds (3 hours). For shorter sessions, consider using application-level session management.
+
+### Protocol Auto-Detection Failing
+
+**Symptom:** The operator doesn't correctly detect the MCP protocol (SSE vs Streamable HTTP).
+
+**Check detection results:**
+
+```bash
+# Check validation status for detected protocol
+kubectl get mcpserver <name> -o jsonpath='{.status.validation.protocol}'
+
+# Check resolved transport
+kubectl get mcpserver <name> -o jsonpath='{.status.resolvedTransport}' | jq
+```
+
+**Common causes:**
+
+#### 1. Server Not Ready During Validation
+
+Auto-detection happens during validation. If the server isn't ready, detection fails.
+
+```bash
+# Check validation state
+kubectl get mcpserver <name> -o jsonpath='{.status.validation.state}'
+
+# Check validation issues
+kubectl get mcpserver <name> -o jsonpath='{.status.validation.issues}' | jq
+```
+
+**Solution:** Wait for server to be fully ready and trigger re-validation:
+
+```bash
+# Force re-validation by updating the MCPServer
+kubectl patch mcpserver <name> --type='json' \
+  -p='[{"op": "add", "path": "/metadata/annotations/revalidate", "value":"'$(date +%s)'"}]'
+```
+
+#### 2. Wrong Path Configuration
+
+The operator probes specific paths for protocol detection:
+- `/mcp` for Streamable HTTP
+- `/sse` for SSE
+
+```bash
+# Check configured path
+kubectl get mcpserver <name> -o jsonpath='{.spec.transport.config.http.path}'
+```
+
+**Solution:**
+
+```yaml
+spec:
+  transport:
+    protocol: auto
+    config:
+      http:
+        path: "/sse"  # Or "/mcp" - match your server's actual endpoint
+```
+
+#### 3. Explicit Protocol Override
+
+If auto-detection consistently fails, set the protocol explicitly:
+
+```yaml
+spec:
+  transport:
+    protocol: sse  # Skip auto-detection
+```
+
+### Understanding status.resolvedTransport
+
+The `status.resolvedTransport` field tracks the resolved transport configuration after auto-detection. Use it for debugging SSE issues.
+
+**View resolved transport:**
+
+```bash
+kubectl get mcpserver <name> -o jsonpath='{.status.resolvedTransport}' | jq
+```
+
+**Example output:**
+
+```json
+{
+  "protocol": "sse",
+  "sseConfigApplied": true,
+  "resolvedGeneration": 2,
+  "lastResolvedTime": "2025-12-03T10:00:00Z"
+}
+```
+
+**Field meanings:**
+
+| Field | Description |
+|-------|-------------|
+| `protocol` | Detected/resolved protocol: `"sse"` or `"streamable-http"` |
+| `sseConfigApplied` | Whether SSE-specific Deployment/Service config was applied |
+| `resolvedGeneration` | MCPServer generation when transport was resolved |
+| `lastResolvedTime` | Timestamp of last resolution |
+
+**Debugging with resolvedTransport:**
+
+1. **Protocol mismatch:** If `protocol` doesn't match expected, check validation issues
+2. **sseConfigApplied is false:** SSE config wasn't applied - check if protocol was detected as SSE
+3. **resolvedGeneration mismatch:** Transport needs re-resolution after spec change
+
+**Force transport re-resolution:**
+
+```bash
+# Update the MCPServer spec to trigger re-resolution
+kubectl edit mcpserver <name>
+# Make any change (e.g., add annotation) and save
+```
+
+### SSE Diagnostic Commands Summary
+
+```bash
+# 1. Check if SSE protocol is detected
+kubectl get mcpserver <name> -o jsonpath='{.status.validation.protocol}'
+
+# 2. Check resolved transport status
+kubectl get mcpserver <name> -o jsonpath='{.status.resolvedTransport}' | jq
+
+# 3. Check deployment rolling update strategy
+kubectl get deployment <mcpserver-name> -o jsonpath='{.spec.strategy}' | jq
+
+# 4. Check service session affinity
+kubectl get svc <mcpserver-name> -o jsonpath='{.spec.sessionAffinity}'
+
+# 5. Check termination grace period
+kubectl get deployment <mcpserver-name> -o jsonpath='{.spec.template.spec.terminationGracePeriodSeconds}'
+
+# 6. Check SSE configuration in spec
+kubectl get mcpserver <name> -o jsonpath='{.spec.transport.config.http.sse}' | jq
+
+# 7. Test SSE endpoint connectivity
+kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
+  curl -N -H "Accept: text/event-stream" http://<mcpserver-name>:8080/sse
+
+# 8. Watch for SSE events (with timeout)
+kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
+  curl -N -m 10 -H "Accept: text/event-stream" http://<mcpserver-name>:8080/sse
 ```
 
 ## Debug Mode
