@@ -1,17 +1,16 @@
 # MCP Operator
 
-A production-ready Kubernetes operator for deploying and managing Model Context Protocol (MCP) servers with automatic protocol validation, horizontal scaling, and built-in observability.
+> **Alpha Software** - APIs may change, features may be incomplete.
 
-## What is MCP Operator?
+A Kubernetes operator for deploying MCP servers.
 
-MCP Operator makes it easy to run MCP servers in Kubernetes. Just define your server using a simple YAML file, and the operator handles the deployment, scaling, monitoring, and protocol validation for you.
+## Why use this?
 
-**Key Features:**
-- **Auto-detection** - Automatically detects transport type and MCP protocol version
-- **Protocol Validation** - Ensures your servers are MCP-compliant
-- **Horizontal Scaling** - Built-in autoscaling based on CPU and memory
-- **Observability** - Prometheus metrics and Grafana dashboards out of the box
-- **Production Ready** - Pod security standards and health checks
+**Protocol validation** - The operator connects to your MCP server after deployment and verifies it speaks MCP correctly. It detects which protocol your server uses (SSE or Streamable HTTP), what capabilities it advertises, and catches configuration mistakes early.
+
+**Correct transport configuration** - SSE and Streamable HTTP have different requirements. The operator handles the transport-specific configuration so you don't have to figure out the right paths and settings for each protocol type.
+
+**Observability** - Creates ServiceMonitors and Grafana dashboards for your MCP servers if you have Prometheus Operator installed.
 
 ## Quick Start
 
@@ -38,8 +37,7 @@ kind: MCPServer
 metadata:
   name: my-mcp-server
 spec:
-  image: "your-registry.company.com/your-mcp-server:v1.0.0"
-  # Operator handles validation, scaling, monitoring
+  image: "your-registry/your-mcp-server:v1.0.0"
 ```
 
 Apply it:
@@ -63,7 +61,7 @@ my-mcp-server   Running   1          1       sse        Validated    ["tools","r
 
 ## Configuration Examples
 
-### Production Setup with Auto-Scaling
+### With Auto-Scaling
 
 ```yaml
 apiVersion: mcp.mcp-operator.io/v1
@@ -76,7 +74,7 @@ spec:
 
   transport:
     type: http
-    protocol: auto  # Auto-detect protocol
+    protocol: auto
     config:
       http:
         port: 3001
@@ -142,27 +140,27 @@ helm install mcp-operator oci://ghcr.io/vitorbari/mcp-operator \
 
 ## Transport Configuration
 
-The operator supports both modern and legacy MCP protocols:
+MCP has two HTTP transport protocols: SSE (Server-Sent Events) and Streamable HTTP. The operator can auto-detect which one your server uses.
 
-**Auto-detection (recommended):**
+**Auto-detection:**
 ```yaml
 transport:
   type: http
-  protocol: auto  # Automatically chooses the best protocol
+  protocol: auto
 ```
 
-**Force Streamable HTTP (modern):**
-```yaml
-transport:
-  type: http
-  protocol: streamable-http
-```
-
-**Force SSE (legacy):**
+**Explicit SSE:**
 ```yaml
 transport:
   type: http
   protocol: sse
+```
+
+**Explicit Streamable HTTP:**
+```yaml
+transport:
+  type: http
+  protocol: streamable-http
 ```
 
 ## Protocol Validation
