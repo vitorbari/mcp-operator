@@ -2288,7 +2288,7 @@ spec:
         sse:
           enableSessionAffinity: true
           terminationGracePeriodSeconds: 90
-          maxSurge: "50%"
+          maxSurge: "50%%"
   validation:
     enabled: true
   security:
