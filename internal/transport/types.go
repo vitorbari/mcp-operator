@@ -80,12 +80,31 @@ func GetTransportPort(mcpServer *mcpv1.MCPServer) int32 {
 }
 
 // GetServicePort returns the port exposed by the Service
-// When sidecar is enabled, this returns the sidecar port (8080)
+// When sidecar is enabled, this returns the sidecar port
 // Otherwise, it returns the transport port
 func GetServicePort(mcpServer *mcpv1.MCPServer) int32 {
 	// When metrics sidecar is enabled, the service exposes the sidecar port
 	if mcpServer.Spec.Metrics != nil && mcpServer.Spec.Metrics.Enabled {
-		return mcpv1.DefaultSidecarPort
+		return GetSidecarPort(mcpServer)
 	}
 	return GetTransportPort(mcpServer)
+}
+
+// GetSidecarPort returns the port the metrics sidecar listens on.
+// If explicitly configured in sidecar.port, uses that value.
+// Otherwise, defaults to 8080 unless the MCP server port is also 8080,
+// in which case it uses 8081 to avoid conflicts.
+func GetSidecarPort(mcpServer *mcpv1.MCPServer) int32 {
+	// Use configured sidecar port if specified
+	if mcpServer.Spec.Sidecar != nil && mcpServer.Spec.Sidecar.Port != 0 {
+		return mcpServer.Spec.Sidecar.Port
+	}
+
+	// Auto-detect conflict: if MCP server uses default sidecar port, use fallback
+	mcpPort := GetTransportPort(mcpServer)
+	if mcpPort == mcpv1.DefaultSidecarPort {
+		return mcpv1.FallbackSidecarPort
+	}
+
+	return mcpv1.DefaultSidecarPort
 }

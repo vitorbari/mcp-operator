@@ -48,6 +48,12 @@ func IsSSEContentType(contentType string) bool {
 }
 
 // SSEStreamCopier handles streaming SSE responses while collecting metrics.
+//
+// IMPORTANT: This type unconditionally records SSE connection metrics.
+// It should ONLY be used for true long-lived SSE streams (GET requests),
+// NOT for Streamable HTTP POST responses that happen to use text/event-stream.
+// See docs/MCP_TRANSPORT_IDENTIFICATION.md for details on distinguishing
+// SSE streams from Streamable HTTP responses.
 type SSEStreamCopier struct {
 	recorder  SSEMetricsRecorder
 	startTime time.Time

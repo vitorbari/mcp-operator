@@ -238,6 +238,13 @@ type MCPServerStatus struct {
 	// +optional
 	TransportType MCPTransportType `json:"transportType,omitempty"`
 
+	// ResolvedTransport contains the resolved transport configuration after auto-detection.
+	// This is used to prevent flapping when transport.protocol is "auto".
+	// Once a protocol is detected and SSE-specific configuration is applied,
+	// the resolved transport is locked until spec changes or operator restart.
+	// +optional
+	ResolvedTransport *ResolvedTransportStatus `json:"resolvedTransport,omitempty"`
+
 	// LastReconcileTime represents the last time the MCP server was reconciled
 	// +optional
 	LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
@@ -249,6 +256,29 @@ type MCPServerStatus struct {
 	// Validation represents the MCP protocol validation status
 	// +optional
 	Validation *ValidationStatus `json:"validation,omitempty"`
+}
+
+// ResolvedTransportStatus tracks the resolved transport protocol after auto-detection.
+// This prevents oscillation when using transport.protocol: "auto".
+type ResolvedTransportStatus struct {
+	// Protocol is the resolved MCP protocol variant.
+	// Valid values: "streamable-http", "sse"
+	// +optional
+	Protocol MCPTransportProtocol `json:"protocol,omitempty"`
+
+	// SSEConfigApplied indicates whether SSE-specific configuration has been
+	// applied to the Deployment and Service resources.
+	// +optional
+	SSEConfigApplied bool `json:"sseConfigApplied,omitempty"`
+
+	// ResolvedGeneration is the MCPServer generation when the transport was resolved.
+	// Transport resolution is re-evaluated when this doesn't match the current generation.
+	// +optional
+	ResolvedGeneration int64 `json:"resolvedGeneration,omitempty"`
+
+	// LastResolvedTime is the timestamp when the transport was last resolved.
+	// +optional
+	LastResolvedTime *metav1.Time `json:"lastResolvedTime,omitempty"`
 }
 
 // MCPServerPhase represents the current phase of an MCP server deployment
@@ -389,6 +419,8 @@ const (
 	DefaultMetricsPort = int32(9090)
 	// DefaultSidecarPort is the default port the sidecar listens on
 	DefaultSidecarPort = int32(8080)
+	// FallbackSidecarPort is used when the MCP server port conflicts with DefaultSidecarPort
+	FallbackSidecarPort = int32(8081)
 	// DefaultSidecarCPURequest is the default CPU request for the sidecar
 	DefaultSidecarCPURequest = "50m"
 	// DefaultSidecarMemoryRequest is the default memory request for the sidecar
@@ -420,6 +452,14 @@ type SidecarConfig struct {
 	// Default: ghcr.io/vitorbari/mcp-proxy:latest
 	// +optional
 	Image string `json:"image,omitempty"`
+
+	// Port specifies the port the sidecar listens on for incoming MCP traffic.
+	// When not specified, defaults to 8080 unless the MCP server is also configured
+	// to use port 8080, in which case it defaults to 8081 to avoid conflicts.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +optional
+	Port int32 `json:"port,omitempty"`
 
 	// Resources for the sidecar container.
 	// Default: requests: 50m CPU, 64Mi memory; limits: 200m CPU, 128Mi memory
@@ -520,6 +560,43 @@ type MCPHTTPTransportConfig struct {
 	// SessionManagement enables session management for the HTTP transport
 	// +optional
 	SessionManagement *bool `json:"sessionManagement,omitempty"`
+
+	// SSE contains SSE-specific configuration settings.
+	// These settings are applied when transport.protocol is "sse" (explicit)
+	// or when SSE is auto-detected and protocol is "auto".
+	// +optional
+	SSE *SSEConfig `json:"sse,omitempty"`
+}
+
+// SSEConfig defines SSE-specific configuration for deployments using SSE transport.
+// These settings optimize Kubernetes resources for long-lived SSE connections.
+type SSEConfig struct {
+	// EnableSessionAffinity enables ClientIP session affinity on the Service.
+	// This helps maintain SSE connections to the same backend pod.
+	//
+	// Important: Session affinity is NOT enabled by default in auto-detect mode
+	// to avoid implicit behavior changes. Set this to true to explicitly enable it.
+	//
+	// When transport.protocol is explicitly set to "sse", you may want to enable this.
+	// +kubebuilder:default=false
+	// +optional
+	EnableSessionAffinity *bool `json:"enableSessionAffinity,omitempty"`
+
+	// TerminationGracePeriodSeconds defines the duration in seconds the pod needs
+	// to terminate gracefully when receiving SIGTERM. For SSE, longer values allow
+	// existing connections to complete gracefully.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=3600
+	// +kubebuilder:default=60
+	// +optional
+	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty"`
+
+	// MaxSurge specifies the maximum number of pods that can be created over the
+	// desired number of pods during rolling updates. This allows controlled surge
+	// during SSE deployments.
+	// +kubebuilder:default="25%"
+	// +optional
+	MaxSurge *intstr.IntOrString `json:"maxSurge,omitempty"`
 }
 
 // ValidationState represents the overall validation state

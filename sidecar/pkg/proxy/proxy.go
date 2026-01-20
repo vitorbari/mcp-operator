@@ -206,18 +206,24 @@ func (p *Proxy) metricsMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Use SSE-aware response writer that can detect and handle SSE responses
-		sw := newSSEAwareWriter(w, p.recorder)
+		sw := newSSEAwareWriter(w, p.recorder, req.Method)
+
+		// Defer SSE connection close handling.
+		// IMPORTANT: This must be in a defer because for SSE connections,
+		// ServeHTTP blocks until the client disconnects. When the client disconnects,
+		// the http.Server may not return normally from ServeHTTP, but defers still run.
+		// This ensures SSE connection close metrics are always recorded.
+		defer func() {
+			if sw.isSSE {
+				sw.recordSSEClose()
+			}
+		}()
 
 		// Process the request
 		next.ServeHTTP(sw, req)
 
-		// Calculate duration
+		// Calculate duration (for non-SSE requests that reach this point)
 		duration := time.Since(start)
-
-		// Handle SSE connection close metrics (but continue to record request metrics)
-		if sw.isSSE {
-			sw.recordSSEClose()
-		}
 
 		// Parse request for MCP method (always, regardless of SSE)
 		mcpMethod := "unknown"
@@ -293,6 +299,7 @@ func (p *Proxy) metricsMiddleware(next http.Handler) http.Handler {
 type sseAwareWriter struct {
 	http.ResponseWriter
 	recorder     *metrics.Recorder
+	httpMethod   string // HTTP method (GET, POST, etc.) - used to distinguish SSE streams from Streamable HTTP
 	statusCode   int
 	bytesWritten int64
 	isSSE        bool
@@ -306,10 +313,13 @@ type sseAwareWriter struct {
 }
 
 // newSSEAwareWriter creates a new SSE-aware response writer.
-func newSSEAwareWriter(w http.ResponseWriter, recorder *metrics.Recorder) *sseAwareWriter {
+// The httpMethod is used to distinguish long-lived SSE streams (GET) from
+// Streamable HTTP request-responses (POST) that also use text/event-stream content type.
+func newSSEAwareWriter(w http.ResponseWriter, recorder *metrics.Recorder, httpMethod string) *sseAwareWriter {
 	return &sseAwareWriter{
 		ResponseWriter: w,
 		recorder:       recorder,
+		httpMethod:     httpMethod,
 		statusCode:     http.StatusOK,
 		maxCapture:     DefaultMaxBodyCapture,
 		startTime:      time.Now(),
@@ -328,8 +338,10 @@ func (sw *sseAwareWriter) WriteHeader(code int) {
 	contentType := sw.Header().Get("Content-Type")
 	sw.isSSE = IsSSEContentType(contentType)
 
-	// For SSE, record connection opened
-	if sw.isSSE && sw.recorder != nil {
+	// Only record SSE connection metrics for GET requests (true long-lived SSE streams).
+	// POST requests with text/event-stream content type are Streamable HTTP request-responses,
+	// not long-lived SSE connections, and should not be counted as SSE connections.
+	if sw.isSSE && sw.recorder != nil && sw.httpMethod == http.MethodGet {
 		sw.recorder.SSEConnectionOpened(context.Background())
 	}
 
@@ -443,8 +455,9 @@ func (sw *sseAwareWriter) parseMCPFromSSE(ctx context.Context, data string) {
 }
 
 // recordSSEClose is called when the SSE connection is closed to record metrics.
+// Only records for GET requests (true long-lived SSE streams), matching the logic in WriteHeader.
 func (sw *sseAwareWriter) recordSSEClose() {
-	if sw.isSSE && sw.recorder != nil {
+	if sw.isSSE && sw.recorder != nil && sw.httpMethod == http.MethodGet {
 		sw.recorder.SSEConnectionClosed(context.Background(), time.Since(sw.startTime))
 	}
 }
