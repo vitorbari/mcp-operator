@@ -22,6 +22,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -53,6 +54,12 @@ type MCPServerReconciler struct {
 	Scheme           *runtime.Scheme
 	TransportFactory *transport.ManagerFactory
 	Recorder         record.EventRecorder
+
+	// ServiceMonitor CRD availability cache
+	// This cache prevents excessive API calls when checking if Prometheus Operator is installed
+	crdAvailabilityCache bool
+	crdCacheTime         time.Time
+	crdCacheMutex        sync.RWMutex
 }
 
 // +kubebuilder:rbac:groups=mcp.mcp-operator.io,resources=mcpservers,verbs=get;list;watch;create;update;patch;delete

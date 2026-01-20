@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"strings"
+	"time"
 
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -35,31 +36,62 @@ import (
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;list;watch;create;update;patch;delete
 
 // isServiceMonitorCRDAvailable checks if the ServiceMonitor CRD is installed in the cluster
-// by attempting to get a non-existent ServiceMonitor and checking the error type
+// by attempting to get a non-existent ServiceMonitor and checking the error type.
+// Results are cached for 60 seconds to avoid excessive API calls when reconciling multiple MCPServers.
 func (r *MCPServerReconciler) isServiceMonitorCRDAvailable(ctx context.Context) bool {
 	log := logf.FromContext(ctx)
+
+	// Cache TTL for CRD availability checks (60 seconds)
+	// This prevents excessive API calls when reconciling multiple MCPServers
+	const crdCacheTTL = 60 * time.Second
+
+	// Check if we have a valid cached result
+	r.crdCacheMutex.RLock()
+	if time.Since(r.crdCacheTime) < crdCacheTTL {
+		cachedResult := r.crdAvailabilityCache
+		r.crdCacheMutex.RUnlock()
+		log.V(2).Info("Using cached ServiceMonitor CRD availability result",
+			"available", cachedResult,
+			"cacheAge", time.Since(r.crdCacheTime))
+		return cachedResult
+	}
+	r.crdCacheMutex.RUnlock()
+
+	// Cache miss or expired - perform the actual check
+	log.V(1).Info("Checking ServiceMonitor CRD availability (cache miss or expired)")
 
 	// Try to get a ServiceMonitor that doesn't exist
 	// If the CRD is not installed, we'll get a "no matches for kind" error
 	// If the CRD is installed, we'll get a "not found" error
 	sm := &monitoringv1.ServiceMonitor{}
 	err := r.Get(ctx, types.NamespacedName{Name: "__probe__", Namespace: "default"}, sm)
+
+	var result bool
 	if err != nil {
 		// Check if this is a "no kind match" error (CRD not installed)
 		if meta.IsNoMatchError(err) || isNoMatchError(err) {
 			log.V(1).Info("ServiceMonitor CRD not found, Prometheus Operator not installed")
+			result = false
+		} else if errors.IsNotFound(err) {
+			// NotFound error means the CRD exists but the resource doesn't - that's fine
+			result = true
+		} else {
+			// Some other error - don't cache errors
+			log.Error(err, "Failed to check for ServiceMonitor CRD availability")
 			return false
 		}
-		// NotFound error means the CRD exists but the resource doesn't - that's fine
-		if errors.IsNotFound(err) {
-			return true
-		}
-		// Some other error
-		log.Error(err, "Failed to check for ServiceMonitor CRD availability")
-		return false
+	} else {
+		result = true
 	}
 
-	return true
+	// Update cache with the new result
+	r.crdCacheMutex.Lock()
+	r.crdAvailabilityCache = result
+	r.crdCacheTime = time.Now()
+	r.crdCacheMutex.Unlock()
+
+	log.V(1).Info("ServiceMonitor CRD availability cached", "available", result)
+	return result
 }
 
 // isNoMatchError checks if the error indicates the CRD is not installed
