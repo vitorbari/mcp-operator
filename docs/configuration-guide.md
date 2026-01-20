@@ -109,8 +109,11 @@ spec:
       value: "info"
     - name: ENVIRONMENT
       value: "staging"
-    - name: METRICS_ENABLED
-      value: "true"
+
+  # Enable metrics collection
+  metrics:
+    enabled: true
+    port: 9090
 
   # Strict validation in staging
   validation:
@@ -196,13 +199,16 @@ spec:
       value: "warn"
     - name: ENVIRONMENT
       value: "production"
-    - name: METRICS_ENABLED
-      value: "true"
     - name: API_KEY
       valueFrom:
         secretKeyRef:
           name: mcp-secrets
           key: api-key
+
+  # Enable metrics collection
+  metrics:
+    enabled: true
+    port: 9090
 
   # Strict validation
   validation:
@@ -231,10 +237,6 @@ spec:
   podTemplate:
     labels:
       monitoring: enabled
-
-    annotations:
-      prometheus.io/scrape: "true"
-      prometheus.io/port: "8080"
 
     # Spread across nodes
     affinity:
@@ -1151,18 +1153,28 @@ image: "myregistry/mcp-server:latest"
 
 ### 8. Monitor Your Servers
 
-Enable metrics collection:
+Enable metrics collection via the metrics sidecar:
 
 ```yaml
-podTemplate:
-  annotations:
-    prometheus.io/scrape: "true"
-    prometheus.io/port: "8080"
+metrics:
+  enabled: true
+  port: 9090  # Metrics endpoint port
 
-environment:
-  - name: METRICS_ENABLED
-    value: "true"
+# Optional: customize sidecar resources
+sidecar:
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "128Mi"
 ```
+
+When `metrics.enabled` is true, a sidecar container is automatically injected that:
+- Proxies MCP traffic and collects protocol-specific metrics
+- Exposes Prometheus metrics at the specified port
+- Auto-creates a ServiceMonitor if Prometheus Operator is installed
 
 ### 9. Use Namespaces
 
