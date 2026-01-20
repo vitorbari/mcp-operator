@@ -1537,6 +1537,244 @@ var _ = Describe("MCPServer Controller", func() {
 			Expect(*podSecurityContext.FSGroup).To(Equal(int64(1000))) // Default
 		})
 	})
+
+	Context("When handling SSE two-phase commit for resolved transport", func() {
+		const (
+			resourceNamespace = "default"
+			timeout           = time.Second * 10
+			interval          = time.Millisecond * 250
+		)
+
+		ctx := context.Background()
+		var resourceName string
+		var typeNamespacedName types.NamespacedName
+		var mcpserver *mcpv1.MCPServer
+
+		BeforeEach(func() {
+			resourceName = "test-mcpserver-sse-" + RandStringRunes(8)
+			typeNamespacedName = types.NamespacedName{
+				Name:      resourceName,
+				Namespace: resourceNamespace,
+			}
+		})
+
+		AfterEach(func() {
+			resource := &mcpv1.MCPServer{}
+			err := k8sClient.Get(ctx, typeNamespacedName, resource)
+			if err == nil {
+				By("Cleanup: Deleting the MCPServer")
+				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			}
+		})
+
+		It("should set ResolvedTransport.Protocol without setting SSEConfigApplied on detection", func() {
+			By("Creating MCPServer with auto protocol")
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "test-server:latest",
+					Replicas: ptr(int32(1)),
+					Transport: &mcpv1.MCPServerTransport{
+						Type:     mcpv1.MCPTransportHTTP,
+						Protocol: mcpv1.MCPProtocolAuto,
+					},
+					Validation: &mcpv1.ValidationSpec{
+						Enabled: ptr(true),
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			By("Simulating SSE detection in validation")
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+			}, timeout, interval).Should(Succeed())
+
+			mcpserver.Status.Phase = mcpv1.MCPServerPhaseRunning
+			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				State:               mcpv1.ValidationStateValidated,
+				Protocol:            "sse",
+				ProtocolVersion:     "2024-11-05",
+				ValidatedGeneration: mcpserver.Generation,
+			}
+			// Simulate detection: ResolvedTransport is set but SSEConfigApplied is false
+			mcpserver.Status.ResolvedTransport = &mcpv1.ResolvedTransportStatus{
+				Protocol:           mcpv1.MCPProtocolSSE,
+				ResolvedGeneration: mcpserver.Generation,
+				SSEConfigApplied:   false, // Not yet applied - two-phase commit
+			}
+			Expect(k8sClient.Status().Update(ctx, mcpserver)).To(Succeed())
+
+			By("Verifying ResolvedTransport.Protocol is set")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+				if err != nil {
+					return false
+				}
+				return mcpserver.Status.ResolvedTransport != nil &&
+					mcpserver.Status.ResolvedTransport.Protocol == mcpv1.MCPProtocolSSE
+			}, timeout, interval).Should(BeTrue())
+
+			By("Verifying SSEConfigApplied is still false (not prematurely set)")
+			Expect(mcpserver.Status.ResolvedTransport.SSEConfigApplied).To(BeFalse())
+		})
+
+		It("should set SSEConfigApplied=true only after successful resource reconciliation", func() {
+			By("Creating MCPServer with auto protocol")
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "test-server:latest",
+					Replicas: ptr(int32(1)),
+					Transport: &mcpv1.MCPServerTransport{
+						Type:     mcpv1.MCPTransportHTTP,
+						Protocol: mcpv1.MCPProtocolAuto,
+					},
+					Validation: &mcpv1.ValidationSpec{
+						Enabled: ptr(true),
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			By("Simulating the full SSE detection and config application flow")
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+			}, timeout, interval).Should(Succeed())
+
+			// Phase 1: SSE detected, ResolvedTransport set, SSEConfigApplied still false
+			mcpserver.Status.Phase = mcpv1.MCPServerPhaseRunning
+			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				State:               mcpv1.ValidationStateValidated,
+				Protocol:            "sse",
+				ProtocolVersion:     "2024-11-05",
+				ValidatedGeneration: mcpserver.Generation,
+			}
+			mcpserver.Status.ResolvedTransport = &mcpv1.ResolvedTransportStatus{
+				Protocol:           mcpv1.MCPProtocolSSE,
+				ResolvedGeneration: mcpserver.Generation,
+				SSEConfigApplied:   false,
+			}
+			Expect(k8sClient.Status().Update(ctx, mcpserver)).To(Succeed())
+
+			By("Verifying SSEConfigApplied is false before resource reconciliation")
+			err := k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mcpserver.Status.ResolvedTransport.SSEConfigApplied).To(BeFalse())
+
+			// Phase 2: After successful resource reconciliation, SSEConfigApplied is set to true
+			mcpserver.Status.ResolvedTransport.SSEConfigApplied = true
+			Expect(k8sClient.Status().Update(ctx, mcpserver)).To(Succeed())
+
+			By("Verifying SSEConfigApplied is true after resource reconciliation")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+				if err != nil {
+					return false
+				}
+				return mcpserver.Status.ResolvedTransport != nil &&
+					mcpserver.Status.ResolvedTransport.SSEConfigApplied
+			}, timeout, interval).Should(BeTrue())
+		})
+
+		It("should not set ResolvedTransport for explicit SSE protocol", func() {
+			By("Creating MCPServer with explicit SSE protocol")
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "test-server:latest",
+					Replicas: ptr(int32(1)),
+					Transport: &mcpv1.MCPServerTransport{
+						Type:     mcpv1.MCPTransportHTTP,
+						Protocol: mcpv1.MCPProtocolSSE, // Explicit, not auto
+					},
+					Validation: &mcpv1.ValidationSpec{
+						Enabled: ptr(true),
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			By("Waiting for reconciliation")
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+			}, timeout, interval).Should(Succeed())
+
+			By("Verifying ResolvedTransport is nil for explicit protocol")
+			// For explicit protocol, ResolvedTransport should not be set
+			// because there's no auto-detection happening
+			Expect(mcpserver.Status.ResolvedTransport).To(BeNil())
+		})
+
+		It("should allow retry if SSEConfigApplied is false after failed reconciliation", func() {
+			By("Creating MCPServer with auto protocol")
+			mcpserver = &mcpv1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+				},
+				Spec: mcpv1.MCPServerSpec{
+					Image:    "test-server:latest",
+					Replicas: ptr(int32(1)),
+					Transport: &mcpv1.MCPServerTransport{
+						Type:     mcpv1.MCPTransportHTTP,
+						Protocol: mcpv1.MCPProtocolAuto,
+					},
+					Validation: &mcpv1.ValidationSpec{
+						Enabled: ptr(true),
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpserver)).To(Succeed())
+
+			By("Simulating SSE detection with failed resource reconciliation")
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+			}, timeout, interval).Should(Succeed())
+
+			mcpserver.Status.Phase = mcpv1.MCPServerPhaseRunning
+			mcpserver.Status.Validation = &mcpv1.ValidationStatus{
+				State:               mcpv1.ValidationStateValidated,
+				Protocol:            "sse",
+				ProtocolVersion:     "2024-11-05",
+				ValidatedGeneration: mcpserver.Generation,
+			}
+			// SSE detected but config NOT applied (simulating failed reconciliation)
+			mcpserver.Status.ResolvedTransport = &mcpv1.ResolvedTransportStatus{
+				Protocol:           mcpv1.MCPProtocolSSE,
+				ResolvedGeneration: mcpserver.Generation,
+				SSEConfigApplied:   false, // Failed to apply
+			}
+			Expect(k8sClient.Status().Update(ctx, mcpserver)).To(Succeed())
+
+			By("Verifying SSEConfigApplied remains false, allowing retry")
+			err := k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mcpserver.Status.ResolvedTransport.Protocol).To(Equal(mcpv1.MCPProtocolSSE))
+			Expect(mcpserver.Status.ResolvedTransport.SSEConfigApplied).To(BeFalse())
+
+			By("Simulating successful retry - SSEConfigApplied set to true")
+			mcpserver.Status.ResolvedTransport.SSEConfigApplied = true
+			Expect(k8sClient.Status().Update(ctx, mcpserver)).To(Succeed())
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, mcpserver)
+				if err != nil {
+					return false
+				}
+				return mcpserver.Status.ResolvedTransport.SSEConfigApplied
+			}, timeout, interval).Should(BeTrue())
+		})
+	})
 })
 
 // findCondition finds a condition by type in the conditions list

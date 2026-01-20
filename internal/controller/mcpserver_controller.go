@@ -274,6 +274,11 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return r.updateStatusWithError(ctx, mcpServer, err)
 	}
 
+	// After successful transport reconciliation, check if we need to mark SSE config as applied.
+	// This handles the case where SSE was detected (e.g., via detectProtocolOnly when validation
+	// is disabled) and the config is now applied to resources.
+	r.maybeMarkSSEConfigApplied(ctx, mcpServer)
+
 	// Reconcile HPA if enabled
 	if err := r.reconcileHPA(ctx, mcpServer); err != nil {
 		log.Error(err, "Failed to reconcile HPA")
@@ -314,6 +319,33 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				// Update metrics after validation status is successfully updated
 				// This ensures validation-related gauges (compliant, capabilities, protocol_version) reflect the latest validation
 				metrics.UpdateMCPServerMetrics(mcpServer)
+
+				// Update resolved transport status based on validation results
+				// This tracks the detected protocol and handles SSE auto-detection flow
+				sseConfigNeeded, err := r.updateResolvedTransport(ctx, mcpServer)
+				if err != nil {
+					log.Error(err, "Failed to update resolved transport status")
+				} else if sseConfigNeeded {
+					// SSE was just detected and config needs to be applied
+					// Re-reconcile transport resources to apply SSE-specific settings
+					log.Info("Re-reconciling transport resources after SSE detection")
+					if err := r.reconcileTransportResources(ctx, mcpServer); err != nil {
+						log.Error(err, "Failed to re-reconcile transport resources for SSE")
+						r.Recorder.Event(mcpServer, corev1.EventTypeWarning, "SSEConfigFailed",
+							fmt.Sprintf("Failed to apply SSE-specific configuration: %v", err))
+						// NOTE: SSEConfigApplied is NOT marked true here, so next reconcile will retry
+					} else {
+						// Only mark SSE config as applied AFTER successful resource reconciliation
+						// This prevents the race condition where status says applied but resources aren't updated
+						if err := r.markSSEConfigApplied(ctx, mcpServer); err != nil {
+							log.Error(err, "Failed to mark SSE config as applied")
+							// Resources were updated but status wasn't - next reconcile will fix this
+						} else {
+							r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "SSEConfigApplied",
+								"SSE-specific Kubernetes resource configuration applied successfully")
+						}
+					}
+				}
 			}
 		}
 	} else {
@@ -1186,6 +1218,42 @@ func (r *MCPServerReconciler) detectProtocolOnly(ctx context.Context, mcpServer 
 			"protocol", transportType,
 			"endpoint", fullEndpoint)
 	}
+
+	// Also update resolved transport status for SSE handling
+	// This ensures SSE-specific configuration is applied even when validation is disabled
+	if mcpServer.Spec.Transport == nil ||
+		mcpServer.Spec.Transport.Protocol == "" ||
+		mcpServer.Spec.Transport.Protocol == mcpv1.MCPProtocolAuto {
+
+		detectedProtocol := mcpv1.MCPTransportProtocol(transportType)
+
+		// Initialize resolved transport if needed
+		if mcpServer.Status.ResolvedTransport == nil {
+			mcpServer.Status.ResolvedTransport = &mcpv1.ResolvedTransportStatus{}
+		}
+
+		// Check if protocol changed or was just detected
+		protocolChanged := mcpServer.Status.ResolvedTransport.Protocol != detectedProtocol
+
+		if protocolChanged {
+			now := metav1.Now()
+			mcpServer.Status.ResolvedTransport.Protocol = detectedProtocol
+			mcpServer.Status.ResolvedTransport.ResolvedGeneration = mcpServer.Generation
+			mcpServer.Status.ResolvedTransport.LastResolvedTime = &now
+
+			// NOTE: SSEConfigApplied is NOT set here - it will be set after
+			// reconcileTransportResources successfully applies the SSE config.
+			// This is handled by maybeMarkSSEConfigApplied() in the reconcile loop.
+
+			if detectedProtocol == mcpv1.MCPProtocolSSE &&
+				!mcpServer.Status.ResolvedTransport.SSEConfigApplied {
+				log.Info("SSE detected (validation disabled), SSE-specific configuration will be applied",
+					"protocol", detectedProtocol)
+				r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "SSEDetected",
+					"SSE transport detected (validation disabled), SSE-specific configuration will be applied")
+			}
+		}
+	}
 }
 
 // buildValidationEndpoint constructs the base URL for validation
@@ -1557,6 +1625,146 @@ func (r *MCPServerReconciler) isStrictModeEnabled(mcpServer *mcpv1.MCPServer) bo
 		return false
 	}
 	return *mcpServer.Spec.Validation.StrictMode
+}
+
+// updateResolvedTransport updates the resolved transport status based on validation results.
+// This function is called after validation to track the detected protocol and prevent
+// transport oscillation in auto-detect mode.
+//
+// Returns true if SSE was detected and SSE-specific config needs to be applied to resources.
+// IMPORTANT: This function does NOT mark SSEConfigApplied=true. The caller must call
+// markSSEConfigApplied() after successfully applying SSE-specific resource configuration.
+func (r *MCPServerReconciler) updateResolvedTransport(ctx context.Context, mcpServer *mcpv1.MCPServer) (bool, error) {
+	log := logf.FromContext(ctx)
+
+	// Skip if not in auto-detect mode
+	if mcpServer.Spec.Transport != nil &&
+		mcpServer.Spec.Transport.Protocol != "" &&
+		mcpServer.Spec.Transport.Protocol != mcpv1.MCPProtocolAuto {
+		return false, nil
+	}
+
+	// Skip if no validation results available
+	if mcpServer.Status.Validation == nil || mcpServer.Status.Validation.Protocol == "" {
+		return false, nil
+	}
+
+	detectedProtocol := mcpv1.MCPTransportProtocol(mcpServer.Status.Validation.Protocol)
+
+	// Check if we need to update the resolved transport
+	needsUpdate := false
+	if mcpServer.Status.ResolvedTransport == nil {
+		mcpServer.Status.ResolvedTransport = &mcpv1.ResolvedTransportStatus{}
+		needsUpdate = true
+	}
+
+	// Check if spec changed (generation changed) - need to re-resolve
+	if mcpServer.Status.ResolvedTransport.ResolvedGeneration != mcpServer.Generation {
+		needsUpdate = true
+	}
+
+	// Check if protocol changed (shouldn't happen normally, but handle it)
+	if mcpServer.Status.ResolvedTransport.Protocol != detectedProtocol {
+		needsUpdate = true
+	}
+
+	// Determine if SSE config needs to be applied
+	// This is checked BEFORE needsUpdate because we need to know this even if
+	// the protocol was already detected (e.g., after a failed previous attempt)
+	isSSE := detectedProtocol == mcpv1.MCPProtocolSSE
+	sseConfigWasApplied := mcpServer.Status.ResolvedTransport.SSEConfigApplied
+	sseConfigNeedsApplying := isSSE && !sseConfigWasApplied
+
+	if !needsUpdate && !sseConfigNeedsApplying {
+		return false, nil
+	}
+
+	now := metav1.Now()
+	previousProtocol := mcpServer.Status.ResolvedTransport.Protocol
+
+	// Update resolved transport status (protocol detection only)
+	// NOTE: SSEConfigApplied is NOT set here - it's set by markSSEConfigApplied()
+	// after successful resource reconciliation
+	mcpServer.Status.ResolvedTransport.Protocol = detectedProtocol
+	mcpServer.Status.ResolvedTransport.ResolvedGeneration = mcpServer.Generation
+	mcpServer.Status.ResolvedTransport.LastResolvedTime = &now
+
+	if sseConfigNeedsApplying {
+		log.Info("SSE detected in auto mode, will apply SSE-specific configuration",
+			"protocol", detectedProtocol,
+			"previousProtocol", previousProtocol)
+
+		r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "SSEDetected",
+			"SSE transport detected, will apply SSE-specific Kubernetes resource configuration")
+	}
+
+	if err := r.updateStatus(ctx, mcpServer); err != nil {
+		log.Error(err, "Failed to update resolved transport status")
+		return false, err
+	}
+
+	// Return true if SSE config needs to be applied (caller should reconcile resources
+	// and then call markSSEConfigApplied on success)
+	return sseConfigNeedsApplying, nil
+}
+
+// markSSEConfigApplied marks SSE-specific configuration as successfully applied.
+// This should only be called AFTER reconcileTransportResources succeeds when SSE is detected.
+// This two-phase approach prevents the race condition where SSEConfigApplied could be
+// marked true before resources are actually updated.
+func (r *MCPServerReconciler) markSSEConfigApplied(ctx context.Context, mcpServer *mcpv1.MCPServer) error {
+	log := logf.FromContext(ctx)
+
+	if mcpServer.Status.ResolvedTransport == nil {
+		// This shouldn't happen if called correctly after updateResolvedTransport
+		return fmt.Errorf("cannot mark SSE config applied: resolvedTransport is nil")
+	}
+
+	if mcpServer.Status.ResolvedTransport.SSEConfigApplied {
+		// Already marked, nothing to do
+		return nil
+	}
+
+	mcpServer.Status.ResolvedTransport.SSEConfigApplied = true
+
+	if err := r.updateStatus(ctx, mcpServer); err != nil {
+		log.Error(err, "Failed to mark SSE config as applied")
+		return err
+	}
+
+	log.Info("SSE-specific configuration marked as applied")
+	return nil
+}
+
+// maybeMarkSSEConfigApplied checks if SSE was detected (in auto-detect mode) and marks the
+// config as applied after successful resource reconciliation.
+// This handles the case where SSE is detected via detectProtocolOnly (validation disabled)
+// and the config is applied on the next reconcile cycle.
+func (r *MCPServerReconciler) maybeMarkSSEConfigApplied(ctx context.Context, mcpServer *mcpv1.MCPServer) {
+	log := logf.FromContext(ctx)
+
+	// Only relevant for auto-detect mode
+	if mcpServer.Spec.Transport != nil &&
+		mcpServer.Spec.Transport.Protocol != "" &&
+		mcpServer.Spec.Transport.Protocol != mcpv1.MCPProtocolAuto {
+		return
+	}
+
+	// Check if SSE was detected but not yet marked as applied
+	if mcpServer.Status.ResolvedTransport == nil ||
+		mcpServer.Status.ResolvedTransport.Protocol != mcpv1.MCPProtocolSSE ||
+		mcpServer.Status.ResolvedTransport.SSEConfigApplied {
+		return
+	}
+
+	// SSE was detected and resources were just reconciled - mark as applied
+	if err := r.markSSEConfigApplied(ctx, mcpServer); err != nil {
+		log.Error(err, "Failed to mark SSE config as applied after resource reconciliation")
+		// Non-fatal - will be retried on next reconcile
+	} else {
+		r.Recorder.Event(mcpServer, corev1.EventTypeNormal, "SSEConfigApplied",
+			"SSE-specific Kubernetes resource configuration applied successfully")
+	}
 }
 
 // getValidationRetryInterval calculates retry interval for failed validations using progressive backoff

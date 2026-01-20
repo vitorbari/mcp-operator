@@ -1,0 +1,141 @@
+# =============================================================================
+# SSE-SPECIFIC MCPSERVER EXAMPLE
+# =============================================================================
+# This example demonstrates how to configure an MCPServer for SSE transport
+# with all SSE-specific optimizations enabled.
+#
+# SSE (Server-Sent Events) connections are long-lived and require special
+# handling in Kubernetes to ensure:
+#   - Graceful rollouts without dropping connections
+#   - Proper termination of long-lived connections
+#   - Optional session affinity for connection stickiness
+#
+# Key SSE-specific settings applied:
+#   - Rolling update with maxUnavailable=0 (no abrupt connection drops)
+#   - Extended termination grace period (60s default)
+#   - SSE-specific Pod and Service annotations
+#   - Optional ClientIP session affinity (explicit opt-in)
+#
+# =============================================================================
+
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: mcp-sse-example
+  namespace: default
+  labels:
+    app.kubernetes.io/name: mcp-operator
+    mcp.transport.protocol: sse
+spec:
+  # Container image for SSE-capable MCP server
+  image: "tzolov/mcp-everything-server:v3"
+
+  # Start with SSE transport explicitly
+  command: ["node", "dist/index.js", "sse"]
+
+  replicas: 2
+
+  # ============================================
+  # Explicit SSE Transport Configuration
+  # ============================================
+  transport:
+    type: "http"
+    # Explicitly configure SSE transport
+    # This ensures SSE-specific settings are applied from the start
+    protocol: "sse"
+    config:
+      http:
+        port: 8080
+        # SSE typically uses /sse path (auto-detection default)
+        path: "/sse"
+        # Enable session management for stateful SSE connections
+        sessionManagement: true
+        # SSE-specific optimizations
+        sse:
+          # Enable session affinity to keep SSE connections on the same pod
+          # This is recommended for stateful SSE servers
+          enableSessionAffinity: true
+          # Extended termination grace period (2 minutes)
+          # Allows long-running SSE connections to complete gracefully
+          terminationGracePeriodSeconds: 120
+          # Allow 50% surge during rolling updates
+          # Ensures new pods are fully ready before old ones are terminated
+          maxSurge: "50%"
+
+  # Resource requirements
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8080
+
+  # Health check (important for SSE - ensures pods are ready)
+  healthCheck:
+    enabled: true
+    path: "/health"
+    port: 8080
+
+  # Environment variables
+  environment:
+    - name: LOG_LEVEL
+      value: "info"
+
+  # Pod template with SSE-relevant labels
+  podTemplate:
+    labels:
+      mcp.transport.protocol: sse
+      mcp.transport.streaming: "true"
+
+---
+
+# =============================================================================
+# AUTO-DETECT SSE EXAMPLE
+# =============================================================================
+# This example shows how SSE-aware reconciliation works in auto-detect mode.
+# The operator will:
+#   1. Deploy with generic configuration initially
+#   2. Detect the transport protocol (SSE or Streamable HTTP)
+#   3. If SSE is detected, patch resources with SSE-specific settings
+#   4. Lock the resolved transport to prevent flapping
+#
+# Note: Session affinity requires explicit opt-in even in auto-detect mode
+# =============================================================================
+
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: mcp-auto-detect-example
+  namespace: default
+spec:
+  image: "tzolov/mcp-everything-server:v3"
+
+  replicas: 2
+
+  transport:
+    type: "http"
+    # Auto-detect protocol (prefers Streamable HTTP over SSE)
+    protocol: "auto"
+    config:
+      http:
+        port: 8080
+        # Path will be auto-detected based on protocol
+        # SSE tries /sse, Streamable HTTP tries /mcp
+        sessionManagement: true
+        # SSE configuration (applied only if SSE is detected)
+        sse:
+          # Explicitly opt-in to session affinity
+          # Without this, session affinity is NOT enabled in auto-detect mode
+          enableSessionAffinity: true
+          terminationGracePeriodSeconds: 90
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
