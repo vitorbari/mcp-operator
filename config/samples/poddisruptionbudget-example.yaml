@@ -1,0 +1,132 @@
+# PodDisruptionBudget for MCPServer High Availability
+#
+# PodDisruptionBudgets (PDBs) limit the number of concurrent disruptions that your
+# MCPServer pods experience during voluntary disruptions (like node drains, upgrades).
+# This is critical for maintaining high availability in production environments.
+#
+# Documentation: https://kubernetes.io/docs/tasks/run-application/configure-pdb/
+
+---
+# Example 1: Using minAvailable (recommended for critical services)
+# Ensures at least N pods are always available during disruptions
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mcp-basic-example-pdb
+  namespace: mcp-tests
+  labels:
+    app: mcp-basic-example
+    app.kubernetes.io/name: mcpserver
+    app.kubernetes.io/managed-by: mcp-operator
+spec:
+  # Ensure at least 1 pod is always available
+  # Use this when you have multiple replicas and need guaranteed uptime
+  minAvailable: 1
+
+  # Selector must match the MCPServer pod labels
+  # The most important label is "app: <mcpserver-name>"
+  selector:
+    matchLabels:
+      app: mcp-basic-example
+      app.kubernetes.io/name: mcpserver
+      app.kubernetes.io/component: mcp-server
+
+---
+# Example 2: Using maxUnavailable (flexible for larger deployments)
+# Allows up to N pods to be unavailable during disruptions
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mcp-production-pdb
+  namespace: production
+  labels:
+    app: mcp-production
+    app.kubernetes.io/name: mcpserver
+    app.kubernetes.io/managed-by: mcp-operator
+spec:
+  # Allow at most 1 pod to be unavailable at a time
+  # Useful when you have 3+ replicas and want controlled rolling updates
+  maxUnavailable: 1
+
+  selector:
+    matchLabels:
+      app: mcp-production
+      app.kubernetes.io/name: mcpserver
+      app.kubernetes.io/component: mcp-server
+
+---
+# Example 3: Percentage-based limits (scales with replica count)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mcp-scalable-pdb
+  namespace: production
+  labels:
+    app: mcp-scalable
+    app.kubernetes.io/name: mcpserver
+    app.kubernetes.io/managed-by: mcp-operator
+spec:
+  # Keep at least 75% of pods available during disruptions
+  # Automatically scales with HPA or manual replica adjustments
+  minAvailable: 75%
+
+  selector:
+    matchLabels:
+      app: mcp-scalable
+      app.kubernetes.io/name: mcpserver
+      app.kubernetes.io/component: mcp-server
+
+---
+# Example 4: SSE-specific PDB (stricter availability for stateful connections)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mcp-sse-server-pdb
+  namespace: production
+  labels:
+    app: mcp-sse-server
+    app.kubernetes.io/name: mcpserver
+    app.kubernetes.io/managed-by: mcp-operator
+    mcp.transport.type: http
+spec:
+  # For SSE servers with session affinity, ensure minimal disruption
+  # Combined with deployment's maxUnavailable: 0, this ensures graceful rollouts
+  minAvailable: 2
+
+  selector:
+    matchLabels:
+      app: mcp-sse-server
+      app.kubernetes.io/name: mcpserver
+      app.kubernetes.io/component: mcp-server
+      mcp.transport.type: http
+
+---
+# Best Practices:
+#
+# 1. **Choose the right constraint:**
+#    - minAvailable: Use when you need guaranteed uptime (e.g., 1 pod always up)
+#    - maxUnavailable: Use when you want controlled disruption rate (e.g., max 1 pod down)
+#
+# 2. **Match your replica count:**
+#    - With replicas: 1 → Don't use PDB (prevents any voluntary disruption)
+#    - With replicas: 2 → Use minAvailable: 1
+#    - With replicas: 3+ → Use maxUnavailable: 1 or minAvailable: 2
+#
+# 3. **Combine with HPA:**
+#    - Use percentage-based limits (e.g., minAvailable: 75%)
+#    - Ensures PDB scales automatically with HPA
+#
+# 4. **SSE/Stateful connections:**
+#    - Use stricter limits (minAvailable: 2 or higher)
+#    - Combine with deployment.spec.strategy.rollingUpdate.maxUnavailable: 0
+#    - Increase terminationGracePeriodSeconds to allow connection draining
+#
+# 5. **Monitoring:**
+#    - Watch for blocked evictions: kubectl get pdb
+#    - Check pod disruption events: kubectl get events
+#    - Alert on PDB disruptions_allowed = 0 for extended periods
+#
+# 6. **Testing:**
+#    - Test node drain scenarios: kubectl drain <node> --ignore-daemonsets
+#    - Verify PDB prevents disruption beyond limits
+#    - Ensure your application handles graceful shutdown

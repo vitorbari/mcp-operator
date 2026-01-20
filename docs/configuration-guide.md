@@ -253,6 +253,8 @@ spec:
               topologyKey: kubernetes.io/hostname
 ```
 
+**Production High Availability Tip:** For critical production deployments, also deploy a PodDisruptionBudget to protect against excessive disruptions during voluntary maintenance (node drains, cluster upgrades). See the [PodDisruptionBudget example](../config/samples/poddisruptionbudget-example.yaml) for configuration patterns.
+
 ## Transport Configuration
 
 ### Auto-Detection (Recommended)
@@ -1126,7 +1128,36 @@ podTemplate:
             topologyKey: kubernetes.io/hostname
 ```
 
-### 6. Use Secrets for Sensitive Data
+### 6. Use PodDisruptionBudgets for High Availability
+
+Protect your MCPServer from excessive disruptions during voluntary maintenance (node drains, upgrades):
+
+```yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: my-server-pdb
+  namespace: production
+spec:
+  # Ensure at least 1 pod is always available
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: my-server
+      app.kubernetes.io/name: mcpserver
+      app.kubernetes.io/component: mcp-server
+```
+
+**Key considerations:**
+
+- **With 2 replicas:** Use `minAvailable: 1` to ensure one pod always runs
+- **With 3+ replicas:** Use `maxUnavailable: 1` for controlled rolling updates
+- **With HPA:** Use percentage-based limits like `minAvailable: 75%`
+- **SSE servers:** Combine with `maxUnavailable: 0` in deployment strategy for graceful rollouts
+
+See [PodDisruptionBudget examples](../config/samples/poddisruptionbudget-example.yaml) for comprehensive patterns.
+
+### 7. Use Secrets for Sensitive Data
 
 Never hardcode credentials:
 
@@ -1139,7 +1170,7 @@ environment:
         key: api-key
 ```
 
-### 7. Tag Images with Versions
+### 8. Tag Images with Versions
 
 Avoid `latest` tag in production:
 
@@ -1151,7 +1182,7 @@ image: "myregistry/mcp-server:v1.2.0"
 image: "myregistry/mcp-server:latest"
 ```
 
-### 8. Monitor Your Servers
+### 9. Monitor Your Servers
 
 Enable metrics collection via the metrics sidecar:
 
@@ -1176,7 +1207,7 @@ When `metrics.enabled` is true, a sidecar container is automatically injected th
 - Exposes Prometheus metrics at the specified port
 - Auto-creates a ServiceMonitor if Prometheus Operator is installed
 
-### 9. Use Namespaces
+### 10. Use Namespaces
 
 Organize resources by environment or team:
 
@@ -1186,7 +1217,7 @@ kubectl create namespace mcp-staging
 kubectl create namespace mcp-development
 ```
 
-### 10. Document Your Configuration
+### 11. Document Your Configuration
 
 Add annotations and labels:
 

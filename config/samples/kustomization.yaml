@@ -7,4 +7,5 @@ resources:
 - mcp_v1_mcpserver_metrics.yaml
 - mcp_v1_mcpserver_metrics_advanced.yaml
 - mcp_v1_mcpserver_metrics_sse.yaml
+- poddisruptionbudget-example.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples
