@@ -215,6 +215,145 @@ var _ = Describe("HTTPResourceManager", func() {
 			Expect(port).To(Equal(int32(9090)))
 		})
 	})
+
+	Describe("Sidecar port handling", func() {
+		It("should return default sidecar port when MCP server uses different port", func() {
+			mcpServer.Spec.Transport.Config.HTTP.Port = 3000
+			port := GetSidecarPort(mcpServer)
+			Expect(port).To(Equal(mcpv1.DefaultSidecarPort))
+		})
+
+		It("should return fallback port when MCP server uses default sidecar port (8080)", func() {
+			mcpServer.Spec.Transport.Config.HTTP.Port = 8080
+			port := GetSidecarPort(mcpServer)
+			Expect(port).To(Equal(mcpv1.FallbackSidecarPort))
+		})
+
+		It("should return explicitly configured sidecar port", func() {
+			mcpServer.Spec.Transport.Config.HTTP.Port = 8080
+			mcpServer.Spec.Sidecar = &mcpv1.SidecarConfig{
+				Port: 9000,
+			}
+			port := GetSidecarPort(mcpServer)
+			Expect(port).To(Equal(int32(9000)))
+		})
+
+		It("should return configured sidecar port even when no conflict exists", func() {
+			mcpServer.Spec.Transport.Config.HTTP.Port = 3000
+			mcpServer.Spec.Sidecar = &mcpv1.SidecarConfig{
+				Port: 9000,
+			}
+			port := GetSidecarPort(mcpServer)
+			Expect(port).To(Equal(int32(9000)))
+		})
+	})
+
+	Describe("Sidecar injection with metrics enabled", func() {
+		BeforeEach(func() {
+			mcpServer.Spec.Metrics = &mcpv1.MetricsConfig{
+				Enabled: true,
+			}
+		})
+
+		It("should inject sidecar container with correct port when MCP server uses 8080", func() {
+			mcpServer.Spec.Transport.Config.HTTP.Port = 8080
+
+			err := httpManager.CreateResources(ctx, mcpServer)
+			Expect(err).NotTo(HaveOccurred())
+
+			deployment := &appsv1.Deployment{}
+			err = k8sClient.Get(ctx, client.ObjectKey{
+				Name:      mcpServer.Name,
+				Namespace: mcpServer.Namespace,
+			}, deployment)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Should have 2 containers: mcp-server and mcp-proxy
+			Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2))
+
+			// Find sidecar container
+			var sidecar *corev1.Container
+			for i := range deployment.Spec.Template.Spec.Containers {
+				if deployment.Spec.Template.Spec.Containers[i].Name == "mcp-proxy" {
+					sidecar = &deployment.Spec.Template.Spec.Containers[i]
+					break
+				}
+			}
+			Expect(sidecar).NotTo(BeNil())
+
+			// Sidecar should use fallback port (8081) to avoid conflict
+			var mcpPort *corev1.ContainerPort
+			for i := range sidecar.Ports {
+				if sidecar.Ports[i].Name == "mcp" {
+					mcpPort = &sidecar.Ports[i]
+					break
+				}
+			}
+			Expect(mcpPort).NotTo(BeNil())
+			Expect(mcpPort.ContainerPort).To(Equal(mcpv1.FallbackSidecarPort))
+		})
+
+		It("should inject sidecar with default port when MCP server uses different port", func() {
+			mcpServer.Spec.Transport.Config.HTTP.Port = 3000
+
+			err := httpManager.CreateResources(ctx, mcpServer)
+			Expect(err).NotTo(HaveOccurred())
+
+			deployment := &appsv1.Deployment{}
+			err = k8sClient.Get(ctx, client.ObjectKey{
+				Name:      mcpServer.Name,
+				Namespace: mcpServer.Namespace,
+			}, deployment)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Find sidecar container
+			var sidecar *corev1.Container
+			for i := range deployment.Spec.Template.Spec.Containers {
+				if deployment.Spec.Template.Spec.Containers[i].Name == "mcp-proxy" {
+					sidecar = &deployment.Spec.Template.Spec.Containers[i]
+					break
+				}
+			}
+			Expect(sidecar).NotTo(BeNil())
+
+			// Sidecar should use default port (8080)
+			var mcpPort *corev1.ContainerPort
+			for i := range sidecar.Ports {
+				if sidecar.Ports[i].Name == "mcp" {
+					mcpPort = &sidecar.Ports[i]
+					break
+				}
+			}
+			Expect(mcpPort).NotTo(BeNil())
+			Expect(mcpPort.ContainerPort).To(Equal(mcpv1.DefaultSidecarPort))
+		})
+
+		It("should create service pointing to sidecar port", func() {
+			mcpServer.Spec.Transport.Config.HTTP.Port = 8080
+
+			err := httpManager.CreateResources(ctx, mcpServer)
+			Expect(err).NotTo(HaveOccurred())
+
+			service := &corev1.Service{}
+			err = k8sClient.Get(ctx, client.ObjectKey{
+				Name:      mcpServer.Name,
+				Namespace: mcpServer.Namespace,
+			}, service)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Service should expose sidecar port (8081 due to conflict)
+			// The main HTTP port is named "http"
+			var httpServicePort *corev1.ServicePort
+			for i := range service.Spec.Ports {
+				if service.Spec.Ports[i].Name == "http" {
+					httpServicePort = &service.Spec.Ports[i]
+					break
+				}
+			}
+			Expect(httpServicePort).NotTo(BeNil())
+			Expect(httpServicePort.Port).To(Equal(mcpv1.FallbackSidecarPort))
+		})
+	})
 })
 
 // Helper function to create pointer to values

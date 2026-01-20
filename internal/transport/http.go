@@ -463,11 +463,11 @@ func (h *HTTPResourceManager) buildService(mcpServer *mcpv1.MCPServer) *corev1.S
 	// Apply SSE-specific Service annotations when SSE is active
 	h.applySSEServiceAnnotations(mcpServer, annotations)
 
-	// When sidecar is injected, the service points to sidecar port (8080)
-	// The sidecar then proxies to the MCP server on localhost
+	// When sidecar is injected, the service points to the sidecar port.
+	// The sidecar then proxies to the MCP server on localhost.
 	servicePort := port
 	if h.shouldInjectSidecar(mcpServer) {
-		servicePort = mcpv1.DefaultSidecarPort
+		servicePort = h.getSidecarPort(mcpServer)
 	}
 
 	service := utils.BuildService(mcpServer, servicePort, corev1.ProtocolTCP, annotations)
@@ -546,15 +546,22 @@ func (h *HTTPResourceManager) getSidecarImage(mcpServer *mcpv1.MCPServer) string
 	return mcpv1.DefaultSidecarImage
 }
 
+// getSidecarPort returns the port the sidecar listens on.
+// Delegates to the package-level GetSidecarPort function.
+func (h *HTTPResourceManager) getSidecarPort(mcpServer *mcpv1.MCPServer) int32 {
+	return GetSidecarPort(mcpServer)
+}
+
 // buildSidecarContainer builds the metrics sidecar container
 func (h *HTTPResourceManager) buildSidecarContainer(mcpServer *mcpv1.MCPServer, targetPort int32) corev1.Container {
 	metricsPort := h.getMetricsPort(mcpServer)
 	sidecarImage := h.getSidecarImage(mcpServer)
+	sidecarPort := h.getSidecarPort(mcpServer)
 
 	// Build sidecar args
 	args := []string{
 		fmt.Sprintf("--target-addr=localhost:%d", targetPort),
-		fmt.Sprintf("--listen-addr=:%d", mcpv1.DefaultSidecarPort),
+		fmt.Sprintf("--listen-addr=:%d", sidecarPort),
 		fmt.Sprintf("--metrics-addr=:%d", metricsPort),
 		"--log-level=info",
 	}
@@ -578,7 +585,7 @@ func (h *HTTPResourceManager) buildSidecarContainer(mcpServer *mcpv1.MCPServer, 
 		Ports: []corev1.ContainerPort{
 			{
 				Name:          "mcp",
-				ContainerPort: mcpv1.DefaultSidecarPort,
+				ContainerPort: sidecarPort,
 				Protocol:      corev1.ProtocolTCP,
 			},
 			{

@@ -1,6 +1,6 @@
 # Getting Started with MCP Operator
 
-This guide will get you up and running with MCP Operator in about 5 minutes. Let's go!
+This guide walks through installing the operator and deploying your first MCP server.
 
 ## What You'll Need
 
@@ -10,9 +10,9 @@ This guide will get you up and running with MCP Operator in about 5 minutes. Let
   - Any cloud cluster (GKE, EKS, AKS, etc.)
 - **kubectl** - [Install it here](https://kubernetes.io/docs/tasks/tools/) if you don't have it
 
-### Quick Cluster Setup
+### Cluster Setup
 
-Don't have a cluster yet? Here's the fastest way to get one:
+If you don't have a cluster:
 
 **Using Kind (recommended for testing):**
 
@@ -104,7 +104,7 @@ NAME                                               READY   STATUS    RESTARTS   
 mcp-operator-controller-manager-xxxxxxxxxx-xxxxx   2/2     Running   0          30s
 ```
 
-That's it! The operator is now watching for MCPServers in your cluster.
+The operator is now running and watching for MCPServer resources.
 
 ## Step 2: Create Your First MCP Server
 
@@ -150,10 +150,10 @@ wikipedia   Running    1          1                   Validating                
 wikipedia   Running    1          1       sse        Validated    ["tools","resources","prompts"]   25s
 ```
 
-What's happening here?
-- **Creating** - Kubernetes is starting the pod (Validation: Pending)
-- **Running** (Validating) - Server is up, operator is validating it
-- **Running** (Validated) - ✅ Validation complete, protocol detected!
+Phase progression:
+- **Creating** - Kubernetes is starting the pod
+- **Running** (Validating) - Pod is up, operator is connecting to validate MCP protocol
+- **Running** (Validated) - Validation complete, protocol and capabilities detected
 
 Press Ctrl+C to stop watching.
 
@@ -203,7 +203,7 @@ kubectl port-forward service/wikipedia 3001:3001
 minikube service wikipedia --url
 ```
 
-Your MCP server is now accessible at `http://localhost:3001/sse`!
+Your MCP server is accessible at `http://localhost:3001/sse`.
 
 ## Step 5: Test It
 
@@ -251,7 +251,7 @@ VERSION=$(curl -s https://api.github.com/repos/vitorbari/mcp-operator/releases |
 kubectl apply -f https://github.com/vitorbari/mcp-operator/releases/download/${VERSION}/monitoring.yaml
 ```
 
-This adds a Grafana dashboard showing all your MCP servers' health and performance.
+This creates a ServiceMonitor and Grafana dashboard ConfigMap for your MCP servers.
 
 ### Explore More Examples
 
@@ -347,4 +347,4 @@ minikube delete
 - [Configuration Examples](config/samples/)
 - [MCP Protocol Specification](https://modelcontextprotocol.io)
 
-That's it! You've successfully deployed and validated your first MCP server on Kubernetes. Welcome aboard! 🎉
+You've deployed an MCP server on Kubernetes and verified it passes protocol validation.
