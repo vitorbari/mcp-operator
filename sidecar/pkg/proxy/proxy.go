@@ -357,10 +357,12 @@ func (sw *sseAwareWriter) Write(b []byte) (int, error) {
 	n, err := sw.ResponseWriter.Write(b)
 	sw.bytesWritten += int64(n)
 
-	if sw.isSSE {
-		// For SSE, parse events from the data being written
+	if sw.isSSE && sw.httpMethod == http.MethodGet {
+		// For true SSE streams (GET requests only), parse events from the data being written.
+		// POST requests with SSE content type are Streamable HTTP request-responses,
+		// not long-lived SSE streams, so we don't track SSE event metrics for them.
 		sw.parseSSEData(b)
-	} else {
+	} else if !sw.isSSE {
 		// For non-SSE, capture body for later parsing
 		if sw.body.Len() < sw.maxCapture {
 			remaining := sw.maxCapture - sw.body.Len()
