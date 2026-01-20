@@ -12,6 +12,7 @@ Common issues and solutions for the MCP Operator.
 - [Resource Issues](#resource-issues)
 - [Configuration Issues](#configuration-issues)
 - [Networking Issues](#networking-issues)
+- [Metrics Sidecar Issues](#metrics-sidecar-issues)
 - [Debug Mode](#debug-mode)
 - [Getting Help](#getting-help)
 
@@ -835,6 +836,297 @@ kubectl get pods -n kube-system -l k8s-app=kube-dns
 ```bash
 kubectl run -it --rm debug --image=busybox --restart=Never -- \
   nslookup kubernetes.default
+```
+
+## Metrics Sidecar Issues
+
+When `spec.metrics.enabled: true`, the operator injects an `mcp-proxy` sidecar container that collects MCP-specific Prometheus metrics. This section covers common issues with the metrics sidecar.
+
+### Sidecar Container Not Injected
+
+**Symptom:** Pod only has one container instead of two (mcp-server and mcp-proxy).
+
+**Verify container count:**
+
+```bash
+# Check number of containers
+kubectl get pod <pod-name> -o jsonpath='{.spec.containers[*].name}'
+# Expected with metrics enabled: mcp-server mcp-proxy
+
+# Or check in describe output
+kubectl describe pod <pod-name> | grep -A 2 "Containers:"
+```
+
+**Common causes:**
+
+#### 1. Metrics Not Enabled
+
+```bash
+# Check if metrics are enabled
+kubectl get mcpserver <name> -o jsonpath='{.spec.metrics.enabled}'
+# Should return "true"
+```
+
+**Solution:**
+
+```yaml
+spec:
+  metrics:
+    enabled: true  # Must be explicitly set to true
+```
+
+#### 2. Pod Created Before Metrics Were Enabled
+
+If you enabled metrics on an existing MCPServer, the pods need to be recreated.
+
+**Solution:**
+
+```bash
+# Trigger a rollout to recreate pods
+kubectl rollout restart deployment -l app.kubernetes.io/instance=<mcpserver-name>
+```
+
+#### 3. Operator Version Mismatch
+
+Older operator versions may not support the metrics sidecar.
+
+**Solution:**
+
+```bash
+# Check operator version
+kubectl get deployment -n mcp-operator-system mcp-operator-controller-manager \
+  -o jsonpath='{.spec.template.spec.containers[0].image}'
+
+# Upgrade operator if needed
+kubectl apply -f https://github.com/vitorbari/mcp-operator/releases/latest/download/install.yaml
+```
+
+### Metrics Endpoint Not Responding
+
+**Symptom:** Sidecar is running but `/metrics` endpoint returns errors or no data.
+
+**Test metrics endpoint:**
+
+```bash
+# Port forward to the metrics port
+kubectl port-forward svc/<mcpserver-name> 9090:9090
+
+# Test metrics endpoint
+curl http://localhost:9090/metrics
+```
+
+**Common causes:**
+
+#### 1. Wrong Metrics Port
+
+```bash
+# Check configured metrics port
+kubectl get mcpserver <name> -o jsonpath='{.spec.metrics.port}'
+# Default is 9090
+
+# Check service ports
+kubectl get svc <mcpserver-name> -o jsonpath='{.spec.ports}' | jq
+# Should have a port named "metrics"
+```
+
+**Solution:**
+
+```yaml
+spec:
+  metrics:
+    enabled: true
+    port: 9090  # Ensure this matches your scrape configuration
+```
+
+#### 2. Sidecar Not Healthy
+
+```bash
+# Check sidecar container status
+kubectl get pod <pod-name> -o jsonpath='{.status.containerStatuses[?(@.name=="mcp-proxy")].ready}'
+# Should return "true"
+
+# Check sidecar logs
+kubectl logs <pod-name> -c mcp-proxy
+```
+
+#### 3. Port Conflict
+
+The sidecar listen port may conflict with the MCP server port.
+
+```bash
+# Check for port conflicts
+kubectl get mcpserver <name> -o jsonpath='{.spec.transport.config.http.port}'
+# If this is 8080 and sidecar.port is also 8080, there's a conflict
+```
+
+**Solution:**
+
+The operator automatically handles this by using port 8081 when the MCP server uses 8080. If you've manually configured ports, ensure they don't conflict:
+
+```yaml
+spec:
+  transport:
+    config:
+      http:
+        port: 3001  # MCP server port
+  sidecar:
+    port: 8080  # Sidecar listen port (different from MCP server)
+  metrics:
+    port: 9090  # Prometheus metrics port
+```
+
+#### 4. TLS Configuration Mismatch
+
+If sidecar TLS is enabled, you need to use HTTPS to access metrics.
+
+```bash
+# Check if TLS is enabled
+kubectl get mcpserver <name> -o jsonpath='{.spec.sidecar.tls.enabled}'
+
+# If TLS is enabled, use HTTPS
+curl -k https://localhost:9090/metrics
+```
+
+### Sidecar Health Probe Failures
+
+**Symptom:** Pod is not ready or keeps restarting due to sidecar probe failures.
+
+**Check probe status:**
+
+```bash
+# Check container readiness
+kubectl describe pod <pod-name> | grep -A 10 "mcp-proxy:"
+
+# Look for probe failures in events
+kubectl get events --field-selector involvedObject.name=<pod-name> | grep -i probe
+```
+
+**Common causes:**
+
+#### 1. Startup Delay
+
+The sidecar may need time to start, especially if TLS is configured.
+
+**Solution:**
+
+The sidecar has built-in startup probes. If issues persist, check:
+
+```bash
+# Check sidecar startup logs
+kubectl logs <pod-name> -c mcp-proxy --timestamps | head -50
+```
+
+#### 2. Resource Starvation
+
+The sidecar may be resource-constrained.
+
+```bash
+# Check sidecar resource usage
+kubectl top pod <pod-name> --containers
+```
+
+**Solution:**
+
+```yaml
+spec:
+  sidecar:
+    resources:
+      requests:
+        cpu: "100m"     # Increase from default 50m
+        memory: "128Mi" # Increase from default 64Mi
+      limits:
+        cpu: "500m"     # Increase from default 200m
+        memory: "256Mi" # Increase from default 128Mi
+```
+
+#### 3. Network Issues to Upstream MCP Server
+
+The sidecar proxies to the MCP server. If the MCP server is not responding, the sidecar health may be affected.
+
+```bash
+# Check MCP server container logs
+kubectl logs <pod-name> -c mcp-server
+
+# Verify MCP server is listening
+kubectl exec <pod-name> -c mcp-server -- netstat -tlnp 2>/dev/null || \
+kubectl exec <pod-name> -c mcp-server -- ss -tlnp
+```
+
+### Diagnostic Commands Summary
+
+Here's a quick reference of commands to diagnose sidecar issues:
+
+```bash
+# 1. Check if sidecar is injected
+kubectl get pod <pod-name> -o jsonpath='{.spec.containers[*].name}'
+
+# 2. Check sidecar container status
+kubectl get pod <pod-name> -o jsonpath='{.status.containerStatuses[?(@.name=="mcp-proxy")]}'
+
+# 3. View sidecar logs
+kubectl logs <pod-name> -c mcp-proxy
+
+# 4. View sidecar logs (previous crash)
+kubectl logs <pod-name> -c mcp-proxy --previous
+
+# 5. Check sidecar resource usage
+kubectl top pod <pod-name> --containers
+
+# 6. Test metrics endpoint from inside cluster
+kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
+  curl -s http://<mcpserver-name>:9090/metrics | head -20
+
+# 7. Port forward and test locally
+kubectl port-forward svc/<mcpserver-name> 9090:9090 &
+curl http://localhost:9090/metrics | head -20
+
+# 8. Check sidecar configuration
+kubectl get mcpserver <name> -o jsonpath='{.spec.sidecar}' | jq
+
+# 9. Check metrics configuration
+kubectl get mcpserver <name> -o jsonpath='{.spec.metrics}' | jq
+
+# 10. Describe pod for probe details
+kubectl describe pod <pod-name> | grep -A 15 "mcp-proxy:"
+```
+
+### Collecting Sidecar Diagnostics
+
+Use this script to collect comprehensive sidecar diagnostics:
+
+```bash
+#!/bin/bash
+MCPSERVER_NAME="${1:-my-mcp-server}"
+OUTPUT_DIR="sidecar-diagnostics-$(date +%Y%m%d-%H%M%S)"
+mkdir -p $OUTPUT_DIR
+
+POD_NAME=$(kubectl get pods -l app.kubernetes.io/instance=$MCPSERVER_NAME \
+  -o jsonpath='{.items[0].metadata.name}')
+
+echo "Collecting diagnostics for $MCPSERVER_NAME (pod: $POD_NAME)..."
+
+# MCPServer spec
+kubectl get mcpserver $MCPSERVER_NAME -o yaml > $OUTPUT_DIR/mcpserver.yaml
+
+# Pod details
+kubectl describe pod $POD_NAME > $OUTPUT_DIR/pod-describe.txt
+
+# Container logs
+kubectl logs $POD_NAME -c mcp-proxy > $OUTPUT_DIR/sidecar-logs.txt 2>&1
+kubectl logs $POD_NAME -c mcp-proxy --previous > $OUTPUT_DIR/sidecar-logs-previous.txt 2>&1 || true
+kubectl logs $POD_NAME -c mcp-server > $OUTPUT_DIR/server-logs.txt 2>&1
+
+# Service details
+kubectl get svc $MCPSERVER_NAME -o yaml > $OUTPUT_DIR/service.yaml
+
+# Events
+kubectl get events --field-selector involvedObject.name=$POD_NAME > $OUTPUT_DIR/pod-events.txt
+
+# Resource usage
+kubectl top pod $POD_NAME --containers > $OUTPUT_DIR/resource-usage.txt 2>&1 || true
+
+echo "Diagnostics collected in $OUTPUT_DIR/"
+ls -la $OUTPUT_DIR/
 ```
 
 ## Debug Mode
