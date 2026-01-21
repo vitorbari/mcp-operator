@@ -154,13 +154,13 @@ func downloadServiceMonitorCRD() (string, error) {
 	// Download the CRD
 	resp, err := http.Get(crdURL)
 	if err != nil {
-		os.RemoveAll(tempDir)
+		_ = os.RemoveAll(tempDir)
 		return "", fmt.Errorf("failed to download ServiceMonitor CRD: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		os.RemoveAll(tempDir)
+		_ = os.RemoveAll(tempDir)
 		return "", fmt.Errorf("failed to download ServiceMonitor CRD: HTTP %d", resp.StatusCode)
 	}
 
@@ -168,14 +168,14 @@ func downloadServiceMonitorCRD() (string, error) {
 	crdPath := filepath.Join(tempDir, "monitoring.coreos.com_servicemonitors.yaml")
 	out, err := os.Create(crdPath)
 	if err != nil {
-		os.RemoveAll(tempDir)
+		_ = os.RemoveAll(tempDir)
 		return "", fmt.Errorf("failed to create CRD file: %w", err)
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	_, err = io.Copy(out, resp.Body)
 	if err != nil {
-		os.RemoveAll(tempDir)
+		_ = os.RemoveAll(tempDir)
 		return "", fmt.Errorf("failed to save CRD file: %w", err)
 	}
 
