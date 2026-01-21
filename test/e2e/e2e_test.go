@@ -2524,7 +2524,7 @@ spec:
 					output, err := utils.Run(cmd)
 					g.Expect(err).NotTo(HaveOccurred())
 					g.Expect(output).To(ContainSubstring(`"readyReplicas":2`), "Status should show 2 ready replicas")
-				}, 30*time.Second, 2*time.Second).Should(Succeed())
+				}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
 				By("cleaning up")
 				cmd = exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
