@@ -761,7 +761,7 @@ validation:
     - "resources"
 ```
 
-For comprehensive details on validation behavior, see the [Validation Behavior Guide](validation-behavior.md).
+For comprehensive details on validation behavior, see the [Validation Behavior Guide](advanced/validation-behavior.md).
 
 ### Metrics
 
@@ -1164,7 +1164,7 @@ spec:
 
 ## See Also
 
-- [Configuration Guide](configuration-guide.md) - Configuration patterns and examples
+- [Configuration Guide](configuration.md) - Configuration patterns and examples
 - [Environment Variables Guide](environment-variables.md) - Environment variable configuration
-- [Validation Behavior Guide](validation-behavior.md) - Protocol validation deep dive
+- [Validation Behavior Guide](advanced/validation-behavior.md) - Protocol validation deep dive
 - [Configuration Examples](../config/samples/) - Real-world YAML examples

@@ -246,9 +246,17 @@ Prometheus metrics are automatically collected:
 ### Configuration Examples
 
 See `config/samples/` for comprehensive examples:
-- `wikipedia-http.yaml`: Minimal example with Wikipedia MCP server using SSE transport
-- `mcp-basic-example.yaml`: Common production setup with HPA and monitoring
-- `mcp-complete-example.yaml`: Complete example showing all available CRD fields
+- `01-wikipedia-sse.yaml`: Minimal example with Wikipedia MCP server using SSE transport
+- `02-streamable-http-basic.yaml`: Modern Streamable HTTP transport setup
+- `03-sse-optimized.yaml`: SSE with session affinity and production optimizations
+- `04-metrics-basic.yaml`: Basic metrics collection with mcp-proxy sidecar
+- `05-metrics-advanced.yaml`: Advanced sidecar configuration
+- `06-metrics-sse.yaml`: SSE transport with metrics
+- `10-complete-reference.yaml`: Complete example showing all available CRD fields
+
+See `docs/advanced/` for additional production patterns:
+- `networkpolicy-example.yaml`: Network security patterns
+- `poddisruptionbudget-example.yaml`: High availability patterns
 
 ## Important Implementation Notes
 

@@ -373,6 +373,6 @@ These settings are automatically applied and comply with Kubernetes restricted p
 
 ## Next Steps
 
-- [MCP Server Metrics](metrics.md) - Available metrics and example queries
-- [Monitoring Guide](monitoring.md) - Operator metrics and Grafana dashboards
-- [Configuration Guide](configuration-guide.md) - All MCPServer options
+- [MCP Server Metrics](../operations/metrics.md) - Available metrics and example queries
+- [Monitoring Guide](../operations/monitoring.md) - Operator metrics and Grafana dashboards
+- [Configuration Guide](../configuration.md) - All MCPServer options
