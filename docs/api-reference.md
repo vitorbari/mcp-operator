@@ -16,6 +16,8 @@ Complete reference documentation for the `MCPServer` Custom Resource Definition 
   - [Pod Template](#pod-template)
   - [Horizontal Pod Autoscaler (HPA)](#horizontal-pod-autoscaler-hpa)
   - [Validation](#validation)
+  - [Metrics](#metrics)
+  - [Sidecar](#sidecar)
 - [MCPServerStatus](#mcpserverstatus)
 - [Security Defaults](#security-defaults)
 
@@ -151,6 +153,43 @@ HTTP transport configuration:
   - **Type:** `bool`
   - **Description:** Enable session management for the HTTP transport
 
+- **`sse`** (optional)
+  - **Type:** `object`
+  - **Description:** SSE-specific configuration settings. These settings are applied when `transport.protocol` is explicitly set to `"sse"`, or when SSE is auto-detected (protocol is `"auto"` and server only supports SSE).
+
+###### `transport.config.http.sse` Fields
+
+SSE-specific configuration for optimizing Kubernetes resources for long-lived SSE connections:
+
+- **`enableSessionAffinity`** (optional)
+  - **Type:** `bool`
+  - **Default:** `false`
+  - **Description:** Enables ClientIP session affinity on the Service. This helps maintain SSE connections to the same backend pod across reconnections.
+  - **Note:** Session affinity is NOT enabled by default in auto-detect mode to avoid implicit behavior changes. Set this to `true` explicitly when you need sticky sessions for SSE.
+
+- **`terminationGracePeriodSeconds`** (optional)
+  - **Type:** `int64`
+  - **Default:** `60`
+  - **Validation:** Between 1 and 3600
+  - **Description:** Duration in seconds the pod needs to terminate gracefully when receiving SIGTERM. For SSE, longer values allow existing long-lived connections to complete gracefully during rolling updates.
+
+- **`maxSurge`** (optional)
+  - **Type:** `intstr.IntOrString`
+  - **Default:** `"25%"`
+  - **Description:** Maximum number of pods that can be created over the desired number during rolling updates. This allows controlled surge during SSE deployments, ensuring new connections can be established before old pods are terminated.
+
+**When SSE Configuration is Applied:**
+
+SSE-specific configuration is applied in these scenarios:
+1. **Explicit SSE:** When `transport.protocol` is set to `"sse"`
+2. **Auto-detected SSE:** When `transport.protocol` is `"auto"` and the server only supports the SSE protocol (detected during validation)
+
+When SSE configuration is applied, the operator automatically:
+- Sets the Deployment rolling update strategy to `maxUnavailable: 0` to prevent connection drops
+- Applies the configured `terminationGracePeriodSeconds` to pods
+- Configures session affinity on the Service if `enableSessionAffinity: true`
+- Tracks the resolved transport in `status.resolvedTransport` to prevent flapping
+
 **Example:**
 
 ```yaml
@@ -162,6 +201,22 @@ transport:
       port: 8080
       path: "/mcp"
       sessionManagement: true
+```
+
+**Example with SSE-specific configuration:**
+
+```yaml
+transport:
+  type: http
+  protocol: sse
+  config:
+    http:
+      port: 8080
+      path: "/sse"
+      sse:
+        enableSessionAffinity: true
+        terminationGracePeriodSeconds: 120
+        maxSurge: "50%"
 ```
 
 ### Resources
@@ -708,6 +763,171 @@ validation:
 
 For comprehensive details on validation behavior, see the [Validation Behavior Guide](validation-behavior.md).
 
+### Metrics
+
+#### `metrics` (optional)
+
+MCP-aware Prometheus metrics collection configuration via sidecar proxy.
+
+**Type:** `object`
+
+**Fields:**
+
+##### `metrics.enabled` (required)
+
+- **Type:** `bool`
+- **Description:** Enables metrics collection via sidecar proxy. When true, a sidecar container is injected that proxies traffic and collects MCP-specific Prometheus metrics.
+- **Default:** Not enabled (metrics sidecar is not injected unless explicitly enabled)
+- **Example:**
+  ```yaml
+  metrics:
+    enabled: true
+  ```
+
+##### `metrics.port` (optional)
+
+- **Type:** `int32`
+- **Description:** Port for Prometheus metrics endpoint
+- **Default:** `9090`
+- **Validation:** Between 1 and 65535
+- **Example:**
+  ```yaml
+  metrics:
+    enabled: true
+    port: 9090
+  ```
+
+**Complete Example:**
+
+```yaml
+metrics:
+  enabled: true
+  port: 9090
+```
+
+**Behavior:**
+
+When `metrics.enabled` is true:
+- A sidecar container (`mcp-proxy`) is injected into the pod
+- The sidecar proxies MCP traffic and collects protocol-specific metrics
+- Metrics are exposed at the specified port (default 9090)
+- A `ServiceMonitor` is automatically created if Prometheus Operator CRDs are installed
+
+**Available Metrics:**
+
+- `mcp_requests_total` - Total number of MCP requests
+- `mcp_request_duration_seconds` - MCP request duration histogram
+- Additional MCP protocol-specific metrics
+
+### Sidecar
+
+#### `sidecar` (optional)
+
+Advanced customization of the metrics sidecar proxy. Only applicable when `metrics.enabled` is true.
+
+**Type:** `object`
+
+**Fields:**
+
+##### `sidecar.image` (optional)
+
+- **Type:** `string`
+- **Description:** Override the default sidecar image
+- **Default:** `ghcr.io/vitorbari/mcp-proxy:latest`
+- **Example:**
+  ```yaml
+  sidecar:
+    image: "myregistry/mcp-proxy:v1.0.0"
+  ```
+
+##### `sidecar.port` (optional)
+
+- **Type:** `int32`
+- **Description:** Port the sidecar listens on for incoming MCP traffic
+- **Default:** `8080` (or `8081` if the MCP server is configured to use port 8080, to avoid conflicts)
+- **Validation:** Between 1 and 65535
+- **Note:** The operator automatically handles port conflicts between the MCP server and sidecar
+- **Example:**
+  ```yaml
+  sidecar:
+    port: 8080
+  ```
+
+##### `sidecar.resources` (optional)
+
+- **Type:** `object` (Kubernetes `ResourceRequirements`)
+- **Description:** CPU and memory resource requirements for the sidecar container
+- **Default:**
+  - Requests: `50m` CPU, `64Mi` memory
+  - Limits: `200m` CPU, `128Mi` memory
+- **Example:**
+  ```yaml
+  sidecar:
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "256Mi"
+  ```
+
+##### `sidecar.tls` (optional)
+
+- **Type:** `object`
+- **Description:** TLS termination configuration for the sidecar. When enabled, the sidecar accepts HTTPS connections and forwards HTTP to the MCP server.
+- **Fields:**
+
+###### `sidecar.tls.enabled` (required when tls is specified)
+
+- **Type:** `bool`
+- **Description:** Enables TLS termination at the sidecar
+
+###### `sidecar.tls.secretName` (required when tls is enabled)
+
+- **Type:** `string`
+- **Description:** Name of the Kubernetes Secret containing `tls.crt` and `tls.key`. The secret must be in the same namespace as the MCPServer.
+
+###### `sidecar.tls.minVersion` (optional)
+
+- **Type:** `string`
+- **Description:** Minimum TLS version
+- **Valid Values:** `"1.2"`, `"1.3"`
+- **Default:** `"1.2"`
+
+- **Example:**
+  ```yaml
+  sidecar:
+    tls:
+      enabled: true
+      secretName: mcp-server-tls
+      minVersion: "1.3"
+  ```
+
+**Complete Example:**
+
+```yaml
+spec:
+  image: "my-mcp-server:latest"
+  metrics:
+    enabled: true
+    port: 9090
+  sidecar:
+    image: "ghcr.io/vitorbari/mcp-proxy:v1.0.0"
+    port: 8080
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "200m"
+        memory: "128Mi"
+    tls:
+      enabled: true
+      secretName: mcp-server-tls
+      minVersion: "1.2"
+```
+
 ## MCPServerStatus
 
 The `status` section reflects the observed state of the MCP server.
@@ -751,6 +971,46 @@ Endpoint where the MCP server is accessible (e.g., `http://my-server.default.svc
 #### `transportType` (string)
 
 Active transport type (e.g., `http`).
+
+#### `resolvedTransport` (object)
+
+Resolved transport configuration after auto-detection. This status field is used to prevent flapping when `transport.protocol` is `"auto"`. Once a protocol is detected and SSE-specific configuration is applied, the resolved transport is locked until the spec changes.
+
+**Fields:**
+
+##### `resolvedTransport.protocol` (string)
+
+The resolved MCP protocol variant. Valid values: `"streamable-http"`, `"sse"`.
+
+##### `resolvedTransport.sseConfigApplied` (bool)
+
+Indicates whether SSE-specific configuration (session affinity, rolling update strategy) has been applied to the Deployment and Service resources.
+
+##### `resolvedTransport.resolvedGeneration` (int64)
+
+The MCPServer generation when the transport was resolved. Transport resolution is re-evaluated when this doesn't match the current generation.
+
+##### `resolvedTransport.lastResolvedTime` (timestamp)
+
+Timestamp when the transport was last resolved.
+
+**Example:**
+
+```yaml
+status:
+  resolvedTransport:
+    protocol: sse
+    sseConfigApplied: true
+    resolvedGeneration: 2
+    lastResolvedTime: "2025-12-03T10:00:00Z"
+```
+
+**Use for Debugging:**
+
+When troubleshooting SSE configuration issues, check `status.resolvedTransport` to understand:
+- Which protocol was detected (`protocol`)
+- Whether SSE-specific settings were applied (`sseConfigApplied`)
+- When the detection occurred (`lastResolvedTime`)
 
 #### `lastReconcileTime` (timestamp)
 

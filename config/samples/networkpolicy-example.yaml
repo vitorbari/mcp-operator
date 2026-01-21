@@ -1,0 +1,400 @@
+# NetworkPolicy for MCPServer Security
+#
+# NetworkPolicies control network traffic to and from your MCPServer pods.
+# They are critical for implementing defense-in-depth security in production environments.
+#
+# Prerequisites:
+# - Your cluster must have a NetworkPolicy-compatible CNI plugin (Calico, Cilium, Weave, etc.)
+# - Test policies in a non-production environment first
+#
+# Documentation: https://kubernetes.io/docs/concepts/services-networking/network-policies/
+
+---
+# Example 1: Basic NetworkPolicy (recommended starting point)
+# Allows MCP client connections and Prometheus metrics scraping
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-basic-example-netpol
+  namespace: mcp-tests
+  labels:
+    app: mcp-basic-example
+    app.kubernetes.io/name: mcpserver
+    app.kubernetes.io/managed-by: mcp-operator
+spec:
+  # Apply to MCPServer pods with matching labels
+  podSelector:
+    matchLabels:
+      app: mcp-basic-example
+      app.kubernetes.io/name: mcpserver
+      app.kubernetes.io/component: mcp-server
+
+  # Define policy types - enables both ingress and egress filtering
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Rule 1: Allow MCP client connections on the MCP server port
+    - from:
+        # Allow from any pod in the cluster (adjust based on your needs)
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 3001  # MCP server port (adjust to match your transport.config.http.port)
+
+    # Rule 2: Allow Prometheus metrics scraping
+    - from:
+        # Allow from Prometheus pods (adjust namespace/labels to match your Prometheus)
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090  # Metrics sidecar port
+
+  egress:
+    # Rule 1: Allow DNS queries (required for service discovery)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+
+    # Rule 2: Allow outbound HTTPS (for external API calls)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+
+    # Rule 3: Allow outbound HTTP (if needed)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 80
+
+---
+# Example 2: Restricted Ingress (limit MCP clients to specific namespace)
+# Use this for production environments where you want to control which clients can connect
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-restricted-netpol
+  namespace: production
+  labels:
+    app: mcp-production
+    app.kubernetes.io/name: mcpserver
+    app.kubernetes.io/managed-by: mcp-operator
+spec:
+  podSelector:
+    matchLabels:
+      app: mcp-production
+      app.kubernetes.io/name: mcpserver
+      app.kubernetes.io/component: mcp-server
+
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Rule 1: Only allow MCP clients from specific namespace with specific labels
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: client-apps
+          podSelector:
+            matchLabels:
+              mcp-client: "true"  # Only pods with this label can connect
+      ports:
+        - protocol: TCP
+          port: 8080  # MCP server port
+
+    # Rule 2: Allow Prometheus from monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
+
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+
+    # Allow HTTPS to external services
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+# Example 3: Strict Egress Control (limit outbound traffic to specific destinations)
+# Use when your MCP server should only access specific external services
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-strict-egress-netpol
+  namespace: production
+  labels:
+    app: mcp-strict
+    app.kubernetes.io/name: mcpserver
+    app.kubernetes.io/managed-by: mcp-operator
+spec:
+  podSelector:
+    matchLabels:
+      app: mcp-strict
+      app.kubernetes.io/name: mcpserver
+      app.kubernetes.io/component: mcp-server
+
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Allow MCP clients from same namespace
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # Allow Prometheus metrics scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090
+
+  egress:
+    # Rule 1: DNS (required)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+
+    # Rule 2: Allow connections to specific external API (by CIDR)
+    # Example: Allow connections to a specific API endpoint
+    - to:
+        - ipBlock:
+            cidr: 203.0.113.0/24  # Replace with your API's IP range
+            except:
+              - 203.0.113.5/32    # Optionally exclude specific IPs
+      ports:
+        - protocol: TCP
+          port: 443
+
+    # Rule 3: Allow connections to internal database service
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: databases
+          podSelector:
+            matchLabels:
+              app: postgresql
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+# Example 4: Multi-Port Configuration (for servers exposing multiple ports)
+# Use when your MCPServer uses multiple ports (e.g., HTTP + gRPC)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-multiport-netpol
+  namespace: production
+  labels:
+    app: mcp-multiport
+    app.kubernetes.io/name: mcpserver
+    app.kubernetes.io/managed-by: mcp-operator
+spec:
+  podSelector:
+    matchLabels:
+      app: mcp-multiport
+      app.kubernetes.io/name: mcpserver
+      app.kubernetes.io/component: mcp-server
+
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Rule 1: Allow MCP clients on multiple transport ports
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080  # HTTP transport
+        - protocol: TCP
+          port: 50051 # gRPC transport (if using custom transport)
+
+    # Rule 2: Prometheus metrics
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090
+
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+
+    # Allow HTTPS for external APIs
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+# Example 5: Development Environment (permissive for testing)
+# WARNING: Do NOT use in production - allows all traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-dev-netpol
+  namespace: dev
+  labels:
+    app: mcp-dev
+    app.kubernetes.io/name: mcpserver
+    app.kubernetes.io/managed-by: mcp-operator
+    environment: development
+spec:
+  podSelector:
+    matchLabels:
+      app: mcp-dev
+      app.kubernetes.io/name: mcpserver
+
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # Allow all ingress (for development/testing)
+  ingress:
+    - {}
+
+  # Allow all egress (for development/testing)
+  egress:
+    - {}
+
+---
+# Best Practices:
+#
+# 1. **Start with basic policies and iterate:**
+#    - Begin with Example 1 (basic) to understand behavior
+#    - Gradually restrict to Example 2 (namespace-scoped) or Example 3 (strict egress)
+#    - Monitor application behavior and adjust rules as needed
+#
+# 2. **Always allow DNS:**
+#    - DNS resolution is required for Kubernetes service discovery
+#    - Include DNS egress rules in all policies
+#
+# 3. **Match your MCP server port:**
+#    - Update port numbers to match your MCPServer's transport.config.http.port
+#    - Default MCP port is often 8080, but can vary (e.g., 3001 for tzolov/mcp-everything-server)
+#
+# 4. **Prometheus integration:**
+#    - If metrics.enabled: true, allow ingress on port 9090 from Prometheus namespace
+#    - Update namespaceSelector and podSelector to match your Prometheus deployment
+#    - Common Prometheus labels:
+#      - app.kubernetes.io/name: prometheus (for prometheus-operator)
+#      - app: prometheus (for kube-prometheus-stack)
+#
+# 5. **Namespace and pod selectors:**
+#    - namespaceSelector matches namespaces by labels
+#    - podSelector matches pods within those namespaces by labels
+#    - Use both together for fine-grained control
+#
+# 6. **External service access:**
+#    - Use ipBlock with CIDR notation for specific external IPs
+#    - Use port-based rules for general external access (443 for HTTPS)
+#    - Minimize egress to reduce attack surface
+#
+# 7. **Testing NetworkPolicies:**
+#    - Test with temporary pods: kubectl run test --rm -it --image=nicolaka/netshoot
+#    - Verify connectivity: nc -zv <service-name> <port>
+#    - Check DNS: nslookup <service-name>
+#    - Monitor CNI logs for policy violations
+#
+# 8. **Default deny pattern:**
+#    - Consider implementing default-deny policies at namespace level
+#    - Then explicitly allow required traffic with specific NetworkPolicies
+#    - Example default-deny:
+#      apiVersion: networking.k8s.io/v1
+#      kind: NetworkPolicy
+#      metadata:
+#        name: default-deny-all
+#      spec:
+#        podSelector: {}
+#        policyTypes:
+#        - Ingress
+#        - Egress
+#
+# 9. **Cloud provider considerations:**
+#    - AWS: Use Calico or VPC CNI with network policy support
+#    - GCP: Enable network policy on GKE cluster
+#    - Azure: Enable Azure Network Policy or Calico
+#    - Verify your CNI supports NetworkPolicy before deploying
+#
+# 10. **Monitoring and auditing:**
+#     - Use CNI-specific tools to monitor policy effectiveness
+#     - Calico: calicoctl get networkpolicy
+#     - Cilium: cilium policy get
+#     - Check for dropped packets in CNI metrics
+#     - Alert on unexpected connection attempts
+#
+# 11. **Common port numbers:**
+#     - 8080: Default HTTP MCP transport
+#     - 3001: tzolov/mcp-everything-server streamable HTTP
+#     - 9090: Metrics sidecar (mcp-proxy)
+#     - 443: HTTPS egress
+#     - 53: DNS queries (UDP)
+#     - 5432: PostgreSQL (if using database)
+#
+# 12. **Combining with PodDisruptionBudgets:**
+#     - NetworkPolicies control traffic, PDBs control disruptions
+#     - Use both for comprehensive production readiness
+#     - See poddisruptionbudget-example.yaml for PDB guidance

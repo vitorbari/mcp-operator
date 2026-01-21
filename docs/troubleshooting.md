@@ -12,6 +12,8 @@ Common issues and solutions for the MCP Operator.
 - [Resource Issues](#resource-issues)
 - [Configuration Issues](#configuration-issues)
 - [Networking Issues](#networking-issues)
+- [Metrics Sidecar Issues](#metrics-sidecar-issues)
+- [SSE Connection Issues](#sse-connection-issues)
 - [Debug Mode](#debug-mode)
 - [Getting Help](#getting-help)
 
@@ -835,6 +837,581 @@ kubectl get pods -n kube-system -l k8s-app=kube-dns
 ```bash
 kubectl run -it --rm debug --image=busybox --restart=Never -- \
   nslookup kubernetes.default
+```
+
+## Metrics Sidecar Issues
+
+When `spec.metrics.enabled: true`, the operator injects an `mcp-proxy` sidecar container that collects MCP-specific Prometheus metrics. This section covers common issues with the metrics sidecar.
+
+### Sidecar Container Not Injected
+
+**Symptom:** Pod only has one container instead of two (mcp-server and mcp-proxy).
+
+**Verify container count:**
+
+```bash
+# Check number of containers
+kubectl get pod <pod-name> -o jsonpath='{.spec.containers[*].name}'
+# Expected with metrics enabled: mcp-server mcp-proxy
+
+# Or check in describe output
+kubectl describe pod <pod-name> | grep -A 2 "Containers:"
+```
+
+**Common causes:**
+
+#### 1. Metrics Not Enabled
+
+```bash
+# Check if metrics are enabled
+kubectl get mcpserver <name> -o jsonpath='{.spec.metrics.enabled}'
+# Should return "true"
+```
+
+**Solution:**
+
+```yaml
+spec:
+  metrics:
+    enabled: true  # Must be explicitly set to true
+```
+
+#### 2. Pod Created Before Metrics Were Enabled
+
+If you enabled metrics on an existing MCPServer, the pods need to be recreated.
+
+**Solution:**
+
+```bash
+# Trigger a rollout to recreate pods
+kubectl rollout restart deployment -l app.kubernetes.io/instance=<mcpserver-name>
+```
+
+#### 3. Operator Version Mismatch
+
+Older operator versions may not support the metrics sidecar.
+
+**Solution:**
+
+```bash
+# Check operator version
+kubectl get deployment -n mcp-operator-system mcp-operator-controller-manager \
+  -o jsonpath='{.spec.template.spec.containers[0].image}'
+
+# Upgrade operator if needed
+kubectl apply -f https://github.com/vitorbari/mcp-operator/releases/latest/download/install.yaml
+```
+
+### Metrics Endpoint Not Responding
+
+**Symptom:** Sidecar is running but `/metrics` endpoint returns errors or no data.
+
+**Test metrics endpoint:**
+
+```bash
+# Port forward to the metrics port
+kubectl port-forward svc/<mcpserver-name> 9090:9090
+
+# Test metrics endpoint
+curl http://localhost:9090/metrics
+```
+
+**Common causes:**
+
+#### 1. Wrong Metrics Port
+
+```bash
+# Check configured metrics port
+kubectl get mcpserver <name> -o jsonpath='{.spec.metrics.port}'
+# Default is 9090
+
+# Check service ports
+kubectl get svc <mcpserver-name> -o jsonpath='{.spec.ports}' | jq
+# Should have a port named "metrics"
+```
+
+**Solution:**
+
+```yaml
+spec:
+  metrics:
+    enabled: true
+    port: 9090  # Ensure this matches your scrape configuration
+```
+
+#### 2. Sidecar Not Healthy
+
+```bash
+# Check sidecar container status
+kubectl get pod <pod-name> -o jsonpath='{.status.containerStatuses[?(@.name=="mcp-proxy")].ready}'
+# Should return "true"
+
+# Check sidecar logs
+kubectl logs <pod-name> -c mcp-proxy
+```
+
+#### 3. Port Conflict
+
+The sidecar listen port may conflict with the MCP server port.
+
+```bash
+# Check for port conflicts
+kubectl get mcpserver <name> -o jsonpath='{.spec.transport.config.http.port}'
+# If this is 8080 and sidecar.port is also 8080, there's a conflict
+```
+
+**Solution:**
+
+The operator automatically handles this by using port 8081 when the MCP server uses 8080. If you've manually configured ports, ensure they don't conflict:
+
+```yaml
+spec:
+  transport:
+    config:
+      http:
+        port: 3001  # MCP server port
+  sidecar:
+    port: 8080  # Sidecar listen port (different from MCP server)
+  metrics:
+    port: 9090  # Prometheus metrics port
+```
+
+#### 4. TLS Configuration Mismatch
+
+If sidecar TLS is enabled, you need to use HTTPS to access metrics.
+
+```bash
+# Check if TLS is enabled
+kubectl get mcpserver <name> -o jsonpath='{.spec.sidecar.tls.enabled}'
+
+# If TLS is enabled, use HTTPS
+curl -k https://localhost:9090/metrics
+```
+
+### Sidecar Health Probe Failures
+
+**Symptom:** Pod is not ready or keeps restarting due to sidecar probe failures.
+
+**Check probe status:**
+
+```bash
+# Check container readiness
+kubectl describe pod <pod-name> | grep -A 10 "mcp-proxy:"
+
+# Look for probe failures in events
+kubectl get events --field-selector involvedObject.name=<pod-name> | grep -i probe
+```
+
+**Common causes:**
+
+#### 1. Startup Delay
+
+The sidecar may need time to start, especially if TLS is configured.
+
+**Solution:**
+
+The sidecar has built-in startup probes. If issues persist, check:
+
+```bash
+# Check sidecar startup logs
+kubectl logs <pod-name> -c mcp-proxy --timestamps | head -50
+```
+
+#### 2. Resource Starvation
+
+The sidecar may be resource-constrained.
+
+```bash
+# Check sidecar resource usage
+kubectl top pod <pod-name> --containers
+```
+
+**Solution:**
+
+```yaml
+spec:
+  sidecar:
+    resources:
+      requests:
+        cpu: "100m"     # Increase from default 50m
+        memory: "128Mi" # Increase from default 64Mi
+      limits:
+        cpu: "500m"     # Increase from default 200m
+        memory: "256Mi" # Increase from default 128Mi
+```
+
+#### 3. Network Issues to Upstream MCP Server
+
+The sidecar proxies to the MCP server. If the MCP server is not responding, the sidecar health may be affected.
+
+```bash
+# Check MCP server container logs
+kubectl logs <pod-name> -c mcp-server
+
+# Verify MCP server is listening
+kubectl exec <pod-name> -c mcp-server -- netstat -tlnp 2>/dev/null || \
+kubectl exec <pod-name> -c mcp-server -- ss -tlnp
+```
+
+### Diagnostic Commands Summary
+
+Here's a quick reference of commands to diagnose sidecar issues:
+
+```bash
+# 1. Check if sidecar is injected
+kubectl get pod <pod-name> -o jsonpath='{.spec.containers[*].name}'
+
+# 2. Check sidecar container status
+kubectl get pod <pod-name> -o jsonpath='{.status.containerStatuses[?(@.name=="mcp-proxy")]}'
+
+# 3. View sidecar logs
+kubectl logs <pod-name> -c mcp-proxy
+
+# 4. View sidecar logs (previous crash)
+kubectl logs <pod-name> -c mcp-proxy --previous
+
+# 5. Check sidecar resource usage
+kubectl top pod <pod-name> --containers
+
+# 6. Test metrics endpoint from inside cluster
+kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
+  curl -s http://<mcpserver-name>:9090/metrics | head -20
+
+# 7. Port forward and test locally
+kubectl port-forward svc/<mcpserver-name> 9090:9090 &
+curl http://localhost:9090/metrics | head -20
+
+# 8. Check sidecar configuration
+kubectl get mcpserver <name> -o jsonpath='{.spec.sidecar}' | jq
+
+# 9. Check metrics configuration
+kubectl get mcpserver <name> -o jsonpath='{.spec.metrics}' | jq
+
+# 10. Describe pod for probe details
+kubectl describe pod <pod-name> | grep -A 15 "mcp-proxy:"
+```
+
+### Collecting Sidecar Diagnostics
+
+Use this script to collect comprehensive sidecar diagnostics:
+
+```bash
+#!/bin/bash
+MCPSERVER_NAME="${1:-my-mcp-server}"
+OUTPUT_DIR="sidecar-diagnostics-$(date +%Y%m%d-%H%M%S)"
+mkdir -p $OUTPUT_DIR
+
+POD_NAME=$(kubectl get pods -l app.kubernetes.io/instance=$MCPSERVER_NAME \
+  -o jsonpath='{.items[0].metadata.name}')
+
+echo "Collecting diagnostics for $MCPSERVER_NAME (pod: $POD_NAME)..."
+
+# MCPServer spec
+kubectl get mcpserver $MCPSERVER_NAME -o yaml > $OUTPUT_DIR/mcpserver.yaml
+
+# Pod details
+kubectl describe pod $POD_NAME > $OUTPUT_DIR/pod-describe.txt
+
+# Container logs
+kubectl logs $POD_NAME -c mcp-proxy > $OUTPUT_DIR/sidecar-logs.txt 2>&1
+kubectl logs $POD_NAME -c mcp-proxy --previous > $OUTPUT_DIR/sidecar-logs-previous.txt 2>&1 || true
+kubectl logs $POD_NAME -c mcp-server > $OUTPUT_DIR/server-logs.txt 2>&1
+
+# Service details
+kubectl get svc $MCPSERVER_NAME -o yaml > $OUTPUT_DIR/service.yaml
+
+# Events
+kubectl get events --field-selector involvedObject.name=$POD_NAME > $OUTPUT_DIR/pod-events.txt
+
+# Resource usage
+kubectl top pod $POD_NAME --containers > $OUTPUT_DIR/resource-usage.txt 2>&1 || true
+
+echo "Diagnostics collected in $OUTPUT_DIR/"
+ls -la $OUTPUT_DIR/
+```
+
+## SSE Connection Issues
+
+Server-Sent Events (SSE) is a transport protocol used by MCP servers for real-time communication. SSE connections are long-lived, which requires special handling during deployments and scaling operations.
+
+### SSE Connections Dropping During Rollout
+
+**Symptom:** Active SSE connections are terminated during deployment updates, causing client reconnections and potential data loss.
+
+**Why this happens:**
+
+During a rolling update, Kubernetes terminates old pods while starting new ones. Without proper configuration, SSE connections are abruptly closed.
+
+**Check current deployment strategy:**
+
+```bash
+# Check rolling update strategy
+kubectl get deployment <mcpserver-name> -o jsonpath='{.spec.strategy}' | jq
+
+# Expected for SSE: maxUnavailable should be 0
+```
+
+**Verify SSE configuration is applied:**
+
+```bash
+# Check if SSE config was detected/applied
+kubectl get mcpserver <name> -o jsonpath='{.status.resolvedTransport}' | jq
+
+# Check deployment rolling update strategy
+kubectl get deployment <mcpserver-name> -o jsonpath='{.spec.strategy.rollingUpdate}'
+```
+
+**Solutions:**
+
+#### 1. Ensure SSE Protocol is Configured
+
+```yaml
+spec:
+  transport:
+    protocol: sse  # Explicit SSE
+    # or
+    protocol: auto  # Auto-detect (will apply SSE config if detected)
+```
+
+#### 2. Configure Termination Grace Period
+
+Allow time for existing connections to complete:
+
+```yaml
+spec:
+  transport:
+    config:
+      http:
+        sse:
+          terminationGracePeriodSeconds: 120  # Give connections 2 minutes to complete
+```
+
+#### 3. Verify maxUnavailable=0 Strategy
+
+When SSE is detected, the operator sets `maxUnavailable: 0` to ensure no pods are terminated until new ones are ready:
+
+```bash
+# Verify the deployment strategy
+kubectl get deployment <mcpserver-name> -o yaml | grep -A 5 "strategy:"
+```
+
+**Expected output:**
+
+```yaml
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 25%
+    maxUnavailable: 0
+```
+
+### Session Affinity Not Working
+
+**Symptom:** SSE clients reconnect to different backend pods, losing session state.
+
+**Verify session affinity configuration:**
+
+```bash
+# Check MCPServer spec
+kubectl get mcpserver <name> -o jsonpath='{.spec.transport.config.http.sse.enableSessionAffinity}'
+# Should return "true" if enabled
+
+# Check Service session affinity
+kubectl get svc <mcpserver-name> -o jsonpath='{.spec.sessionAffinity}'
+# Should return "ClientIP" if enabled
+```
+
+**Common causes:**
+
+#### 1. Session Affinity Not Enabled
+
+Session affinity is **not enabled by default** to avoid implicit behavior changes.
+
+**Solution:**
+
+```yaml
+spec:
+  transport:
+    protocol: sse
+    config:
+      http:
+        sse:
+          enableSessionAffinity: true  # Must be explicitly enabled
+```
+
+#### 2. Load Balancer Overriding Session Affinity
+
+External load balancers may not respect Kubernetes session affinity.
+
+**Solution:**
+
+Configure your load balancer for sticky sessions:
+
+```yaml
+spec:
+  service:
+    annotations:
+      # AWS ALB
+      alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=3600
+      # GCP
+      cloud.google.com/backend-config: '{"default": "sse-backend-config"}'
+      # Azure
+      service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout: "30"
+```
+
+#### 3. Session Affinity Timeout
+
+Session affinity may expire if clients don't reconnect within the timeout.
+
+**Check and adjust:**
+
+```bash
+# Check session affinity config
+kubectl get svc <mcpserver-name> -o jsonpath='{.spec.sessionAffinityConfig}'
+```
+
+**Note:** The default session sticky time is 10800 seconds (3 hours). For shorter sessions, consider using application-level session management.
+
+### Protocol Auto-Detection Failing
+
+**Symptom:** The operator doesn't correctly detect the MCP protocol (SSE vs Streamable HTTP).
+
+**Check detection results:**
+
+```bash
+# Check validation status for detected protocol
+kubectl get mcpserver <name> -o jsonpath='{.status.validation.protocol}'
+
+# Check resolved transport
+kubectl get mcpserver <name> -o jsonpath='{.status.resolvedTransport}' | jq
+```
+
+**Common causes:**
+
+#### 1. Server Not Ready During Validation
+
+Auto-detection happens during validation. If the server isn't ready, detection fails.
+
+```bash
+# Check validation state
+kubectl get mcpserver <name> -o jsonpath='{.status.validation.state}'
+
+# Check validation issues
+kubectl get mcpserver <name> -o jsonpath='{.status.validation.issues}' | jq
+```
+
+**Solution:** Wait for server to be fully ready and trigger re-validation:
+
+```bash
+# Force re-validation by updating the MCPServer
+kubectl patch mcpserver <name> --type='json' \
+  -p='[{"op": "add", "path": "/metadata/annotations/revalidate", "value":"'$(date +%s)'"}]'
+```
+
+#### 2. Wrong Path Configuration
+
+The operator probes specific paths for protocol detection:
+- `/mcp` for Streamable HTTP
+- `/sse` for SSE
+
+```bash
+# Check configured path
+kubectl get mcpserver <name> -o jsonpath='{.spec.transport.config.http.path}'
+```
+
+**Solution:**
+
+```yaml
+spec:
+  transport:
+    protocol: auto
+    config:
+      http:
+        path: "/sse"  # Or "/mcp" - match your server's actual endpoint
+```
+
+#### 3. Explicit Protocol Override
+
+If auto-detection consistently fails, set the protocol explicitly:
+
+```yaml
+spec:
+  transport:
+    protocol: sse  # Skip auto-detection
+```
+
+### Understanding status.resolvedTransport
+
+The `status.resolvedTransport` field tracks the resolved transport configuration after auto-detection. Use it for debugging SSE issues.
+
+**View resolved transport:**
+
+```bash
+kubectl get mcpserver <name> -o jsonpath='{.status.resolvedTransport}' | jq
+```
+
+**Example output:**
+
+```json
+{
+  "protocol": "sse",
+  "sseConfigApplied": true,
+  "resolvedGeneration": 2,
+  "lastResolvedTime": "2025-12-03T10:00:00Z"
+}
+```
+
+**Field meanings:**
+
+| Field | Description |
+|-------|-------------|
+| `protocol` | Detected/resolved protocol: `"sse"` or `"streamable-http"` |
+| `sseConfigApplied` | Whether SSE-specific Deployment/Service config was applied |
+| `resolvedGeneration` | MCPServer generation when transport was resolved |
+| `lastResolvedTime` | Timestamp of last resolution |
+
+**Debugging with resolvedTransport:**
+
+1. **Protocol mismatch:** If `protocol` doesn't match expected, check validation issues
+2. **sseConfigApplied is false:** SSE config wasn't applied - check if protocol was detected as SSE
+3. **resolvedGeneration mismatch:** Transport needs re-resolution after spec change
+
+**Force transport re-resolution:**
+
+```bash
+# Update the MCPServer spec to trigger re-resolution
+kubectl edit mcpserver <name>
+# Make any change (e.g., add annotation) and save
+```
+
+### SSE Diagnostic Commands Summary
+
+```bash
+# 1. Check if SSE protocol is detected
+kubectl get mcpserver <name> -o jsonpath='{.status.validation.protocol}'
+
+# 2. Check resolved transport status
+kubectl get mcpserver <name> -o jsonpath='{.status.resolvedTransport}' | jq
+
+# 3. Check deployment rolling update strategy
+kubectl get deployment <mcpserver-name> -o jsonpath='{.spec.strategy}' | jq
+
+# 4. Check service session affinity
+kubectl get svc <mcpserver-name> -o jsonpath='{.spec.sessionAffinity}'
+
+# 5. Check termination grace period
+kubectl get deployment <mcpserver-name> -o jsonpath='{.spec.template.spec.terminationGracePeriodSeconds}'
+
+# 6. Check SSE configuration in spec
+kubectl get mcpserver <name> -o jsonpath='{.spec.transport.config.http.sse}' | jq
+
+# 7. Test SSE endpoint connectivity
+kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
+  curl -N -H "Accept: text/event-stream" http://<mcpserver-name>:8080/sse
+
+# 8. Watch for SSE events (with timeout)
+kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
+  curl -N -m 10 -H "Accept: text/event-stream" http://<mcpserver-name>:8080/sse
 ```
 
 ## Debug Mode
