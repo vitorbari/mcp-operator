@@ -2264,6 +2264,154 @@ spec:
 			})
 		})
 
+		Context("Resilience and Concurrency Tests", func() {
+			It("should handle concurrent MCPServer spec changes during validation", func() {
+				mcpServerName := "test-concurrent-spec-changes"
+				mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "sse"]
+  replicas: 1
+  transport:
+    type: http
+    protocol: auto
+    config:
+      http:
+        port: 3001
+        path: "/sse"
+        sessionManagement: true
+  validation:
+    enabled: true
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+`, mcpServerName, testNamespace)
+
+				By("creating MCPServer")
+				err := applyMCPServerYAML(mcpServerYAML)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("waiting for deployment to be created")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
+						"-n", testNamespace, "-o", "jsonpath={.metadata.name}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(output).To(Equal(mcpServerName))
+				}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+				By("immediately updating spec while validation is ongoing (change replicas)")
+				updatedYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "sse"]
+  replicas: 2
+  transport:
+    type: http
+    protocol: auto
+    config:
+      http:
+        port: 3001
+        path: "/sse"
+        sessionManagement: true
+  validation:
+    enabled: true
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+`, mcpServerName, testNamespace)
+
+				err = applyMCPServerYAML(updatedYAML)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("waiting for server to become Running with updated replica count")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+						"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(output).To(Equal("Running"))
+				}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("verifying final deployment has 2 replicas (last spec version)")
+				cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
+					"-n", testNamespace, "-o", "jsonpath={.spec.replicas}")
+				output, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).To(Equal("2"), "Deployment should have 2 replicas from final spec")
+
+				By("verifying MCPServer status reflects 2 replicas")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+						"-n", testNamespace, "-o", "jsonpath={.spec.replicas}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(output).To(Equal("2"))
+				}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+				By("verifying no orphaned deployments exist")
+				cmd = exec.Command("kubectl", "get", "deployments",
+					"-n", testNamespace, "-o", "jsonpath={.items[*].metadata.name}")
+				output, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				// Should only contain our one deployment, not multiple versions
+				deployments := output
+				Expect(deployments).To(ContainSubstring(mcpServerName))
+				// Count occurrences - there should be exactly one
+				cmd = exec.Command("kubectl", "get", "deployments",
+					"-n", testNamespace, "--selector=app="+mcpServerName,
+					"-o", "jsonpath={.items[*].metadata.name}")
+				output, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).To(Equal(mcpServerName), "Should have exactly one deployment, no orphans")
+
+				By("verifying pods are ready with correct replica count")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "pods",
+						"-n", testNamespace, "--selector=app="+mcpServerName,
+						"-o", "jsonpath={.items[?(@.status.phase=='Running')].metadata.name}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					// Should have 2 running pods
+					pods := output
+					g.Expect(pods).NotTo(BeEmpty(), "Should have running pods")
+				}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("cleaning up")
+				cmd = exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
+					"-n", testNamespace, "--timeout=120s")
+				_, _ = utils.Run(cmd)
+			})
+		})
+
 		Context("SSE-Aware Reconciliation", func() {
 			It("should apply SSE-specific deployment settings when protocol is explicitly SSE", func() {
 				mcpServerName := "test-sse-explicit-config"
