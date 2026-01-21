@@ -733,7 +733,7 @@ kubectl patch mcpserver my-mcp-server --type='json' \
 ## See Also
 
 - [API Reference](api-reference.md) - Complete field documentation
-- [Configuration Guide](configuration-guide.md) - Configuration patterns and examples
-- [Troubleshooting Guide](troubleshooting.md) - Common issues and solutions
+- [Configuration Guide](configuration.md) - Configuration patterns and examples
+- [Troubleshooting Guide](operations/troubleshooting.md) - Common issues and solutions
 - [Kubernetes ConfigMaps](https://kubernetes.io/docs/concepts/configuration/configmap/)
 - [Kubernetes Secrets](https://kubernetes.io/docs/concepts/configuration/secret/)

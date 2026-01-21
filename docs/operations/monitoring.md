@@ -611,8 +611,8 @@ rules:
 
 ## See Also
 
-- [Configuration Guide](configuration-guide.md) - Configure your MCP servers
+- [Configuration Guide](../configuration.md) - Configure your MCP servers
 - [Troubleshooting Guide](troubleshooting.md) - Common issues and solutions
-- [API Reference](api-reference.md) - Complete CRD documentation
+- [API Reference](../api-reference.md) - Complete CRD documentation
 - [Prometheus Operator Documentation](https://prometheus-operator.dev/)
 - [Grafana Documentation](https://grafana.com/docs/)

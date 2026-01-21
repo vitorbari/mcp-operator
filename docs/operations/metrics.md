@@ -372,7 +372,7 @@ groups:
 
 ## Advanced Configuration
 
-For custom metrics port, resource limits, or TLS termination, see the [Sidecar Architecture Guide](sidecar-architecture.md).
+For custom metrics port, resource limits, or TLS termination, see the [Sidecar Architecture Guide](../advanced/sidecar-architecture.md).
 
 ```yaml
 spec:
@@ -419,6 +419,6 @@ If you see cardinality warnings from Prometheus, consider:
 
 ## Next Steps
 
-- [Sidecar Architecture](sidecar-architecture.md) - Deep dive into how the sidecar works
+- [Sidecar Architecture](../advanced/sidecar-architecture.md) - Deep dive into how the sidecar works
 - [Monitoring Guide](monitoring.md) - Operator-level metrics and dashboards
-- [Configuration Guide](configuration-guide.md) - All MCPServer options
+- [Configuration Guide](../configuration.md) - All MCPServer options

@@ -1548,8 +1548,8 @@ When opening an issue, include:
 
 ## See Also
 
-- [Configuration Guide](configuration-guide.md) - Configuration patterns
-- [Environment Variables Guide](environment-variables.md) - Environment variable configuration
+- [Configuration Guide](../configuration.md) - Configuration patterns
+- [Environment Variables Guide](../environment-variables.md) - Environment variable configuration
 - [Monitoring Guide](monitoring.md) - Metrics and alerting
-- [Validation Behavior](validation-behavior.md) - Protocol validation details
-- [API Reference](api-reference.md) - Complete field documentation
+- [Validation Behavior](../advanced/validation-behavior.md) - Protocol validation details
+- [API Reference](../api-reference.md) - Complete field documentation
