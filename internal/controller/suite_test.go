@@ -18,6 +18,9 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,11 +44,12 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
-	ctx       context.Context
-	cancel    context.CancelFunc
-	testEnv   *envtest.Environment
-	cfg       *rest.Config
-	k8sClient client.Client
+	ctx        context.Context
+	cancel     context.CancelFunc
+	testEnv    *envtest.Environment
+	cfg        *rest.Config
+	k8sClient  client.Client
+	tempCRDDir string
 )
 
 func TestControllers(t *testing.T) {
@@ -68,12 +72,20 @@ var _ = BeforeSuite(func() {
 
 	// +kubebuilder:scaffold:scheme
 
+	By("downloading ServiceMonitor CRD from upstream")
+	tempCRDDir, err = downloadServiceMonitorCRD()
+	Expect(err).NotTo(HaveOccurred())
+
 	By("bootstrapping test environment")
+	crdPaths := []string{
+		filepath.Join("..", "..", "config", "crd", "bases"),
+	}
+	if tempCRDDir != "" {
+		crdPaths = append(crdPaths, tempCRDDir)
+	}
+
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths: []string{
-			filepath.Join("..", "..", "config", "crd", "bases"),
-			filepath.Join("..", "..", "config", "crd", "test"),
-		},
+		CRDDirectoryPaths:     crdPaths,
 		ErrorIfCRDPathMissing: false, // Some test CRDs are optional
 	}
 
@@ -97,6 +109,11 @@ var _ = AfterSuite(func() {
 	cancel()
 	err := testEnv.Stop()
 	Expect(err).NotTo(HaveOccurred())
+
+	if tempCRDDir != "" {
+		By("cleaning up temporary CRD directory")
+		_ = os.RemoveAll(tempCRDDir)
+	}
 })
 
 // getFirstFoundEnvTestBinaryDir locates the first binary in the specified path.
@@ -120,4 +137,47 @@ func getFirstFoundEnvTestBinaryDir() string {
 		}
 	}
 	return ""
+}
+
+// downloadServiceMonitorCRD downloads the ServiceMonitor CRD from the upstream
+// Prometheus Operator repository and saves it to a temporary directory.
+// Returns the path to the temporary directory containing the CRD file.
+func downloadServiceMonitorCRD() (string, error) {
+	const crdURL = "https://raw.githubusercontent.com/prometheus-community/helm-charts/refs/heads/main/charts/kube-prometheus-stack/charts/crds/crds/crd-servicemonitors.yaml"
+
+	// Create temporary directory
+	tempDir, err := os.MkdirTemp("", "servicemonitor-crd-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp directory: %w", err)
+	}
+
+	// Download the CRD
+	resp, err := http.Get(crdURL)
+	if err != nil {
+		os.RemoveAll(tempDir)
+		return "", fmt.Errorf("failed to download ServiceMonitor CRD: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		os.RemoveAll(tempDir)
+		return "", fmt.Errorf("failed to download ServiceMonitor CRD: HTTP %d", resp.StatusCode)
+	}
+
+	// Save to temp directory
+	crdPath := filepath.Join(tempDir, "monitoring.coreos.com_servicemonitors.yaml")
+	out, err := os.Create(crdPath)
+	if err != nil {
+		os.RemoveAll(tempDir)
+		return "", fmt.Errorf("failed to create CRD file: %w", err)
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		os.RemoveAll(tempDir)
+		return "", fmt.Errorf("failed to save CRD file: %w", err)
+	}
+
+	return tempDir, nil
 }
