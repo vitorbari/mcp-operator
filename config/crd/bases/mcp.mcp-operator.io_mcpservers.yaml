@@ -8,9 +8,14 @@ metadata:
 spec:
   group: mcp.mcp-operator.io
   names:
+    categories:
+    - mcp-operator
     kind: MCPServer
     listKind: MCPServerList
     plural: mcpservers
+    shortNames:
+    - mcp
+    - mcps
     singular: mcpserver
   scope: Namespaced
   versions:
