@@ -2410,6 +2410,127 @@ spec:
 					"-n", testNamespace, "--timeout=120s")
 				_, _ = utils.Run(cmd)
 			})
+
+			It("should recover from pod crash during reconciliation", func() {
+				mcpServerName := "test-pod-crash-recovery"
+				mcpServerYAML := fmt.Sprintf(`
+apiVersion: mcp.mcp-operator.io/v1
+kind: MCPServer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  image: tzolov/mcp-everything-server:v3
+  command: ["node", "dist/index.js", "sse"]
+  replicas: 2
+  transport:
+    type: http
+    protocol: auto
+    config:
+      http:
+        port: 3001
+        path: "/sse"
+        sessionManagement: true
+  validation:
+    enabled: true
+  security:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+`, mcpServerName, testNamespace)
+
+				By("creating MCPServer with 2 replicas")
+				err := applyMCPServerYAML(mcpServerYAML)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("waiting for deployment to be created")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
+						"-n", testNamespace, "-o", "jsonpath={.metadata.name}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(output).To(Equal(mcpServerName))
+				}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+				By("waiting for at least one pod to be running")
+				var firstPodName string
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "pods",
+						"-n", testNamespace, "--selector=app="+mcpServerName,
+						"-o", "jsonpath={.items[0].metadata.name}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(output).NotTo(BeEmpty(), "Should have at least one pod")
+					firstPodName = output
+				}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+				By(fmt.Sprintf("deleting pod %s to simulate crash during reconciliation", firstPodName))
+				cmd := exec.Command("kubectl", "delete", "pod", firstPodName,
+					"-n", testNamespace, "--grace-period=0", "--force")
+				_, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("verifying operator recovers by creating a replacement pod")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "pods",
+						"-n", testNamespace, "--selector=app="+mcpServerName,
+						"-o", "jsonpath={.items[?(@.status.phase=='Running')].metadata.name}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					// Should have running pods (at least 1, ideally 2)
+					pods := output
+					g.Expect(pods).NotTo(BeEmpty(), "Should have running pods after recovery")
+				}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("verifying MCPServer reaches Running phase after recovery")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+						"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(output).To(Equal("Running"), "MCPServer should be Running after pod recovery")
+				}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("verifying deployment still has correct replica count")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
+						"-n", testNamespace, "-o", "jsonpath={.spec.replicas}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(output).To(Equal("2"), "Deployment should still have 2 replicas")
+				}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+				By("verifying all replicas become ready after recovery")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "deployment", mcpServerName,
+						"-n", testNamespace, "-o", "jsonpath={.status.readyReplicas}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(output).To(Equal("2"), "Should have 2 ready replicas after recovery")
+				}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("verifying MCPServer status shows correct replica counts")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "mcpserver", mcpServerName,
+						"-n", testNamespace, "-o", "json")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(output).To(ContainSubstring(`"readyReplicas":2`), "Status should show 2 ready replicas")
+				}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+				By("cleaning up")
+				cmd = exec.Command("kubectl", "delete", "mcpserver", mcpServerName,
+					"-n", testNamespace, "--timeout=120s")
+				_, _ = utils.Run(cmd)
+			})
 		})
 
 		Context("SSE-Aware Reconciliation", func() {
