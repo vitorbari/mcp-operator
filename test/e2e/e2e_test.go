@@ -2523,7 +2523,8 @@ spec:
 						"-n", testNamespace, "-o", "json")
 					output, err := utils.Run(cmd)
 					g.Expect(err).NotTo(HaveOccurred())
-					g.Expect(output).To(ContainSubstring(`"readyReplicas":2`), "Status should show 2 ready replicas")
+					// Check for availableReplicas which is reliably updated
+					g.Expect(output).To(ContainSubstring(`"availableReplicas": 2`), "Status should show 2 available replicas")
 				}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
 				By("cleaning up")
