@@ -33,7 +33,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Docker metadata
         id: meta
@@ -92,7 +92,7 @@ jobs:
 
       - name: Login to GHCR for Helm
         run: |
-          echo "${{ secrets.GHCR_TOKEN }}" | helm registry login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
 
       - name: Push Helm chart to GHCR
         run: |
@@ -110,7 +110,7 @@ jobs:
       - name: Push ArtifactHub metadata to GHCR
         run: |
           # Login to GHCR for ORAS
-          echo "${{ secrets.GHCR_TOKEN }}" | oras login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
 
           # Push metadata file with special tag for ArtifactHub verification
           oras push ${{ env.REGISTRY }}/${{ github.repository_owner }}/mcp-operator:artifacthub.io \
