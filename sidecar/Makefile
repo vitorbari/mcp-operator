@@ -3,6 +3,9 @@
 # Image URL to use for building/pushing the sidecar image
 IMG ?= ghcr.io/vitorbari/mcp-proxy:latest
 
+# Version to embed in the binary (set via ldflags)
+VERSION ?= dev
+
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -57,7 +60,7 @@ test-coverage: ## Run tests with coverage.
 
 .PHONY: build
 build: fmt vet ## Build the mcp-proxy binary.
-	go build -o bin/mcp-proxy ./cmd/mcp-proxy
+	go build -ldflags="-X main.Version=$(VERSION)" -o bin/mcp-proxy ./cmd/mcp-proxy
 
 .PHONY: run
 run: fmt vet ## Run the mcp-proxy from source.
@@ -72,7 +75,7 @@ clean: ## Clean build artifacts.
 
 .PHONY: docker-build
 docker-build: ## Build docker image.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+	$(CONTAINER_TOOL) build --build-arg VERSION=$(VERSION) -t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image.
@@ -81,11 +84,11 @@ docker-push: ## Push docker image.
 .PHONY: docker-buildx
 docker-buildx: ## Build and push docker image for cross-platform support.
 	- $(CONTAINER_TOOL) buildx create --use
-	$(CONTAINER_TOOL) buildx build --push --platform linux/amd64,linux/arm64 --tag ${IMG} .
+	$(CONTAINER_TOOL) buildx build --build-arg VERSION=$(VERSION) --push --platform linux/amd64,linux/arm64 --tag ${IMG} .
 
 # PLATFORMS defines the target platforms for the sidecar image.
 PLATFORMS ?= linux/arm64,linux/amd64
 .PHONY: docker-buildx-local
 docker-buildx-local: ## Build docker image for cross-platform support (local only, no push).
 	- $(CONTAINER_TOOL) buildx create --use
-	$(CONTAINER_TOOL) buildx build --platform $(PLATFORMS) --tag ${IMG} .
+	$(CONTAINER_TOOL) buildx build --build-arg VERSION=$(VERSION) --platform $(PLATFORMS) --tag ${IMG} .
