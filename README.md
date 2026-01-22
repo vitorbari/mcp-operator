@@ -166,7 +166,7 @@ spec:
     strictMode: true
 ```
 
-For detailed validation behavior, see the [Validation Behavior Guide](docs/validation-behavior.md).
+For detailed validation behavior, see the [Validation Behavior Guide](docs/advanced/validation-behavior.md).
 
 ## Monitoring
 
@@ -260,22 +260,22 @@ Auto-detection works by trying to connect with each protocol. If you know which 
 - [Installation Guide](docs/installation.md) - Detailed installation options
 
 ### Configuration
-- [Configuration Guide](docs/configuration-guide.md) - Complete configuration patterns and examples
+- [Configuration Guide](docs/configuration.md) - Complete configuration patterns and examples
 - [Environment Variables](docs/environment-variables.md) - Configuring environment variables
 - [Configuration Examples](config/samples/) - Real-world YAML examples
 
 ### Reference
 - [API Reference](docs/api-reference.md) - Complete CRD field documentation
-- [Validation Behavior](docs/validation-behavior.md) - Protocol validation deep dive
+- [Validation Behavior](docs/advanced/validation-behavior.md) - Protocol validation deep dive
 
 ### Operations
-- [Troubleshooting Guide](docs/troubleshooting.md) - Common issues and solutions
-- [Monitoring Guide](docs/monitoring.md) - Operator metrics, dashboards, and alerts
-- [MCP Server Metrics](docs/metrics.md) - Per-server metrics with the sidecar proxy
-- [Sidecar Architecture](docs/sidecar-architecture.md) - Technical deep-dive into the metrics sidecar
+- [Troubleshooting Guide](docs/operations/troubleshooting.md) - Common issues and solutions
+- [Monitoring Guide](docs/operations/monitoring.md) - Operator metrics, dashboards, and alerts
+- [MCP Server Metrics](docs/operations/metrics.md) - Per-server metrics with the sidecar proxy
+- [Sidecar Architecture](docs/advanced/sidecar-architecture.md) - Technical deep-dive into the metrics sidecar
 
 ### Advanced Topics
-- [Release Process](docs/release-process.md) - For maintainers
+- [Release Process](docs/development/release-process.md) - For maintainers
 - [Contributing](CONTRIBUTING.md) - Development and contribution guidelines
 
 
@@ -283,11 +283,15 @@ Auto-detection works by trying to connect with each protocol. If you know which 
 
 Check out the `config/samples/` directory for real-world examples:
 
-- **`wikipedia-http.yaml`** - Simple example using the Wikipedia MCP server
-- **`mcp-basic-example.yaml`** - Production setup with HPA and monitoring
-- **`mcp-complete-example.yaml`** - Shows all available configuration options
-- **`mcp_v1_mcpserver_metrics.yaml`** - Simple metrics sidecar example
-- **`mcp_v1_mcpserver_metrics_advanced.yaml`** - Advanced sidecar configuration
+| # | Sample | Transport | Metrics | Use Case |
+|---|--------|-----------|---------|----------|
+| 01 | [wikipedia-sse](01-wikipedia-sse.yaml) | SSE | No | Minimal example using Wikipedia MCP |
+| 02 | [streamable-http-basic](02-streamable-http-basic.yaml) | Streamable HTTP | No | Modern transport, production-ready |
+| 03 | [sse-optimized](03-sse-optimized.yaml) | SSE | No | SSE with session affinity |
+| 04 | [metrics-basic](04-metrics-basic.yaml) | Streamable HTTP | Yes | Basic metrics collection |
+| 05 | [metrics-advanced](05-metrics-advanced.yaml) | Streamable HTTP | Yes | Custom sidecar configuration |
+| 06 | [metrics-sse](06-metrics-sse.yaml) | SSE | Yes | SSE with metrics |
+| 10 | [complete-reference](10-complete-reference.yaml) | Auto | Yes | All available options |
 
 Apply all samples:
 
