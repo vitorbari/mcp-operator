@@ -414,7 +414,7 @@ type MCPServerHPAPolicy struct {
 // Sidecar defaults
 const (
 	// DefaultSidecarImage is the default image for the metrics sidecar
-	DefaultSidecarImage = "ghcr.io/vitorbari/mcp-proxy:0.1.0-rc3"
+	DefaultSidecarImage = "ghcr.io/vitorbari/mcp-proxy:0.1.0-rc4"
 	// DefaultMetricsPort is the default port for Prometheus metrics
 	DefaultMetricsPort = int32(9090)
 	// DefaultSidecarPort is the default port the sidecar listens on
