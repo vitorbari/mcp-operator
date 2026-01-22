@@ -14,9 +14,14 @@ metadata:
 spec:
   group: mcp.mcp-operator.io
   names:
+    categories:
+    - mcp-operator
     kind: MCPServer
     listKind: MCPServerList
     plural: mcpservers
+    shortNames:
+    - mcp
+    - mcps
     singular: mcpserver
   scope: Namespaced
   versions:
@@ -342,6 +347,27 @@ spec:
                 description: Image specifies the container image for the MCP server
                 pattern: ^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[a-zA-Z0-9][a-zA-Z0-9._-]*)?$
                 type: string
+              metrics:
+                description: |-
+                  Metrics enables MCP-aware Prometheus metrics collection via sidecar proxy.
+                  When enabled, a metrics sidecar proxy is injected to collect MCP-specific metrics.
+                properties:
+                  enabled:
+                    description: |-
+                      Enabled enables metrics collection via sidecar proxy.
+                      When true, a sidecar container is injected that proxies traffic
+                      and collects MCP-specific Prometheus metrics.
+                    type: boolean
+                  port:
+                    default: 9090
+                    description: Port for Prometheus metrics endpoint.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                required:
+                - enabled
+                type: object
               podTemplate:
                 description: PodTemplate defines additional pod template specifications
                 properties:
@@ -3338,6 +3364,113 @@ spec:
                     - LoadBalancer
                     type: string
                 type: object
+              sidecar:
+                description: |-
+                  Sidecar allows advanced customization of the metrics sidecar proxy.
+                  Only applicable when metrics.enabled is true.
+                properties:
+                  image:
+                    description: |-
+                      Image overrides the default sidecar image.
+                      Default: ghcr.io/vitorbari/mcp-proxy:latest
+                    type: string
+                  port:
+                    description: |-
+                      Port specifies the port the sidecar listens on for incoming MCP traffic.
+                      When not specified, defaults to 8080 unless the MCP server is also configured
+                      to use port 8080, in which case it defaults to 8081 to avoid conflicts.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                  resources:
+                    description: |-
+                      Resources for the sidecar container.
+                      Default: requests: 50m CPU, 64Mi memory; limits: 200m CPU, 128Mi memory
+                    properties:
+                      claims:
+                        description: |-
+                          Claims lists the names of resources, defined in spec.resourceClaims,
+                          that are used by this container.
+
+                          This is an alpha field and requires enabling the
+                          DynamicResourceAllocation feature gate.
+
+                          This field is immutable. It can only be set for containers.
+                        items:
+                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                          properties:
+                            name:
+                              description: |-
+                                Name must match the name of one entry in pod.spec.resourceClaims of
+                                the Pod where this field is used. It makes that resource available
+                                inside a container.
+                              type: string
+                            request:
+                              description: |-
+                                Request is the name chosen for a request in the referenced claim.
+                                If empty, everything from the claim is made available, otherwise
+                                only the result of this request.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      limits:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Limits describes the maximum amount of compute resources allowed.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                      requests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Requests describes the minimum amount of compute resources required.
+                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                    type: object
+                  tls:
+                    description: |-
+                      TLS configures TLS termination at the sidecar.
+                      When enabled, the sidecar accepts HTTPS and forwards HTTP to the MCP server.
+                    properties:
+                      enabled:
+                        description: Enabled enables TLS termination at the sidecar.
+                        type: boolean
+                      minVersion:
+                        default: "1.2"
+                        description: |-
+                          MinVersion specifies the minimum TLS version.
+                          Valid values: "1.2", "1.3"
+                        enum:
+                        - "1.2"
+                        - "1.3"
+                        type: string
+                      secretName:
+                        description: |-
+                          SecretName is the name of the Kubernetes Secret containing tls.crt and tls.key.
+                          The secret must be in the same namespace as the MCPServer.
+                        type: string
+                    required:
+                    - enabled
+                    - secretName
+                    type: object
+                type: object
               transport:
                 description: Transport defines the MCP transport configuration
                 properties:
@@ -3366,6 +3499,44 @@ spec:
                             description: SessionManagement enables session management
                               for the HTTP transport
                             type: boolean
+                          sse:
+                            description: |-
+                              SSE contains SSE-specific configuration settings.
+                              These settings are applied when transport.protocol is "sse" (explicit)
+                              or when SSE is auto-detected and protocol is "auto".
+                            properties:
+                              enableSessionAffinity:
+                                default: false
+                                description: |-
+                                  EnableSessionAffinity enables ClientIP session affinity on the Service.
+                                  This helps maintain SSE connections to the same backend pod.
+
+                                  Important: Session affinity is NOT enabled by default in auto-detect mode
+                                  to avoid implicit behavior changes. Set this to true to explicitly enable it.
+
+                                  When transport.protocol is explicitly set to "sse", you may want to enable this.
+                                type: boolean
+                              maxSurge:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                default: 25%
+                                description: |-
+                                  MaxSurge specifies the maximum number of pods that can be created over the
+                                  desired number of pods during rolling updates. This allows controlled surge
+                                  during SSE deployments.
+                                x-kubernetes-int-or-string: true
+                              terminationGracePeriodSeconds:
+                                default: 60
+                                description: |-
+                                  TerminationGracePeriodSeconds defines the duration in seconds the pod needs
+                                  to terminate gracefully when receiving SIGTERM. For SSE, longer values allow
+                                  existing connections to complete gracefully.
+                                format: int64
+                                maximum: 3600
+                                minimum: 1
+                                type: integer
+                            type: object
                         type: object
                     type: object
                   protocol:
@@ -3525,6 +3696,39 @@ spec:
                 description: Replicas represents the current number of running replicas
                 format: int32
                 type: integer
+              resolvedTransport:
+                description: |-
+                  ResolvedTransport contains the resolved transport configuration after auto-detection.
+                  This is used to prevent flapping when transport.protocol is "auto".
+                  Once a protocol is detected and SSE-specific configuration is applied,
+                  the resolved transport is locked until spec changes or operator restart.
+                properties:
+                  lastResolvedTime:
+                    description: LastResolvedTime is the timestamp when the transport
+                      was last resolved.
+                    format: date-time
+                    type: string
+                  protocol:
+                    description: |-
+                      Protocol is the resolved MCP protocol variant.
+                      Valid values: "streamable-http", "sse"
+                    enum:
+                    - auto
+                    - streamable-http
+                    - sse
+                    type: string
+                  resolvedGeneration:
+                    description: |-
+                      ResolvedGeneration is the MCPServer generation when the transport was resolved.
+                      Transport resolution is re-evaluated when this doesn't match the current generation.
+                    format: int64
+                    type: integer
+                  sseConfigApplied:
+                    description: |-
+                      SSEConfigApplied indicates whether SSE-specific configuration has been
+                      applied to the Deployment and Service resources.
+                    type: boolean
+                type: object
               serviceEndpoint:
                 description: ServiceEndpoint represents the endpoint where the MCP
                   server is accessible
