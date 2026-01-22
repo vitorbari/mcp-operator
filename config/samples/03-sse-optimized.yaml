@@ -45,7 +45,7 @@ spec:
     protocol: "sse"
     config:
       http:
-        port: 8080
+        port: 3001
         # SSE typically uses /sse path (auto-detection default)
         path: "/sse"
         # Enable session management for stateful SSE connections
@@ -74,13 +74,11 @@ spec:
   # Service configuration
   service:
     type: ClusterIP
-    port: 8080
+    port: 3001
 
   # Health check (important for SSE - ensures pods are ready)
-  healthCheck:
-    enabled: true
-    path: "/health"
-    port: 8080
+  # healthCheck:
+  #   enabled: true
 
   # Environment variables
   environment:
@@ -116,6 +114,9 @@ metadata:
 spec:
   image: "tzolov/mcp-everything-server:v3"
 
+  # Start with SSE transport explicitly
+  command: ["node", "dist/index.js", "sse"]
+
   replicas: 2
 
   transport:
@@ -124,7 +125,7 @@ spec:
     protocol: "auto"
     config:
       http:
-        port: 8080
+        port: 3001
         # Path will be auto-detected based on protocol
         # SSE tries /sse, Streamable HTTP tries /mcp
         sessionManagement: true
