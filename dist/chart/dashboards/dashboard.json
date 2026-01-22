@@ -40,6 +40,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "95th percentile of operator reconciliation loop duration. High values indicate the operator is taking longer to process MCPServer resource changes. Values above 2s (red) may indicate performance issues.",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -95,7 +96,7 @@
             "pluginVersion": "12.1.1",
             "targets": [
                 {
-                    "expr": "histogram_quantile(0.95, sum(rate(mcpserver_reconcile_duration_seconds_bucket[5m])) by (le))",
+                    "expr": "histogram_quantile(0.95, sum(rate(mcpserver_reconcile_duration_seconds_bucket[$__rate_interval])) by (le))",
                     "refId": "A"
                 }
             ],
@@ -107,6 +108,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "Rate of reconciliation operations per second across all MCPServer resources. This shows how actively the operator is processing changes and updates.",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -153,7 +155,7 @@
             "pluginVersion": "12.1.1",
             "targets": [
                 {
-                    "expr": "sum(rate(mcpserver_reconcile_total[5m]))",
+                    "expr": "sum(rate(mcpserver_reconcile_total[$__rate_interval]))",
                     "refId": "A"
                 }
             ],
@@ -165,6 +167,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "Rate of failed reconciliation attempts. Any value above 0 indicates the operator is encountering errors while processing MCPServer resources and requires investigation.",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -215,7 +218,7 @@
             "pluginVersion": "12.1.1",
             "targets": [
                 {
-                    "expr": "sum(rate(mcpserver_reconcile_total{result=\"error\"}[5m])) or vector(0)",
+                    "expr": "sum(rate(mcpserver_reconcile_total{result=\"error\"}[$__rate_interval])) or vector(0)",
                     "refId": "A"
                 }
             ],
@@ -227,6 +230,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "Time series showing operator reconciliation duration at different percentiles (P50, P95, P99). Track performance trends over time to identify degradation. Spikes indicate the operator is struggling to process changes quickly.",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -306,17 +310,17 @@
             "pluginVersion": "12.1.1",
             "targets": [
                 {
-                    "expr": "histogram_quantile(0.50, sum(rate(mcpserver_reconcile_duration_seconds_bucket[5m])) by (le))",
+                    "expr": "histogram_quantile(0.50, sum(rate(mcpserver_reconcile_duration_seconds_bucket[$__rate_interval])) by (le))",
                     "legendFormat": "P50",
                     "refId": "A"
                 },
                 {
-                    "expr": "histogram_quantile(0.95, sum(rate(mcpserver_reconcile_duration_seconds_bucket[5m])) by (le))",
+                    "expr": "histogram_quantile(0.95, sum(rate(mcpserver_reconcile_duration_seconds_bucket[$__rate_interval])) by (le))",
                     "legendFormat": "P95",
                     "refId": "B"
                 },
                 {
-                    "expr": "histogram_quantile(0.99, sum(rate(mcpserver_reconcile_duration_seconds_bucket[5m])) by (le))",
+                    "expr": "histogram_quantile(0.99, sum(rate(mcpserver_reconcile_duration_seconds_bucket[$__rate_interval])) by (le))",
                     "legendFormat": "P99",
                     "refId": "C"
                 }
@@ -329,6 +333,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "Reconciliation operations per second broken down by success vs error. Helps identify when the operator started encountering issues and the proportion of failing reconciliations.",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -437,7 +442,7 @@
             "pluginVersion": "12.1.1",
             "targets": [
                 {
-                    "expr": "sum by (result) (rate(mcpserver_reconcile_total[5m]))",
+                    "expr": "sum by (result) (rate(mcpserver_reconcile_total[$__rate_interval]))",
                     "legendFormat": "{{result}}",
                     "refId": "A"
                 }
@@ -463,6 +468,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "Total number of MCPServer resources currently managed by the operator. This represents the size of your MCP server fleet.",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -521,6 +527,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "Number of MCPServer resources in ready state with all health checks passing. This should ideally match the total server count.",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -583,6 +590,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "Total number of pod replicas across all MCPServer deployments. Includes all replicas regardless of their ready state.",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -641,6 +649,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "Number of MCPServer resources in Failed phase. Non-zero values indicate servers that encountered unrecoverable errors and need attention.",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -703,6 +712,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "Number of MCPServer resources with Horizontal Pod Autoscaler (HPA) enabled. HPA automatically scales replicas based on CPU/memory usage.",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -767,6 +777,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "Number of MCPServer resources with HPA disabled. These servers have fixed replica counts that must be manually adjusted.",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -952,6 +963,7 @@
                 "x": 0,
                 "y": 14
             },
+            "description": "Distribution of MCPServer lifecycle phases over time (Creating, Running, Scaling, Updating, Failed, Terminating, ValidationFailed). Track server health and identify problematic state transitions.",
             "id": 207,
             "options": {
                 "legend": {
@@ -997,6 +1009,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "Number of MCPServer resources that successfully validated against the MCP protocol specification. These servers are correctly implementing MCP requirements.",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -1059,6 +1072,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "Number of MCPServer resources that failed MCP protocol validation. These servers have protocol compliance issues that should be addressed.",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -1121,6 +1135,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "Number of servers currently in ValidationFailed phase. These servers could not start due to validation errors and require configuration fixes.",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -1183,6 +1198,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "95th percentile of MCP protocol validation duration. High latency may slow down server deployment. Values above 5s indicate validation performance issues.",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -1238,7 +1254,7 @@
             "pluginVersion": "12.1.1",
             "targets": [
                 {
-                    "expr": "histogram_quantile(0.95, sum(rate(mcp_validator_duration_seconds_bucket[5m])) by (le))",
+                    "expr": "histogram_quantile(0.95, sum(rate(mcp_validator_duration_seconds_bucket[$__rate_interval])) by (le))",
                     "refId": "A"
                 }
             ],
@@ -1250,6 +1266,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "Rate of MCP protocol validation checks per second. Higher rates occur during server creation and updates when protocol compliance must be verified.",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -1296,7 +1313,7 @@
             "pluginVersion": "12.1.1",
             "targets": [
                 {
-                    "expr": "sum(rate(mcp_validator_validations_total[5m]))",
+                    "expr": "sum(rate(mcp_validator_validations_total[$__rate_interval]))",
                     "refId": "A"
                 }
             ],
@@ -1308,6 +1325,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "Rate of validation process errors (not protocol violations). Non-zero values indicate the validator itself is encountering technical problems.",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -1358,7 +1376,7 @@
             "pluginVersion": "12.1.1",
             "targets": [
                 {
-                    "expr": "sum(rate(mcp_validator_errors_total[5m]))",
+                    "expr": "sum(rate(mcp_validator_errors_total[$__rate_interval]))",
                     "refId": "A"
                 }
             ],
@@ -1461,6 +1479,7 @@
                 "x": 0,
                 "y": 29
             },
+            "description": "Trend of protocol-compliant vs non-compliant servers over time. Track compliance improvements or regressions as you deploy and update servers.",
             "id": 307,
             "options": {
                 "legend": {
@@ -1557,6 +1576,7 @@
                 "x": 12,
                 "y": 29
             },
+            "description": "Rate of specific validation issues grouped by error code. Helps identify which MCP protocol requirements are most commonly violated.",
             "id": 308,
             "options": {
                 "legend": {
@@ -1577,7 +1597,7 @@
             "pluginVersion": "12.1.1",
             "targets": [
                 {
-                    "expr": "sum by (code) (rate(mcpserver_validation_issues_total[5m]))",
+                    "expr": "sum by (code) (rate(mcpserver_validation_issues_total[$__rate_interval]))",
                     "legendFormat": "{{code}}",
                     "refId": "A"
                 }
@@ -1612,6 +1632,7 @@
                 "x": 0,
                 "y": 37
             },
+            "description": "Distribution of MCP protocol versions in use across your fleet (e.g., 2024-11-05 for SSE, 2025-03-26+ for Streamable HTTP). Tracks protocol adoption.",
             "id": 309,
             "options": {
                 "displayLabels": [
@@ -1685,6 +1706,7 @@
                 "x": 12,
                 "y": 37
             },
+            "description": "Count of servers implementing each MCP capability (tools, resources, prompts, etc.). Shows which MCP features are most widely deployed.",
             "id": 310,
             "options": {
                 "displayMode": "gradient",
@@ -1720,6 +1742,776 @@
             ],
             "title": "Servers with Each Capability",
             "type": "bargauge"
+        },
+        {
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 45
+            },
+            "id": 400,
+            "panels": [],
+            "title": "Sidecar Proxy Metrics",
+            "type": "row"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "description": "Total MCP request rate across all sidecar proxies. Shows overall traffic volume flowing through the MCP infrastructure.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "reqps"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 4,
+                "w": 6,
+                "x": 0,
+                "y": 46
+            },
+            "id": 401,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "value",
+                "wideLayout": true
+            },
+            "pluginVersion": "12.1.1",
+            "targets": [
+                {
+                    "expr": "sum(rate(mcp_requests_total[$__rate_interval]))",
+                    "refId": "A"
+                }
+            ],
+            "title": "Request Rate",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "description": "Rate of failed MCP requests across all sidecar proxies. Indicates issues with MCP protocol communication or backend server problems.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 1
+                            }
+                        ]
+                    },
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 4,
+                "w": 6,
+                "x": 6,
+                "y": 46
+            },
+            "id": 402,
+            "options": {
+                "colorMode": "background",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "value",
+                "wideLayout": true
+            },
+            "pluginVersion": "12.1.1",
+            "targets": [
+                {
+                    "expr": "sum(rate(mcp_request_errors_total[$__rate_interval]))",
+                    "refId": "A"
+                }
+            ],
+            "title": "Error Rate",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "description": "95th percentile of MCP request duration through sidecar proxies. High values indicate slow server responses or network issues. Values above 0.5s need investigation.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "decimals": 3,
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 0.1
+                            },
+                            {
+                                "color": "red",
+                                "value": 0.5
+                            }
+                        ]
+                    },
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 4,
+                "w": 6,
+                "x": 12,
+                "y": 46
+            },
+            "id": 403,
+            "options": {
+                "colorMode": "background",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "value",
+                "wideLayout": true
+            },
+            "pluginVersion": "12.1.1",
+            "targets": [
+                {
+                    "expr": "histogram_quantile(0.95, sum(rate(mcp_request_duration_seconds_bucket[$__rate_interval])) by (le))",
+                    "refId": "A"
+                }
+            ],
+            "title": "Request Latency (P95)",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "description": "Total number of active client connections to MCP sidecar proxies. Represents current concurrent users or applications connected to your MCP servers.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "blue",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 4,
+                "w": 6,
+                "x": 18,
+                "y": 46
+            },
+            "id": 404,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "value",
+                "wideLayout": true
+            },
+            "pluginVersion": "12.1.1",
+            "targets": [
+                {
+                    "expr": "sum(mcp_active_connections)",
+                    "refId": "A"
+                }
+            ],
+            "title": "Active Connections",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 50
+            },
+            "description": "95th percentile request latency broken down by individual MCPServer. Identify which servers are experiencing performance issues.",
+            "id": 405,
+            "options": {
+                "legend": {
+                    "calcs": [
+                        "lastNotNull",
+                        "mean",
+                        "max"
+                    ],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            },
+            "pluginVersion": "12.1.1",
+            "targets": [
+                {
+                    "expr": "histogram_quantile(0.95, sum(rate(mcp_request_duration_seconds_bucket[$__rate_interval])) by (le, service))",
+                    "legendFormat": "{{service}}",
+                    "refId": "A"
+                }
+            ],
+            "title": "Request Latency P95 per MCPServer",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "ops"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 50
+            },
+            "description": "Request error rate per MCPServer. Quickly identify which servers are experiencing the most failures.",
+            "id": 406,
+            "options": {
+                "legend": {
+                    "calcs": [
+                        "lastNotNull",
+                        "mean"
+                    ],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            },
+            "pluginVersion": "12.1.1",
+            "targets": [
+                {
+                    "expr": "sum by (service) (rate(mcp_request_errors_total[$__rate_interval]))",
+                    "legendFormat": "{{service}}",
+                    "refId": "A"
+                }
+            ],
+            "title": "Error Rate per MCPServer",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "decimals": 0,
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 58
+            },
+            "description": "Top 10 most frequently called MCP tools. Shows which tools are most valuable to your users and helps prioritize optimization efforts.",
+            "id": 407,
+            "options": {
+                "displayMode": "gradient",
+                "legend": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "displayMode": "table",
+                    "placement": "right",
+                    "showLegend": false
+                },
+                "maxVizHeight": 300,
+                "minVizHeight": 16,
+                "minVizWidth": 8,
+                "namePlacement": "auto",
+                "orientation": "horizontal",
+                "reduceOptions": {
+                    "calcs": [
+                        "sum"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showUnfilled": true,
+                "sizing": "auto",
+                "valueMode": "color"
+            },
+            "pluginVersion": "12.1.1",
+            "targets": [
+                {
+                    "expr": "topk(10, sum by (tool_name) (increase(mcp_tool_calls_total[$__rate_interval])))",
+                    "legendFormat": "{{tool_name}}",
+                    "refId": "A"
+                }
+            ],
+            "title": "Top 10 Most Used Tools",
+            "type": "bargauge"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "decimals": 0,
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 58
+            },
+            "description": "Top 10 most frequently accessed MCP resources. Indicates which data sources are most critical for your MCP workflows.",
+            "id": 408,
+            "options": {
+                "displayMode": "gradient",
+                "legend": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "displayMode": "table",
+                    "placement": "right",
+                    "showLegend": false
+                },
+                "maxVizHeight": 300,
+                "minVizHeight": 16,
+                "minVizWidth": 8,
+                "namePlacement": "auto",
+                "orientation": "horizontal",
+                "reduceOptions": {
+                    "calcs": [
+                        "sum"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showUnfilled": true,
+                "sizing": "auto",
+                "valueMode": "color"
+            },
+            "pluginVersion": "12.1.1",
+            "targets": [
+                {
+                    "expr": "topk(10, sum by (resource_uri) (increase(mcp_resource_reads_total[$__rate_interval])))",
+                    "legendFormat": "{{resource_uri}}",
+                    "refId": "A"
+                }
+            ],
+            "title": "Top 10 Most Used Resources",
+            "type": "bargauge"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "reqps"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 66
+            },
+            "description": "Request traffic per MCPServer over time. Compare server utilization and identify load imbalances across your fleet.",
+            "id": 409,
+            "options": {
+                "legend": {
+                    "calcs": [
+                        "lastNotNull",
+                        "mean"
+                    ],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            },
+            "pluginVersion": "12.1.1",
+            "targets": [
+                {
+                    "expr": "sum by (service) (rate(mcp_requests_total[$__rate_interval]))",
+                    "legendFormat": "{{service}}",
+                    "refId": "A"
+                }
+            ],
+            "title": "Request Rate per MCPServer",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 66
+            },
+            "description": "Active connection count per MCPServer. Shows user distribution across servers and helps identify capacity constraints.",
+            "id": 410,
+            "options": {
+                "legend": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            },
+            "pluginVersion": "12.1.1",
+            "targets": [
+                {
+                    "expr": "sum by (service) (mcp_active_connections)",
+                    "legendFormat": "{{service}}",
+                    "refId": "A"
+                }
+            ],
+            "title": "Active Connections per MCPServer",
+            "type": "timeseries"
         }
     ],
     "preload": false,
