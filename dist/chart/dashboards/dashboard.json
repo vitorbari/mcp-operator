@@ -2252,7 +2252,8 @@
             "pluginVersion": "12.1.1",
             "targets": [
                 {
-                    "expr": "topk(10, sum by (tool_name) (increase(mcp_tool_calls_total[$__rate_interval])))",
+                    "expr": "topk(10, sum by (tool_name) (increase(mcp_tool_calls_total[$__range])))",
+                    "instant": true,
                     "legendFormat": "{{tool_name}}",
                     "refId": "A"
                 }
@@ -2322,7 +2323,8 @@
             "pluginVersion": "12.1.1",
             "targets": [
                 {
-                    "expr": "topk(10, sum by (resource_uri) (increase(mcp_resource_reads_total[$__rate_interval])))",
+                    "expr": "topk(10, sum by (resource_uri) (increase(mcp_resource_reads_total[$__range])))",
+                    "instant": true,
                     "legendFormat": "{{resource_uri}}",
                     "refId": "A"
                 }
