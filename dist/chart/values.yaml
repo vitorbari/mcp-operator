@@ -7,7 +7,7 @@ controllerManager:
       # -- Container image repository
       repository: ghcr.io/vitorbari/mcp-operator
       # -- Container image tag (should match operator version)
-      tag: v0.1.0-alpha.20
+      tag: v0.1.0-alpha.21
     # -- Command-line arguments for the controller manager
     args:
       - "--leader-elect"
@@ -117,7 +117,7 @@ sidecar:
     # -- Sidecar image repository
     repository: ghcr.io/vitorbari/mcp-proxy
     # -- Sidecar image tag
-    tag: v0.1.0-alpha.20
+    tag: v0.1.0-alpha.21
     # -- Image pull policy (IfNotPresent, Always, Never)
     pullPolicy: IfNotPresent
   # -- Default resource requirements for the sidecar container
