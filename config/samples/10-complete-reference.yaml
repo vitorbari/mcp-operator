@@ -12,10 +12,6 @@
 #
 # ⚠️  NOT SUITABLE FOR LOCAL TESTING ⚠️
 #
-# For local development and testing, use instead:
-#   - config/samples/mcp-basic-example.yaml (simple, production-ready)
-#   - config/samples/wikipedia-http.yaml (minimal SSE example)
-#
 # =============================================================================
 
 apiVersion: mcp.mcp-operator.io/v1

@@ -132,7 +132,7 @@ kubectl describe deployment mcp-operator-controller-manager -n mcp-operator-syst
 # Should show: ghcr.io/vitorbari/mcp-operator:v0.1.0-alpha.13
 
 # Test operator functionality
-kubectl apply -f config/samples/mcp-basic-example.yaml
+kubectl apply -f config/samples/02-streamable-http-basic.yaml
 kubectl get mcpserver
 
 # Cleanup
@@ -161,7 +161,7 @@ kubectl describe deployment mcp-operator-controller-manager -n mcp-operator-syst
 # Should show: ghcr.io/vitorbari/mcp-operator:v0.1.0-alpha.13
 
 # Test operator functionality
-kubectl apply -f config/samples/mcp-basic-example.yaml
+kubectl apply -f config/samples/02-streamable-http-basic.yaml
 kubectl get mcpserver
 
 # Test upgrade

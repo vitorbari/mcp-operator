@@ -2,7 +2,6 @@ apiVersion: mcp.mcp-operator.io/v1
 kind: MCPServer
 metadata:
   name: wikipedia-http
-  namespace: mcp-tests
 spec:
   image: "mcp/wikipedia-mcp:latest"
 

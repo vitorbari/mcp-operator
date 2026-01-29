@@ -2,7 +2,6 @@ apiVersion: mcp.mcp-operator.io/v1
 kind: MCPServer
 metadata:
   name: mcp-basic-example
-  namespace: mcp-tests
 spec:
   image: "tzolov/mcp-everything-server:v3"
   command: ["node", "dist/index.js", "streamableHttp"]

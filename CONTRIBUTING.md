@@ -112,7 +112,7 @@ make install
 make run
 
 # In another terminal, apply a sample
-kubectl apply -f config/samples/wikipedia-http.yaml
+kubectl apply -f config/samples/01-wikipedia-sse.yaml
 ```
 
 Or deploy to a Kind cluster:

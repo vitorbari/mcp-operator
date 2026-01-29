@@ -259,10 +259,10 @@ Check out the sample configurations:
 
 ```bash
 # Strict mode enabled
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/config/samples/wikipedia-http.yaml
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/config/samples/01-wikipedia-sse.yaml
 
 # mcp-everything-server - MCP with all capabilities
-kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/config/samples/mcp-basic-example.yaml
+kubectl apply -f https://raw.githubusercontent.com/vitorbari/mcp-operator/main/config/samples/02-streamable-http-basic.yaml
 ```
 
 ## Troubleshooting
