@@ -224,6 +224,9 @@ When enabled, the operator injects a metrics sidecar that automatically tracks:
 - JSON-RPC errors by method and code
 - SSE connection metrics
 
+<img width="632" height="623" alt="Screenshot 2026-01-29 at 20 55 34" src="https://github.com/user-attachments/assets/184b53d3-27a5-4d95-9add-3188917cb178" />
+
+
 See the [MCP Server Metrics Guide](docs/metrics.md) for available metrics, Grafana queries, and alerting examples.
 
 ## Transport Configuration
